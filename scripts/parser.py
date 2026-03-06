@@ -11,7 +11,8 @@ class AbstractParser(ABC):
         - Provide hooks for validation and preprocessing
     """
 
-    def __init__(self, source) -> None:
+    def __init__(self, source = None) -> None:
+        """Initialize the base parser, optionally with an immediate source to process."""
         self.source = source
         self.program = QuantumProgram()
 
@@ -19,6 +20,14 @@ class AbstractParser(ABC):
     def parse(self) -> QuantumProgram:
         """
         Parse the source into a QuantumProgram.
+        Must be implemented by subclasses.
+        """
+        pass
+
+    @abstractmethod
+    def parse_file(self, path: str) -> QuantumProgram:
+        """
+        Parse a file into a QuantumProgram.
         Must be implemented by subclasses.
         """
         pass

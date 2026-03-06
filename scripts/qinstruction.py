@@ -20,6 +20,7 @@ class QuantumInstruction:
         params: Optional[List[Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
+        """Initialize a new quantum instruction with its associated bits and parameters."""
         self.name = name
         self.qubits = qubits
         self.clbits = clbits or []
@@ -27,6 +28,7 @@ class QuantumInstruction:
         self.metadata = metadata or {}
 
     def __repr__(self) -> str:
+        """Return a string representation of the quantum instruction."""
         return (
             f"QuantumInstruction(name={self.name}, "
             f"qubits={self.qubits}, "

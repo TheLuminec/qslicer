@@ -19,9 +19,9 @@ simulator = AerSimulator()
 job = simulator.run(qc, shots=1024)
 
 # 4. Get the results and visualize
-counts = result.get_counts(qc)
-print("\nTotal counts for 00 and 11 are:", counts)
+#counts = result.get_counts(qc)
+#print("\nTotal counts for 00 and 11 are:", counts)
 
 # 5. Plot a histogram of the results
-plot_histogram(counts)
-plt.show()
+#plot_histogram(counts)
+#plt.show()
