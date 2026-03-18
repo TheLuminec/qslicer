@@ -1,0 +1,5 @@
+qiskit
+qiskit-aer
+qiskit[qasm3]
+networkx
+matplotlib

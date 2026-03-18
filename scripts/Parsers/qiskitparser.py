@@ -33,17 +33,31 @@ class QiskitParser(AbstractParser):
 
         # Iterate over instructions
         for instruction, qargs, cargs in circuit.data:
-            name = instruction.name
+            # Support both Qiskit 0.x (instruction is the gate) and 1.x (instruction is CircuitInstruction)
+            op = getattr(instruction, 'operation', instruction)
+            name = op.name
             qubits = [circuit.qubits.index(q) for q in qargs]
             clbits = [circuit.clbits.index(c) for c in cargs]
-            params = list(instruction.params)
+            params = list(op.params)
+
+            # Extract c_if classical condition if present
+            condition_raw = getattr(op, 'condition', None)
+            condition_clbits = []
+            if condition_raw is not None:
+                reg, _ = condition_raw  # (ClassicalRegister, int_value)
+                for clbit in reg:
+                    condition_clbits.append(circuit.clbits.index(clbit))
 
             ir_instr = QuantumInstruction(
                 name=name,
                 qubits=qubits,
                 clbits=clbits,
                 params=params,
-                metadata={"frontend": "qiskit"},
+                metadata={
+                    "frontend": "qiskit",
+                    "condition": condition_raw,
+                    "condition_clbits": condition_clbits,
+                },
             )
 
             self.program.add_instruction(ir_instr)
