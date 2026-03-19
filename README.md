@@ -10,18 +10,6 @@ This project works as a static analysis system for quantum programs, providing a
 
 ---
 
-## Architecture
-
-```
-Frontend Code → Parser → QuantumProgram (IR)
-                                ↓
-                             QPDG
-                                ↓
-                           Slicer
-```
-
----
-
 ## Modules
 
 ### 1. `parser.py`
