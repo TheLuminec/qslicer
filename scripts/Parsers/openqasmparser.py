@@ -1,12 +1,12 @@
 from parser import *
 from qiskit import QuantumCircuit
+import qiskit.qasm3
 from qiskitparser import QiskitParser
 
 class OpenQASMParser(AbstractParser):
     def parse_file(self, path):
         """Parse an OpenQASM physical file into the system's QuantumProgram IR."""
-        file = open(path, 'r')
-        circuit = QuantumCircuit.from_qasm_file(file)
+        circuit = qiskit.qasm3.load(path)
         self.source = circuit
         return self.parse()
 
