@@ -1,6 +1,6 @@
 from enum import Enum, auto
 import networkx as nx
-from typing import Dict, List, Any, Optional, Set
+from typing import Dict
 
 from qinstruction import QuantumInstruction
 from qprogram import QuantumProgram
@@ -68,7 +68,6 @@ class QPDG:
         self._build_data_qubit_dependencies()
         self._build_entanglement_dependencies()
         self._build_measurement_dependencies()
-        self._build_phase_dependencies()
         self._build_data_classical_dependencies()
         self._build_control_classical_dependencies()
 
@@ -154,33 +153,6 @@ class QPDG:
                 if c in last_measured:
                     self.graph.add_edge(last_measured[c], idx, dependency=DependencyType.MEASUREMENT)
 
-    def _build_phase_dependencies(self) -> None:
-        """
-        Builds phase dependencies.
-
-        An edge (u → v, PHASE) means u is a phase gate on qubit q and v is the
-        immediate next operation on q. Phase gates modify the relative phase of
-        qubit state and govern interference behavior in algorithms like QFT and
-        Grover's search. The edge is drawn to the next gate regardless of its
-        type, then the phase source is cleared — a gate that observes a phase
-        effect becomes the new baseline for that qubit wire.
-        """
-        last_phase: Dict[int, int] = {}  # qubit index -> last phase gate index
-
-        for idx in range(len(self.program)):
-            instr = self.program[idx]
-            # Draw PHASE edge from last phase gate to this instruction, then clear
-            for q in instr.qubits:
-                if q in last_phase:
-                    self.graph.add_edge(
-                        last_phase[q], idx,
-                        dependency=DependencyType.PHASE
-                    )
-                    last_phase.pop(q)
-            # If this instruction is a phase gate, record it as the new source
-            if instr.name in _PHASE_GATES:
-                for q in instr.qubits:
-                    last_phase[q] = idx
 
     def _build_data_classical_dependencies(self) -> None:
         """

@@ -38,7 +38,6 @@ _EDGE_COLORS: Dict[DependencyType, str] = {
     DependencyType.DATA_QUBIT:        '#2196F3',  # blue
     DependencyType.ENTANGLEMENT:      '#E91E63',  # pink
     DependencyType.MEASUREMENT:       '#4CAF50',  # green
-    DependencyType.PHASE:             '#9C27B0',  # purple
     DependencyType.DATA_CLASSICAL:    '#FF9800',  # orange
     DependencyType.CONTROL_CLASSICAL: '#795548',  # brown
 }
@@ -268,17 +267,4 @@ if __name__ == '__main__':
         qpdg = _load_qpdg(circuit_path)
         QPDGVisualizer(qpdg, title=os.path.basename(circuit_path))
     else:
-        # Cycle through each sample circuit in a separate window
-        sample_dir = os.path.join('..', 'Attachments', 'Sample Code')
-        files = ['entanglement.py', 'swap.py', 'cswap.py', 'independence.py', 'sequential.py']
-        for fname in files:
-            fpath = os.path.join(sample_dir, fname)
-            if not os.path.exists(fpath):
-                print(f"Skipping {fname} (not found)")
-                continue
-            try:
-                qpdg = _load_qpdg(fpath)
-                print(f"Showing {fname} — close the window to advance to the next circuit.")
-                QPDGVisualizer(qpdg, title=fname)
-            except Exception as e:
-                print(f"Error loading {fname}: {e}")
+        print("No circuit path provided. Please run with: python visualizer.py [path/to/circuit.py]")
