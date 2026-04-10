@@ -1,7 +1,11 @@
 from parser import *
 from qiskit import QuantumCircuit
 import qiskit.qasm3
-from qiskitparser import QiskitParser
+
+try:
+    from Parsers.qiskitparser import QiskitParser
+except ModuleNotFoundError:
+    from qiskitparser import QiskitParser
 
 class OpenQASMParser(AbstractParser):
     def parse_file(self, path):
