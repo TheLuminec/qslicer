@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field
 from typing import List, Optional, Set
 
-from qpdg import QPDG, DependencyType
+from qpdg import QPDG
+from Dependencies.dependency_rules import DependencyType
 
 
 @dataclass
