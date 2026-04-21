@@ -231,7 +231,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Visualize a QPDG using one of the named dependency profiles.",
     )
-    parser.add_argument("circuit_path", help="Path to the circuit .py file to parse")
+    parser.add_argument(
+        "--circuit_path",
+        default="Attachments\Sample Code\grovers_algorithm_exception.py",
+        help="Path to the circuit .py file to parse")
     parser.add_argument(
         "--profile",
         default="baseline",
