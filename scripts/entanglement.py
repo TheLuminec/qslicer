@@ -47,8 +47,9 @@ class EntanglementGroup:
             return self.computed_instructions.pop()
         return None
     
-    def add_parent_group(self, group_id: int, group: EntanglementGroup):
+    def add_parent_group(self, group_id: int, group_qubits: Set[int]):
         self.parent_groups.add(group_id)
+        self.qubits.update(group_qubits)
 
     def __repr__(self):
         return f"EntanglementGroup(qubits={self.qubits}, origin={self.origin}, instructions={len(self.computed_instructions)})"
@@ -65,7 +66,7 @@ class EntanglementAnalyzer:
                 new_group = EntanglementGroup(instruction)
                 for group in self.active_groups:
                     if group.apply_instruction(instruction):
-                        new_group.parent_groups.add(id(group))
+                        new_group.add_parent_group(self.groups.index(group), group.qubits)
                 self.groups.append(new_group)
             else:
                 for group in self.active_groups:
