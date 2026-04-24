@@ -1,8 +1,9 @@
+from qiskit_qasm3_import.types import Qubit
 import argparse
 import os
 from collections import defaultdict
 
-from entanglement import EntanglementGraph, EntanglementAnalyzer
+from entanglement import EntanglementGraph, EntanglementAnalyzer, _CLASSICAL_GATES
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
@@ -10,6 +11,7 @@ _NODE_COLORS = {
     "init": "#5C6370",
     "entangled": "#4A6FA5",
     "measurement": "#3B8C6E",
+    "classical": "#D28E5D",
 }
 _EDGE_COLOR = "#C7CEDB"
 _BACKGROUND = "#1E1E2E"
@@ -22,7 +24,22 @@ def _format_bits(bits):
 def _format_instruction(instruction):
     qubits = _format_bits(instruction.qubits)
     label = f"{instruction.name} q[{qubits}]"
-    if getattr(instruction, "clbits", None):
+    
+    if instruction.name in _CLASSICAL_GATES:
+        cond = instruction.metadata.get("condition") if instruction.metadata else None
+        if cond is not None:
+            _, val = cond
+            label += f" (c[{_format_bits(instruction.clbits)}] == {val})"
+        else:
+            label += f" (c[{_format_bits(instruction.clbits)}])"
+        if getattr(instruction, "params", None) and hasattr(instruction.params[0], "data"):
+            inner_insts = []
+            for inst in instruction.params[0].data:
+                op = getattr(inst, "operation", None)
+                inner_insts.append(op.name)
+            if inner_insts:
+                label += f" => {', '.join(inner_insts)}"
+    elif getattr(instruction, "clbits", None):
         label += f" -> c[{_format_bits(instruction.clbits)}]"
     return label
 
@@ -56,17 +73,40 @@ def _format_instruction_list(instructions, limit=10):
 
 
 def _group_label(node_id, group):
-    title = f"{node_id}: {group.origin.name}"
+    title = f"{node_id}: {_format_instruction(group.origin)}"
     qubits = f"q: {_format_bits(group.qubits)}"
-    instructions = _format_instruction_list(group.computed_instructions)
 
     if group.kind == "measurement":
-        body_label = "measurements"
-    else:
-        body_label = "computed"
+        title = f"{node_id}: measurement"
+        meas_inst_list = [i for i in group.computed_instructions if i.name in {"measure", "measure_all"}]
+        comp_inst_list = [i for i in group.computed_instructions if i.name not in {"measure", "measure_all"}]
+        meas_inst = _format_instruction_list(meas_inst_list)
+        comp_inst = _format_instruction_list(comp_inst_list)
+        
+        parts = [title, qubits]
+        if meas_inst:
+            parts.append(f"measurements:\n{meas_inst}")
+        if comp_inst:
+            parts.append(f"computed:\n{comp_inst}")
+        return "\n".join(parts)
+    elif group.kind == "classical":
+        title = f"{node_id}: classical computation"
+        cond_insts_list = [group.origin] + [i for i in group.computed_instructions if i.name in {"if_else", "c_if"}]
+        comp_inst_list = [i for i in group.computed_instructions if i.name not in {"if_else", "c_if"}]
+        
+        cond_inst = _format_instruction_list(cond_insts_list)
+        comp_inst = _format_instruction_list(comp_inst_list)
+        
+        parts = [title, qubits]
+        if cond_inst:
+            parts.append(f"conditional computes:\n{cond_inst}")
+        if comp_inst:
+            parts.append(f"computed:\n{comp_inst}")
+        return "\n".join(parts)
 
+    instructions = _format_instruction_list(group.computed_instructions)
     if instructions:
-        return f"{title}\n{qubits}\n{body_label}:\n{instructions}"
+        return f"{title}\n{qubits}\ncomputed:\n{instructions}"
     return f"{title}\n{qubits}"
 
 
@@ -188,12 +228,13 @@ def visualize_entanglement_graph(graph: EntanglementGraph, show=True):
         mpatches.Patch(color=_NODE_COLORS["init"], label="Init group"),
         mpatches.Patch(color=_NODE_COLORS["entangled"], label="Entangled group"),
         mpatches.Patch(color=_NODE_COLORS["measurement"], label="Measurement collapse"),
+        mpatches.Patch(color=_NODE_COLORS["classical"], label="Classical computation"),
     ]
     ax.legend(
         handles=legend_entries,
         loc="lower center",
         bbox_to_anchor=(0.5, -0.03),
-        ncol=3,
+        ncol=4,
         fontsize=8,
         facecolor="#313244",
         labelcolor="white",

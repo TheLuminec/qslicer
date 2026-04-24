@@ -11,6 +11,8 @@ _ENTANGLING_GATES = frozenset({
 
 _MEASUREMENT_GATES = frozenset({"measure", "measure_all"})
 
+_CLASSICAL_GATES = frozenset({"c_if", "if_else"})
+
 class EntanglementGroup:
     def __init__(
         self,
@@ -40,7 +42,7 @@ class EntanglementGroup:
             self.measurement_applied = True
             return True
         
-        if instruction.name in _ENTANGLING_GATES:
+        if instruction.name in _ENTANGLING_GATES or instruction.name in _CLASSICAL_GATES:
             self.active = False
             return True
 
@@ -97,9 +99,21 @@ class EntanglementAnalyzer:
             self.active_groups.append(self.groups[-1])
 
         for instruction in self.program.instructions:
-            if instruction.name in _ENTANGLING_GATES:
+            if instruction.name in _ENTANGLING_GATES or instruction.name in _CLASSICAL_GATES:
                 self._pending_measurement_groups.clear()
-                new_group = EntanglementGroup(instruction)
+                
+                absorbed = False
+                if instruction.name in _CLASSICAL_GATES:
+                    for group in list(self.active_groups):
+                        if group.kind == "classical":
+                            group.add_instruction(instruction)
+                            absorbed = True
+                            break
+                if absorbed:
+                    continue
+                    
+                kind = "classical" if instruction.name in _CLASSICAL_GATES else "entangled"
+                new_group = EntanglementGroup(instruction, kind=kind)
                 for group in self.active_groups:
                     if group.apply_instruction(instruction):
                         new_group.add_parent_group(
@@ -140,6 +154,9 @@ class EntanglementAnalyzer:
             if not self._instruction_touches_group(instruction, group):
                 continue
 
+            if self.groups.index(group) in self._pending_measurement_groups.values():
+                continue
+
             parent_id = self.groups.index(group)
             if parent_id in touched_pending_parent_ids:
                 continue
@@ -154,7 +171,7 @@ class EntanglementAnalyzer:
                 depth=group.depth + 1,
             )
             measurement_group.qubits = set(group.qubits)
-            measurement_group.active = False
+            measurement_group.active = True
             measurement_group.measurement_applied = True
             measurement_group.add_measurement_instruction(instruction)
 

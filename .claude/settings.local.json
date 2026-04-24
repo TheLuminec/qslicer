@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "WebFetch(domain:ieeexplore.ieee.org)",
+      "WebFetch(domain:scholar.google.com)",
+      "WebFetch(domain:arxiv.org)",
+      "WebFetch(domain:dl.acm.org)",
+      "WebFetch(domain:www.semanticscholar.org)",
+      "WebFetch(domain:api.semanticscholar.org)",
+      "WebFetch(domain:link.springer.com)",
+      "WebFetch(domain:www.computer.org)",
+      "WebFetch(domain:en.wikipedia.org)",
+      "Bash(python test_qpdg.py)"
+    ]
+  }
+}
