@@ -19,7 +19,7 @@ from Dependencies.rules import (
 def _baseline_rules() -> Tuple[DependencyRule, ...]:
     return (
         DataQubitRule(),
-        EntanglementRule(_BASELINE_ENTANGLING_GATES),
+        #EntanglementRule(_BASELINE_ENTANGLING_GATES),
         MeasurementRule(),
         DataClassicalRule(),
         ControlClassicalRule(),

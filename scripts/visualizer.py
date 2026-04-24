@@ -45,6 +45,8 @@ _CURVE_STYLES = [
     "arc3,rad=0.0",
     "arc3,rad=0.25",
     "arc3,rad=-0.25",
+    "arc, angleA=-90, angleB=0, rad=0",
+    "angle, angleA=0, angleB=90, rad=0.0",
     "arc3,rad=0.45",
     "arc3,rad=-0.45",
     "arc3,rad=0.6",
@@ -61,6 +63,7 @@ def _circuit_layout(qpdg: QPDG) -> Dict[int, Tuple[float, float]]:
         qubits = node.instruction.qubits
         y = sum(qubits) / len(qubits) if qubits else -1.0
         pos[idx] = (float(idx), y)
+    
     return pos
 
 
