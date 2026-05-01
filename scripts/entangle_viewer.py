@@ -80,34 +80,48 @@ def _group_label(node_id, group):
         title = f"{node_id}: measurement"
         meas_inst_list = [i for i in group.computed_instructions if i.name in {"measure", "measure_all"}]
         comp_inst_list = [i for i in group.computed_instructions if i.name not in {"measure", "measure_all"}]
+        uncomp_inst_list = [i for i in group.uncomputed_instructions]
         meas_inst = _format_instruction_list(meas_inst_list)
         comp_inst = _format_instruction_list(comp_inst_list)
+        uncomp_inst = _format_instruction_list(uncomp_inst_list)
         
         parts = [title, qubits]
         if meas_inst:
             parts.append(f"measurements:\n{meas_inst}")
         if comp_inst:
             parts.append(f"computed:\n{comp_inst}")
+        if uncomp_inst:
+            parts.append(f"uncomputed:\n{uncomp_inst}")
         return "\n".join(parts)
     elif group.kind == "classical":
         title = f"{node_id}: classical computation"
         cond_insts_list = [group.origin] + [i for i in group.computed_instructions if i.name in {"if_else", "c_if"}]
         comp_inst_list = [i for i in group.computed_instructions if i.name not in {"if_else", "c_if"}]
+        uncomp_inst_list = [i for i in group.uncomputed_instructions]
         
         cond_inst = _format_instruction_list(cond_insts_list)
         comp_inst = _format_instruction_list(comp_inst_list)
+        uncomp_inst = _format_instruction_list(uncomp_inst_list)
         
         parts = [title, qubits]
         if cond_inst:
             parts.append(f"conditional computes:\n{cond_inst}")
         if comp_inst:
             parts.append(f"computed:\n{comp_inst}")
+        if uncomp_inst:
+            parts.append(f"uncomputed:\n{uncomp_inst}")
         return "\n".join(parts)
 
     instructions = _format_instruction_list(group.computed_instructions)
+    uncomp_inst = _format_instruction_list(group.uncomputed_instructions)
+    label = ""
     if instructions:
-        return f"{title}\n{qubits}\ncomputed:\n{instructions}"
-    return f"{title}\n{qubits}"
+        label += f"\ncomputed:\n{instructions}"
+
+    if uncomp_inst:
+        label += f"\nuncomputed:\n{uncomp_inst}"
+
+    return f"{title}\n{qubits}{label}"
 
 
 def _hierarchical_layout(nx_graph):
@@ -138,8 +152,8 @@ def _create_figure(fig_width, fig_height, show):
         raise
 
 
-def visualize_entanglement_graph(graph: EntanglementGraph, show=True):
-    if not show:
+def visualize_entanglement_graph(graph: EntanglementGraph, show=True, ax=None):
+    if not show and ax is None:
         plt.switch_backend("Agg")
 
     nx_graph = graph.graph
@@ -155,10 +169,16 @@ def visualize_entanglement_graph(graph: EntanglementGraph, show=True):
         max_depth = 0
         max_column_size = 1
 
-    fig_width = max(11, (max_depth + 1) * 3.2)
-    fig_height = max(6, max_column_size * 1.5)
-    fig, ax = _create_figure(fig_width, fig_height, show)
-    fig.patch.set_facecolor(_BACKGROUND)
+    if ax is None:
+        fig_width = max(11, (max_depth + 1) * 3.2)
+        fig_height = max(6, max_column_size * 1.5)
+        fig, ax = _create_figure(fig_width, fig_height, show)
+        fig.patch.set_facecolor(_BACKGROUND)
+        is_new_fig = True
+    else:
+        fig = ax.figure
+        is_new_fig = False
+
     ax.set_facecolor(_BACKGROUND)
     ax.axis("off")
 
@@ -245,11 +265,12 @@ def visualize_entanglement_graph(graph: EntanglementGraph, show=True):
         "Entanglement groups by dependency depth",
         color="white",
         fontsize=12,
-        pad=14,
+        pad=10,
     )
-    plt.tight_layout()
+    if is_new_fig:
+        plt.tight_layout()
 
-    if show:
+    if show and is_new_fig:
         plt.show()
 
     return fig, ax

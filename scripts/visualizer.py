@@ -75,7 +75,7 @@ class QPDGVisualizer:
     mode          : 'backward' or 'forward'
     """
 
-    def __init__(self, qpdg: QPDG, title: str = ""):
+    def __init__(self, qpdg: QPDG, title: str = "", fig=None, ax=None, show=True):
         self.qpdg = qpdg
         self.title = title
         self.node_count = len(qpdg.nodes)
@@ -83,18 +83,23 @@ class QPDGVisualizer:
         self.mode = "backward"
         self.pos = _circuit_layout(qpdg)
 
-        self.fig, self.ax = plt.subplots(figsize=(13, 7))
-        self.fig.patch.set_facecolor("#1E1E2E")
+        if fig is None or ax is None:
+            self.fig, self.ax = plt.subplots(figsize=(13, 7))
+            self.fig.patch.set_facecolor("#1E1E2E")
+            plt.subplots_adjust(bottom=0.18, top=0.93)
+        else:
+            self.fig = fig
+            self.ax = ax
+
         self.ax.set_facecolor("#1E1E2E")
-        plt.subplots_adjust(bottom=0.18, top=0.93)
 
-        ax_prev = self.fig.add_axes([0.20, 0.04, 0.12, 0.07])
-        ax_next = self.fig.add_axes([0.34, 0.04, 0.12, 0.07])
-        ax_toggle = self.fig.add_axes([0.52, 0.04, 0.22, 0.07])
+        self.ax_prev = self.fig.add_axes([0.20, 0.04, 0.12, 0.07])
+        self.ax_next = self.fig.add_axes([0.34, 0.04, 0.12, 0.07])
+        self.ax_toggle = self.fig.add_axes([0.52, 0.04, 0.22, 0.07])
 
-        self.btn_prev = Button(ax_prev, "Prev", color="#313244", hovercolor="#45475A")
-        self.btn_next = Button(ax_next, "Next", color="#313244", hovercolor="#45475A")
-        self.btn_toggle = Button(ax_toggle, "Bwd / Fwd", color="#313244", hovercolor="#45475A")
+        self.btn_prev = Button(self.ax_prev, "Prev", color="#313244", hovercolor="#45475A")
+        self.btn_next = Button(self.ax_next, "Next", color="#313244", hovercolor="#45475A")
+        self.btn_toggle = Button(self.ax_toggle, "Bwd / Fwd", color="#313244", hovercolor="#45475A")
 
         for button in (self.btn_prev, self.btn_next, self.btn_toggle):
             button.label.set_color("white")
@@ -104,7 +109,8 @@ class QPDGVisualizer:
         self.btn_toggle.on_clicked(self._on_toggle)
 
         self._draw()
-        plt.show()
+        if show:
+            plt.show()
 
     def _on_prev(self, _event):
         self.criterion_idx = (self.criterion_idx - 1) % self.node_count

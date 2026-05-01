@@ -24,6 +24,7 @@ class EntanglementGroup:
         self.qubits = set(instruction.qubits.copy())
         self.origin = instruction
         self.computed_instructions = []
+        self.uncomputed_instructions = []
         self.measurement_instructions = []
         self.active = True
         self.measurement_applied = False
@@ -46,13 +47,18 @@ class EntanglementGroup:
             self.active = False
             return True
 
+        # Uncompute instruction if it is the same as the last instruction.
         if len(self.computed_instructions) > 0:
             if instruction == self.computed_instructions[-1]:
-                self.pop_instruction()
+                self.uncompute_instruction(instruction)
                 return True
             
         self.add_instruction(instruction)
         return True
+
+    def uncompute_instruction(self, instruction: QuantumInstruction):
+        self.pop_instruction()
+        self.uncomputed_instructions.append(instruction)
 
     def add_instruction(self, instruction):
         self.computed_instructions.append(instruction)
@@ -77,7 +83,8 @@ class EntanglementGroup:
             "EntanglementGroup("
             f"kind={self.kind}, depth={self.depth}, qubits={self.qubits}, "
             f"origin={self.origin}, parents={self.parent_groups}, "
-            f"instructions={len(self.computed_instructions)})"
+            f"instructions={len(self.computed_instructions)}), "
+            f"uncomputed={len(self.uncomputed_instructions)}"
         )
     
 class EntanglementAnalyzer:

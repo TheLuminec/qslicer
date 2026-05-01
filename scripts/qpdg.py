@@ -22,7 +22,8 @@ def _baseline_rules() -> Tuple[DependencyRule, ...]:
         #EntanglementRule(_BASELINE_ENTANGLING_GATES),
         MeasurementRule(),
         DataClassicalRule(),
-        ControlClassicalRule(),
+        ControlClassicalRule()
+        #PhaseRule()
     )
 
 
