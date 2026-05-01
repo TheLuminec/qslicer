@@ -45,7 +45,7 @@ class QiskitParser(AbstractParser):
             condition_clbits = []
             if condition_raw is not None:
                 reg, _ = condition_raw  # (ClassicalRegister, int_value)
-                for clbit in reg:
+                for clbit in reg._register:
                     condition_clbits.append(circuit.clbits.index(clbit))
 
             ir_instr = QuantumInstruction(

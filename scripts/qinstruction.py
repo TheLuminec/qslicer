@@ -15,8 +15,8 @@ class QuantumInstruction:
     def __init__(
         self,
         name: str,
-        qubits: List[int],
-        clbits: Optional[List[int]] = None,
+        qubits: Set[int],
+        clbits: Optional[Set[int]] = None,
         params: Optional[List[Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
@@ -26,6 +26,17 @@ class QuantumInstruction:
         self.clbits = clbits or []
         self.params = params or []
         self.metadata = metadata or {}
+
+    def __eq__(self, other) -> bool:
+        """Check equality based on name, qubits, clbits, and params."""
+        if not isinstance(other, QuantumInstruction):
+            return NotImplemented
+        return (
+            self.name == other.name and
+            self.qubits == other.qubits and
+            self.clbits == other.clbits and
+            self.params == other.params
+        )
 
     def __repr__(self) -> str:
         """Return a string representation of the quantum instruction."""
