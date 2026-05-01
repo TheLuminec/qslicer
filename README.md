@@ -1,4 +1,4 @@
-# Quantum Program Analysis Framework (QPDG‑Testing)
+# Quantum Program Analysis Framework
 
 ## Overview
 
@@ -66,7 +66,7 @@ from scripts.qpdg import QPDG
 from scripts.slicer import QuantumSlicer, SlicingCriterion  
 # Parse a Qiskit circuit defined in a file  
 parser = QiskitParser()  
-program = parser.parse_file('Attachments/Sample Code/simple_bell.py')  
+program = parser.parse_file('Attachments/Sample Code/grovers_algorithm_exception.py')  
 # Build the QPDG using default rules  
 graph = QPDG(program)  
 # Slice backwards from the measurement on qubit 0 (index 3)  
@@ -79,6 +79,36 @@ from scripts.visualizer import QPDGVisualizer
 visualizer = QPDGVisualizer(graph)
 ```
 This example collects all instructions that could influence the measurement at node 3. The set of indices returned can be used to extract a sub‑circuit or highlight relevant operations.
+
+![QPDG Graph](Attachments/Images/g1.png)
+
+
+### Example: visualising entanglement
+
+```python
+from scripts.Parsers.qiskitparser import QiskitParser
+from scripts.entanglement import EntanglementAnalyzer, EntanglementGraph
+from scripts.entangle_viewer import visualize_entanglement_graph
+# Parse a Qiskit circuit defined in a file  
+parser = QiskitParser()  
+program = parser.parse_file('Attachments/Sample Code/grovers_algorithm_exception.py')
+
+analyzer = EntanglementAnalyzer(program)
+analyzer.analyze()
+
+graph = EntanglementGraph(analyzer)
+
+visualize_entanglement_graph(graph)
+```
+
+![Entanglement Graph](Attachments/Images/g2.png)
+
+### Command Line Usage
+To simply view a Qiskit program using the terminal you can use the combined visualizer with the `--circuit_path` flag:
+```bash
+python scripts/combined_visualizer.py --circuit_path 'Attachments/Sample Code/grovers_algorithm_exception.py'
+```
+This creates the graphs seen above.
 
 ## Core modules
 
