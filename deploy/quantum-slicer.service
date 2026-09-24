@@ -19,14 +19,14 @@
 
 [Unit]
 Description=Quantum Program Slicer (Flask behind gunicorn)
-Documentation=file:/srv/quantum-slicer/webapp/README.md
+Documentation=file:/home/ubuntu/slicing-for-quantum-programs/webapp/README.md
 After=network.target
 
 [Service]
 Type=simple
 User=qslicer
 Group=qslicer
-WorkingDirectory=/srv/quantum-slicer/webapp
+WorkingDirectory=/home/ubuntu/slicing-for-quantum-programs/webapp
 
 Environment=PYTHONUNBUFFERED=1
 # Seconds a submitted circuit may run before its worker is killed.
@@ -34,8 +34,8 @@ Environment=QSLICER_PARSE_TIMEOUT=20
 
 # One worker process, several threads. The analysis cache is per-process: a
 # second worker would answer /api/slice without the token the first one issued.
-ExecStart=/srv/quantum-slicer/.venv/bin/gunicorn \
-    --chdir /srv/quantum-slicer/webapp \
+ExecStart=/home/ubuntu/slicing-for-quantum-programs/.venv/bin/gunicorn \
+    --chdir /home/ubuntu/slicing-for-quantum-programs/webapp \
     --bind 127.0.0.1:8000 \
     --workers 1 \
     --threads 4 \
@@ -60,7 +60,7 @@ PrivateTmp=yes                 # also where submitted files are written
 PrivateDevices=yes
 ProtectSystem=strict           # the filesystem is read-only except the below
 ProtectHome=yes
-ReadWritePaths=/srv/quantum-slicer/logs
+ReadWritePaths=/home/ubuntu/slicing-for-quantum-programs/logs
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
