@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Quantum Program Slicer{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>&#9883;</text></svg>">
+</head>
+<body class="page-{{ page }}">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <a class="brand" href="{{ url_for('index') }}">
+      <span class="brand-mark" aria-hidden="true">&#9883;</span>
+      <span class="brand-text">
+        <strong>Quantum Slicer</strong>
+        <small>program dependence for quantum circuits</small>
+      </span>
+    </a>
+    <nav class="site-nav" aria-label="Main">
+      {% for endpoint, label in nav_items %}
+        <a href="{{ url_for(endpoint) }}"
+           class="{{ 'active' if page == endpoint else '' }}"
+           {% if page == endpoint %}aria-current="page"{% endif %}>{{ label }}</a>
+      {% endfor %}
+    </nav>
+  </header>
+
+  {% if not backend_ok %}
+  <div class="banner banner-warning" role="status">
+    <strong>Analysis backend unavailable.</strong>
+    The pages render, but circuits cannot be analysed until the dependencies are installed.
+    <code>{{ backend_error }}</code>
+  </div>
+  {% endif %}
+
+  <main id="main">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      Mock-up front end for the quantum program analysis framework.
+      <a href="{{ url_for('quantum') }}">How it works</a> ·
+      <a href="{{ url_for('team') }}">Who built it</a>
+    </p>
+    <p class="footnote">
+      Analysing a circuit runs the submitted Python file. Intended for local use.
+    </p>
+  </footer>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+{% block title %}Quantum Program Slicer{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <div class="hero-text">
+    <p class="eyebrow">Static analysis for quantum programs</p>
+    <h1>See how a quantum program actually fits together.</h1>
+    <p class="lede">
+      This project is designed to help visualize how quantum programs work, and to assist in
+      debugging their code. Using code taken from a file or text input, it creates a fully
+      interactive map that shows the functionality of the quantum code.
+    </p>
+    <p class="lede-sub">
+      The map details the individual steps of a quantum circuit and maps out the connections
+      between each step, sorting out entanglements and clarifying the relationship between
+      qubits.
+    </p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="{{ url_for('slicer') }}">Map a circuit</a>
+      <a class="btn btn-ghost" href="{{ url_for('quantum') }}">Quantum Information</a>
+    </div>
+  </div>
+
+  <!-- Generated from the real analysis of webapp/examples/superdense_coding.py:
+       a backward slice from the final measurement. If that circuit changes,
+       regenerate rather than editing the paths by hand. -->
+  <figure class="hero-figure">
+    <svg viewBox="0 -14 597 172" class="hero-graph" role="img"
+             aria-label="Dependence graph of a superdense coding circuit, with a backward slice from the final measurement highlighted">
+
+          <defs>
+            <marker id="hero-arrow" viewBox="0 0 10 10" refX="9" refY="5"
+                    markerWidth="5" markerHeight="5" orient="auto-start-reverse"
+                    markerUnits="strokeWidth">
+              <path d="M 0 0 L 10 5 L 0 10 z" class="hero-arrowhead"></path>
+            </marker>
+            <marker id="hero-arrow-dim" viewBox="0 0 10 10" refX="9" refY="5"
+                    markerWidth="5" markerHeight="5" orient="auto-start-reverse"
+                    markerUnits="strokeWidth">
+              <path d="M 0 0 L 10 5 L 0 10 z" class="hero-arrowhead dim"></path>
+            </marker>
+          </defs>
+
+          <g class="hero-wires">
+            <line class="hero-wire" x1="30" y1="46" x2="585" y2="46"></line>
+            <text class="hero-wire-label" x="22" y="50">q0</text>
+            <line class="hero-wire" x1="30" y1="112" x2="585" y2="112"></line>
+            <text class="hero-wire-label" x="22" y="116">q1</text>
+          </g>
+
+          <g class="hero-edges">
+            <path class="hero-edge in-slice" marker-end="url(#hero-arrow)" d="M 101.0 46.0 Q 110.0 50.5 119.0 79.0"></path>
+            <path class="hero-edge in-slice" marker-end="url(#hero-arrow)" d="M 179.0 79.0 Q 188.0 50.5 197.0 46.0"></path>
+            <path class="hero-edge in-slice" marker-end="url(#hero-arrow)" d="M 179.0 79.0 Q 217.5 67.0 256.0 79.0"></path>
+            <path class="hero-edge in-slice" marker-end="url(#hero-arrow)" d="M 238.0 46.0 Q 247.0 50.5 256.0 79.0"></path>
+            <path class="hero-edge dim" marker-end="url(#hero-arrow-dim)" d="M 316.0 79.0 Q 325.0 50.5 334.0 46.0"></path>
+            <path class="hero-edge in-slice" marker-end="url(#hero-arrow)" d="M 316.0 79.0 Q 403.0 83.5 490.0 112.0"></path>
+            <path class="hero-edge dim" marker-end="url(#hero-arrow-dim)" d="M 375.0 46.0 Q 384.0 34.0 393.0 46.0"></path>
+          </g>
+
+          <g class="hero-nodes">
+            <g class="hero-node in-slice cat-single" transform="translate(80.5,46.0)">
+              <rect class="hero-shape" x="-20.5" y="-13.0" width="41" height="26" rx="6"></rect>
+              <text class="hero-label" x="0" y="4">h q0</text>
+              <text class="hero-index" x="0" y="-18">#0</text>
+            </g>
+            <g class="hero-node in-slice cat-multi" transform="translate(149.0,79.0)">
+              <line class="hero-span" x1="0" y1="-33.0" x2="0" y2="33.0"></line>
+              <circle class="hero-tick" cx="0" cy="-33.0" r="3.2"></circle>
+              <circle class="hero-tick" cx="0" cy="33.0" r="3.2"></circle>
+              <rect class="hero-shape" x="-30.0" y="-13.0" width="60" height="26" rx="6"></rect>
+              <text class="hero-label" x="0" y="4">cx q0,1</text>
+              <text class="hero-index" x="0" y="-18">#1</text>
+            </g>
+            <g class="hero-node in-slice cat-single" transform="translate(217.5,46.0)">
+              <rect class="hero-shape" x="-20.5" y="-13.0" width="41" height="26" rx="6"></rect>
+              <text class="hero-label" x="0" y="4">z q0</text>
+              <text class="hero-index" x="0" y="-18">#2</text>
+            </g>
+            <g class="hero-node in-slice cat-multi" transform="translate(286.0,79.0)">
+              <line class="hero-span" x1="0" y1="-33.0" x2="0" y2="33.0"></line>
+              <circle class="hero-tick" cx="0" cy="-33.0" r="3.2"></circle>
+              <circle class="hero-tick" cx="0" cy="33.0" r="3.2"></circle>
+              <rect class="hero-shape" x="-30.0" y="-13.0" width="60" height="26" rx="6"></rect>
+              <text class="hero-label" x="0" y="4">cx q0,1</text>
+              <text class="hero-index" x="0" y="-18">#3</text>
+            </g>
+            <g class="hero-node dim cat-single" transform="translate(354.5,46.0)">
+              <rect class="hero-shape" x="-20.5" y="-13.0" width="41" height="26" rx="6"></rect>
+              <text class="hero-label" x="0" y="4">h q0</text>
+              <text class="hero-index" x="0" y="-18">#4</text>
+            </g>
+            <g class="hero-node dim cat-measurement" transform="translate(432.5,46.0)">
+              <rect class="hero-shape" x="-39.5" y="-13.0" width="79" height="26" rx="6"></rect>
+              <text class="hero-label" x="0" y="4">measure q0</text>
+              <text class="hero-index" x="0" y="-18">#5</text>
+            </g>
+            <g class="hero-node criterion cat-measurement" transform="translate(529.5,112.0)">
+              <rect class="hero-shape" x="-39.5" y="-13.0" width="79" height="26" rx="6"></rect>
+              <text class="hero-label" x="0" y="4">measure q1</text>
+              <text class="hero-index" x="0" y="-18">#6</text>
+            </g>
+          </g>
+        </svg>
+    <figcaption class="figure-caption">
+      <strong>Superdense coding.</strong> A backward slice from the measurement of q1
+      (orange) reaches five of the seven instructions. The two greyed instructions only touch
+      q0, after the last operation that could still reach q1 &mdash; so neither of them can
+      have affected the result being measured.
+    </figcaption>
+  </figure>
+
+</section>
+
+<section class="explainer">
+  <div class="explainer-inner">
+    <div class="explainer-grid">
+
+    <article class="explainer-section">
+      <h2>Classical programming is deterministic</h2>
+      <p>
+        The normal assumption of programming is that given a chosen input, a specific set of
+        instructions will be executed to produce a certain outcome. This is what is known as
+        classical programming, whose foundation is built upon <strong>bits</strong>, pieces of
+        data that store either 0 or 1.
+      </p>
+      <p>
+        Although a classical program may have conditional branches and produce different
+        results for different inputs, each individual execution follows a defined sequence of
+        operations. One can be certain that given <em>x</em>, <em>y</em> will occur.
+      </p>
+    </article>
+
+    <article class="explainer-section">
+      <h2>Quantum programming is not</h2>
+      <p>
+        Quantum programming runs against this type of deterministic programming by working
+        with the probabilistic behavior of quantum systems. Instead of representing
+        information exclusively as definite 0 or 1 values in bits, quantum programs operate on
+        <strong>qubits</strong>.
+      </p>
+      <p>
+        These fundamental units of quantum information exist in a <strong>superposition</strong>,
+        where a qubit can simultaneously be 0 and 1. Rather than representing several classical
+        values as separate pieces of data, a quantum state can encode a combination of possible
+        outcomes that is manipulated by quantum operations.
+      </p>
+    </article>
+
+    <article class="explainer-section">
+      <h2>You read probabilities, not answers</h2>
+      <p>
+        Since a quantum program can produce every possible answer to a calculation, the output
+        cannot simply be the list of solutions to a problem. Instead, quantum operations modify
+        the probabilities associated with possible outcomes. Quantum algorithms are designed so
+        that useful outcomes can be amplified while undesirable outcomes are reduced or
+        cancelled through the behavior of quantum states.
+      </p>
+      <p>
+        When a qubit is measured, its quantum state produces a classical result. Repeated
+        executions of a quantum program can therefore be used to observe the distribution of
+        possible results and estimate their probabilities.
+      </p>
+    </article>
+
+    <article class="explainer-section">
+      <h2>Programs are circuits, and circuits entangle</h2>
+      <p>
+        Quantum programs are commonly represented as <strong>quantum circuits</strong>, which
+        consist of a sequence of quantum instructions, or <strong>gates</strong>, that operate
+        on one or more qubits. Measurements convert quantum information into classical
+        information, and classical information can subsequently influence other operations.
+      </p>
+      <p>
+        These circuits can become <strong>entangled</strong>. Entanglement occurs when the
+        states of multiple qubits become related in a way that cannot be described by
+        considering each qubit independently. What happens to one qubit in an entangled group
+        is therefore vital to understanding the others.
+      </p>
+    </article>
+
+    <article class="explainer-section">
+      <h2>The map: a Quantum Program Dependence Graph</h2>
+      <p>
+        The visualization used in this project is known as a <strong>Quantum Program
+        Dependence Graph</strong>, or QPDG. A regular dependence graph represents relationships
+        between instructions in a classical program; a QPDG extends this to represent quantum
+        programs.
+      </p>
+      <p>
+        In it, each quantum instruction becomes a node, and edges between nodes represent
+        dependencies between operations. Measurements can also create dependencies, when their
+        classical results are used to determine later operations.
+      </p>
+    </article>
+
+    <article class="explainer-section">
+      <h2>Slicing: the part that matters</h2>
+      <p>
+        Representing the ways each qubit affects the others, especially in entanglement, is
+        made easier via <strong>program slicing</strong>. Program slicing identifies the
+        portions of a program that are relevant to a particular instruction or result, a method
+        used in both classical and quantum programming.
+      </p>
+      <div class="slice-pair">
+        <div>
+          <h3>Backward slice</h3>
+          <p>Starts with an instruction and traces back to the earliest instruction to
+            influence it.</p>
+        </div>
+        <div>
+          <h3>Forward slice</h3>
+          <p>Does the opposite, working from a starting instruction to the last portion
+            affected by it.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="explainer-section explainer-wide">
+      <h2>Why visualize it at all</h2>
+      <div class="explainer-body">
+        <p>
+          Quantum programs can become difficult to understand as the number of qubits and
+          operations increases. A circuit may contain many gates that interact indirectly
+          through shared qubits, measurements, classical conditions, and entanglement. Reading
+          the source code alone does not necessarily make these relationships obvious.
+        </p>
+        <p>
+          Visualization can simplify the process of viewing the various processes at play,
+          which makes it easier to debug, to optimize, and to understand quantum programming
+          generally.
+        </p>
+      </div>
+      <p class="explainer-link">
+        For more information on the specifics of quantum programming, visit the
+        <a href="{{ url_for('quantum') }}">Quantum Information page</a>.
+      </p>
+    </article>
+
+    </div>
+  </div>
+</section>
+
+<section class="cards">
+  <h2 class="section-title">What you can do with it</h2>
+  <div class="card-grid">
+    <div class="card">
+      <h3>Slice from a gate</h3>
+      <p>Pick any instruction and follow its dependencies backward to everything that feeds
+        it, or forward to everything it can still affect.</p>
+    </div>
+    <div class="card">
+      <h3>Filter by dependency</h3>
+      <p>Follow only data dependencies on qubits, only measurement dependencies, or any
+        combination &mdash; each kind is a separate rule in the graph.</p>
+    </div>
+    <div class="card">
+      <h3>Read the entanglement</h3>
+      <p>See which qubits have been pulled into the same group, how deep the nesting goes, and
+        where uncomputation undid it again.</p>
+    </div>
+    <div class="card">
+      <h3>Catch mistakes early</h3>
+      <p>Static checks run before your file is executed: out-of-range qubits, a circuit with
+        no measurement, classical bits written twice, removed Qiskit APIs.</p>
+    </div>
+  </div>
+</section>
+
+<section class="cta">
+  <h2>Ready to look at a circuit?</h2>
+  <p>
+    Load one of the bundled examples, or bring your own &mdash; a Qiskit <code>.py</code> file
+    or an OpenQASM <code>.qasm</code> file, pasted in or uploaded.
+  </p>
+  <a class="btn btn-primary" href="{{ url_for('slicer') }}">Open the slicer</a>
+</section>
+{% endblock %}

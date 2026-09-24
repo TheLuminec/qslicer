@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "quantum-slicer-web",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["webapp/app.py"],
+      "port": 5000
+    }
+  ]
+}

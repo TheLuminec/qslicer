@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% block title %}Slicer &middot; Quantum Program Slicer{% endblock %}
+
+{% block content %}
+<div class="workbench">
+
+  <!-- ------------------------------------------------ left: source ----- -->
+  <section class="pane pane-source" aria-label="Circuit source">
+    <div class="pane-head">
+      <h2>Circuit source</h2>
+      <div class="pane-head-actions">
+        <span class="editor-meta" id="editor-meta">0 lines</span>
+        <label class="btn btn-small" for="file-input">
+          Upload
+          <input id="file-input" type="file" accept=".py,.qasm,.qasm3,text/plain" hidden>
+        </label>
+        <button class="btn btn-small" id="btn-clear" type="button">Clear</button>
+      </div>
+    </div>
+
+    <div class="source-toolbar">
+      <label class="field">
+        <span>Example</span>
+        <select id="example-select">
+          <option value="">Choose an example&hellip;</option>
+          {% for group in example_groups %}
+          <optgroup label="{{ group.title }}">
+            {% for example in group.examples %}
+              <option value="{{ example.key }}" title="{{ example.blurb }}">{{ example.title }}</option>
+            {% endfor %}
+          </optgroup>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field field-narrow">
+        <span>Interpreter</span>
+        <select id="interpreter-select"
+                title="Qiskit files are executed to reach the circuit they build. OpenQASM is parsed as text and never executed.">
+          {% for option in interpreters %}
+            <option value="{{ option.id }}" {{ 'selected' if option.default else '' }}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field field-narrow">
+        <span>Rules</span>
+        <select id="profile-select">
+          {% for profile in profiles %}
+            <option value="{{ profile }}">{{ profile }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="btn btn-primary" id="btn-analyze" type="button">Analyze</button>
+    </div>
+
+    <p class="example-blurb" id="example-blurb"></p>
+
+    <div class="editor-shell" id="editor-shell">
+      <div class="editor-body">
+        <div class="gutter" id="gutter" aria-hidden="true"></div>
+        <!-- The textarea is transparent and sits over a highlighted copy of the
+             same text, so the caret and selection stay native. -->
+        <div class="editor-input" id="editor-input">
+          <div class="editor-highlight" aria-hidden="true">
+            <div class="hl-inner" id="highlight"></div>
+          </div>
+          <textarea id="code" spellcheck="false" autocomplete="off" autocapitalize="off"
+                    aria-label="Circuit source code"
+                    placeholder="Paste a Qiskit circuit or an OpenQASM 3 program here, drop a .py or .qasm file anywhere on this panel, or load an example above."></textarea>
+        </div>
+      </div>
+      <div class="drop-overlay" id="drop-overlay" hidden>
+        <div>Drop a <code>.py</code> or <code>.qasm</code> file to load it</div>
+      </div>
+    </div>
+
+    <div class="diagnostics" id="diagnostics">
+      <div class="diagnostics-head">
+        <h3>Diagnostics</h3>
+        <span class="diagnostics-summary" id="diagnostics-summary">not run yet</span>
+      </div>
+      <ul class="diagnostics-list" id="diagnostics-list">
+        <li class="placeholder">Static checks run on every Python analysis, before your file is
+          executed. They catch out-of-range qubits, missing measurements, classical bits
+          written twice, and APIs that Qiskit has removed. OpenQASM is parsed rather than
+          executed, so the checks are skipped for <code>.qasm</code> input.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- --------------------------------------------------- the divider --- -->
+  <div class="splitter" id="splitter" role="separator" aria-orientation="vertical"
+       tabindex="0" aria-label="Resize the source and output panes"
+       title="Drag to resize. Double-click to even them up."></div>
+
+  <!-- ----------------------------------------------- right: output ----- -->
+  <section class="pane pane-output" aria-label="Slicer output">
+    <div class="pane-head">
+      <h2>Slicer output</h2>
+      <div class="tabs" role="tablist">
+        <button class="tab active" role="tab" data-tab="graph" aria-selected="true">Graph</button>
+        <button class="tab" role="tab" data-tab="instructions" aria-selected="false">Instructions</button>
+        <button class="tab" role="tab" data-tab="entanglement" aria-selected="false">Entanglement</button>
+        <button class="tab" role="tab" data-tab="console" aria-selected="false">Console</button>
+      </div>
+    </div>
+
+    <!-- graph tab -->
+    <div class="tab-panel active" data-panel="graph">
+      <div class="graph-toolbar">
+        <div class="tool-group" role="group" aria-label="Slice direction">
+          <span class="tool-label">Slice</span>
+          <button class="chip chip-toggle active" id="dir-backward" type="button">Backward</button>
+          <button class="chip chip-toggle" id="dir-forward" type="button">Forward</button>
+        </div>
+
+        <div class="tool-group" role="group" aria-label="Measurement basis">
+          <span class="tool-label" title="Mock-up: shows the rotation each basis would need before the measurement.">Basis</span>
+          <button class="chip chip-toggle active" data-basis="z" type="button">Z</button>
+          <button class="chip chip-toggle" data-basis="x" type="button">X</button>
+          <button class="chip chip-toggle" data-basis="y" type="button">Y</button>
+        </div>
+
+        <div class="tool-group" role="group" aria-label="Instruction range">
+          <span class="tool-label">Range</span>
+          <input class="num" id="range-from" type="number" min="0" value="0" aria-label="First instruction">
+          <span class="dash">&ndash;</span>
+          <input class="num" id="range-to" type="number" min="0" value="0" aria-label="Last instruction">
+          <button class="chip" id="range-reset" type="button">All</button>
+        </div>
+
+        <div class="tool-group tool-group-right">
+          <button class="chip" id="download-png" type="button"
+                  title="Download a PNG of the current view">PNG</button>
+        </div>
+      </div>
+
+      <!-- Filled in from the analysis: only the dependency types the rules that
+           actually ran can emit. Empty until a circuit has been analysed. -->
+      <div class="dep-filter" id="dep-filter" aria-label="Dependency types">
+        <span class="tool-label">Follow</span>
+        <span class="placeholder" id="dep-filter-empty">
+          the dependency types the rules produce appear here
+        </span>
+      </div>
+
+      <div class="graph-stage" id="graph-stage">
+        <svg id="graph" role="img" aria-label="Quantum program dependence graph"></svg>
+        <div class="graph-empty" id="graph-empty">
+          <p><strong>No graph yet.</strong></p>
+          <p>Load an example or paste a circuit, then press Analyze.</p>
+        </div>
+        <div class="graph-controls" role="group" aria-label="View controls">
+          <button class="graph-btn" id="zoom-in" type="button" title="Zoom in"
+                  aria-label="Zoom in">+</button>
+          <button class="graph-btn" id="zoom-out" type="button" title="Zoom out"
+                  aria-label="Zoom out">&minus;</button>
+          <button class="graph-btn" id="zoom-fit" type="button" title="Fit the graph to the view"
+                  aria-label="Fit the graph to the view">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path d="M1.5 5.5v-4h4M10.5 1.5h4v4M14.5 10.5v4h-4M5.5 14.5h-4v-4"
+                    fill="none" stroke="currentColor" stroke-width="1.6"
+                    stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <button class="graph-btn" id="layout-reset" type="button"
+                  title="Undo any nodes you dragged" aria-label="Reset the layout">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path d="M13.5 8a5.5 5.5 0 1 1-1.9-4.16" fill="none" stroke="currentColor"
+                    stroke-width="1.6" stroke-linecap="round"/>
+              <path d="M13.6 1.4v2.9h-2.9" fill="none" stroke="currentColor"
+                    stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="tooltip" id="tooltip" hidden></div>
+        <div class="graph-hint">drag to pan &middot; scroll to zoom &middot; drag a node to move it &middot; click a node to slice</div>
+      </div>
+
+      <div class="graph-status" id="graph-status">
+        <span class="status-main" id="status-main">Nothing analysed yet.</span>
+        <span class="status-side" id="status-side"></span>
+      </div>
+    </div>
+
+    <!-- instruction list tab -->
+    <div class="tab-panel" data-panel="instructions">
+      <div class="qubit-filter" id="qubit-filter">
+        <span class="tool-label">Qubit slice</span>
+        <span class="placeholder">Analyse a circuit to pick a wire.</span>
+      </div>
+      <div class="table-scroll">
+        <table class="instr-table">
+          <thead>
+            <tr><th>#</th><th>Gate</th><th>Qubits</th><th>Clbits</th><th>Params</th><th>In slice</th></tr>
+          </thead>
+          <tbody id="instr-body">
+            <tr><td colspan="6" class="placeholder">No instructions yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- entanglement tab -->
+    <div class="tab-panel" data-panel="entanglement">
+      <div class="table-scroll">
+        <div id="entanglement-body">
+          <p class="placeholder">
+            The entanglement analyser groups qubits that an entangling gate has correlated,
+            tracks gates that were later undone by their own inverse, and closes a group when
+            one of its qubits is measured. Analyse a circuit to see its groups.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- console tab -->
+    <div class="tab-panel" data-panel="console">
+      <div class="table-scroll">
+        <h3 class="console-title">Program output</h3>
+        <p class="console-note">
+          Anything your file printed while the parser executed it. A circuit that calls
+          <code>print(qc.draw())</code> or runs a simulator shows up here.
+        </p>
+        <pre class="console" id="console-out">(nothing yet)</pre>
+        <h3 class="console-title">Last error</h3>
+        <pre class="console" id="console-error">(none)</pre>
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/swatches.js') }}"></script>
+<script src="{{ url_for('static', filename='js/highlight.js') }}"></script>
+<script src="{{ url_for('static', filename='js/mathfmt.js') }}"></script>
+<script src="{{ url_for('static', filename='js/graph.js') }}"></script>
+<script src="{{ url_for('static', filename='js/slicer.js') }}"></script>
+{% endblock %}

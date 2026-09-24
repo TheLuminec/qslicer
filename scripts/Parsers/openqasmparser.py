@@ -16,6 +16,8 @@ class OpenQASMParser(AbstractParser):
 
     def parse(self):
         """Delegate parsing the OpenQASM source string to the initialized Qiskit parser."""
-        # Not the greatest right now but will change in the future
-        self.program = QiskitParser(self.source).parse()
+        # Not the greatest right now but will change in the future.
+        # QiskitParser parses in its constructor, so take the program it has
+        # already built; calling parse() again appends every instruction twice.
+        self.program = QiskitParser(self.source).program
         return self.program

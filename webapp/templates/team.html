@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Team &middot; Quantum Program Slicer{% endblock %}
+
+{% block content %}
+<section class="team-hero">
+  <p class="eyebrow">{{ course.term }} &middot; {{ course.institution }}</p>
+  <h1>The team</h1>
+  <p class="lede">{{ blurb }}</p>
+</section>
+
+<section class="vision-block">
+  <div class="two-col">
+    <blockquote class="vision-card">
+      <h2>Vision</h2>
+      <p>{{ vision }}</p>
+    </blockquote>
+    <blockquote class="vision-card">
+      <h2>Mission</h2>
+      <p>{{ mission }}</p>
+    </blockquote>
+  </div>
+</section>
+
+<section class="team-grid">
+  {% for member in members %}
+  <article class="member-card">
+    <div class="avatar" aria-hidden="true">{{ member.name.split()[0][0] }}</div>
+    <h2>{{ member.name }}</h2>
+    <p class="member-meta">{{ member.role }}</p>
+    <p class="member-focus">{{ member.year }} &middot; {{ member.focus }}</p>
+    <p class="member-bio">{{ member.bio }}</p>
+    {% if member.handle %}<p class="member-handle">@{{ member.handle }}</p>{% endif %}
+    {% if member.links %}
+    <ul class="member-links">
+      {% for label, href in member.links.items() %}
+        <li><a href="{{ href }}" rel="noopener">{{ label }}</a></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </article>
+  {% endfor %}
+</section>
+
+<section class="advisor-block">
+  <h2>Advisor and client</h2>
+  <div class="two-col">
+    <div class="advisor-card">
+      <div class="avatar avatar-advisor" aria-hidden="true">{{ advisor.name.split()[0][0] }}</div>
+      <div>
+        <h3>{{ advisor.name }}</h3>
+        <p class="member-meta">{{ advisor.role }}</p>
+        <p class="member-focus">{{ advisor.affiliation }}</p>
+        <p class="member-bio">{{ advisor.bio }}</p>
+      </div>
+    </div>
+    <div class="advisor-card">
+      <div class="avatar avatar-advisor" aria-hidden="true">{{ client.name.split()[0][0] }}</div>
+      <div>
+        <h3>{{ client.name }}</h3>
+        <p class="member-meta">{{ client.role }}</p>
+        <p class="member-bio">{{ client.bio }}</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="course-block">
+  <h2>Success criteria</h2>
+  <p class="section-lede">
+    From the project charter. Ticked where this repository demonstrates it today &mdash;
+    deliberately conservative, so the gaps stay visible.
+  </p>
+  <div class="criteria-grid">
+    {% for group in criteria %}
+    <div class="criteria-card">
+      <h3>{{ group.group }}</h3>
+      <ul class="criteria-list">
+        {% for item in group['items'] %}
+        <li class="{{ 'done' if item.done else 'pending' }}">
+          <span class="criteria-mark" aria-hidden="true">{{ '&#10003;' | safe if item.done else '&#9675;' | safe }}</span>
+          <span>
+            {{ item.text }}
+            {% if item.note %}<span class="criteria-note">{{ item.note }}</span>{% endif %}
+          </span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="course-block">
+  <h2>How the project runs</h2>
+  <div class="two-col">
+    <div>
+      <h3>{{ course.name }}</h3>
+      <p>{{ course.summary }}</p>
+      <p>
+        The team meets weekly on Thursdays, with the advisor and the client on alternating
+        weeks. Work happens on personal branches; every change is reviewed by at least two
+        people, and the QA lead checks it against the definition of done before it lands.
+      </p>
+      <h3>Constraints we accepted</h3>
+      <ul class="plain-list">
+        {% for constraint in constraints %}<li>{{ constraint }}</li>{% endfor %}
+      </ul>
+    </div>
+    <div>
+      <h3>Standards</h3>
+      <dl class="tool-list">
+        {% for standard in standards %}
+        <dt>{{ standard.name }} &mdash; {{ standard.topic }}</dt>
+        <dd>{{ standard.use }} <em>({{ standard.phase }}.)</em></dd>
+        {% endfor %}
+      </dl>
+      <h3>Where the code lives</h3>
+      <p>
+        Analysis code is under <code>scripts/</code>, example circuits under
+        <code>webapp/examples/</code>, and this site under <code>webapp/</code>. The
+        command-line equivalent of the slicer page is:
+      </p>
+      <pre class="console">python scripts/combined_visualizer.py --circuit_path "Attachments/Sample Code/grovers_algorithm_exception.py"</pre>
+    </div>
+  </div>
+</section>
+
+<p class="placeholder-note">
+  Names and roles come from the project wiki. The advisor and the client are not named there,
+  and the course title is a guess &mdash; both are marked TODO in <code>webapp/team.py</code>,
+  which is the only place this page reads from.
+</p>
+{% endblock %}
