@@ -1,0 +1,87 @@
+# ==========================================================================
+# systemd unit for the quantum slicer web app.
+#
+#   sudo cp deploy/quantum-slicer.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now quantum-slicer
+#   systemctl status quantum-slicer
+#   journalctl -u quantum-slicer -f
+#
+# Assumes the checkout is at /srv/quantum-slicer with a virtualenv in
+# /srv/quantum-slicer/.venv, owned by a dedicated unprivileged user:
+#
+#   sudo useradd --system --home /srv/quantum-slicer --shell /usr/sbin/nologin qslicer
+#
+# The hardening below is not decoration. Analysing a Python circuit executes it
+# in a child of this service, so these limits are what bound what that code can
+# reach. See deploy/README.md.
+# ==========================================================================
+
+[Unit]
+Description=Quantum Program Slicer (Flask behind gunicorn)
+Documentation=file:/srv/quantum-slicer/webapp/README.md
+After=network.target
+
+[Service]
+Type=simple
+User=qslicer
+Group=qslicer
+WorkingDirectory=/srv/quantum-slicer/webapp
+
+Environment=PYTHONUNBUFFERED=1
+# Seconds a submitted circuit may run before its worker is killed.
+Environment=QSLICER_PARSE_TIMEOUT=20
+
+# One worker process, several threads. The analysis cache is per-process: a
+# second worker would answer /api/slice without the token the first one issued.
+ExecStart=/srv/quantum-slicer/.venv/bin/gunicorn \
+    --chdir /srv/quantum-slicer/webapp \
+    --bind 127.0.0.1:8000 \
+    --workers 1 \
+    --threads 4 \
+    --timeout 90 \
+    --graceful-timeout 30 \
+    --access-logfile - \
+    --error-logfile - \
+    wsgi:application
+
+Restart=on-failure
+RestartSec=3
+
+# ---------------------------------------------------------------- limits --
+# A submitted circuit that allocates forever, or forks, stops at these.
+MemoryMax=1500M
+TasksMax=64
+LimitNOFILE=4096
+
+# ------------------------------------------------------------- hardening --
+NoNewPrivileges=yes
+PrivateTmp=yes                 # also where submitted files are written
+PrivateDevices=yes
+ProtectSystem=strict           # the filesystem is read-only except the below
+ProtectHome=yes
+ReadWritePaths=/srv/quantum-slicer/logs
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+UMask=0077
+
+# Submitted code runs here, so do not let it reach the network. Loopback stays
+# open because that is how nginx talks to gunicorn.
+IPAddressDeny=any
+IPAddressAllow=localhost
+
+# Uncomment if the machine has no other use for these:
+# SystemCallFilter=@system-service
+# SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target
