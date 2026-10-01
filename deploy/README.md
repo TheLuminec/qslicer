@@ -14,21 +14,21 @@ Three files:
 the deployment, it is how the Qiskit front end reaches the `QuantumCircuit` a
 program builds — see [the web app README](../webapp/README.md#how-submitted-circuits-are-handled).
 Putting the site on a hostname means anyone who can reach that hostname can run
-Python as the `qslicer` user.
+Python as the service's throwaway `DynamicUser`.
 
 The mitigations that exist, in the order they matter:
 
-1. **The `allow` / `deny` block in the nginx config.** It ships commented out
-   and you should uncomment it. If the site is only ever used from campus or
-   the VPN, say so there. This is the control that actually decides who can
-   run code.
+1. **An `allow` / `deny` block in the nginx `server {}`.** If the site is
+   only ever used from campus or the VPN, add one there. This is the control
+   that actually decides who can run code.
 2. **`IPAddressDeny=any` in the service unit**, so submitted code cannot open
    outbound connections even though it runs.
 3. **`MemoryMax` and `TasksMax`**, so a runaway allocation or a fork loop hits
    a wall instead of the machine.
 4. **`QSLICER_PARSE_TIMEOUT`**, which kills a worker after 20 seconds.
-5. **`ProtectSystem=strict` and `PrivateTmp`**, so the filesystem is read-only
-   apart from a private `/tmp`.
+5. **`ProtectSystem=strict`, `ProtectHome=tmpfs` and `PrivateTmp`**, so the
+   filesystem is read-only apart from a private `/tmp`, and nothing in
+   `/home` is visible except the checkout.
 
 Together these bound the damage from a mistake and from casual mischief. They
 do not make the box safe to hand to the internet. If the site has to be open to
@@ -40,26 +40,39 @@ level.
 ## Install
 
 ```bash
-# 1. Code and a virtualenv, owned by a user that owns nothing else
-sudo useradd --system --home /srv/quantum-slicer --shell /usr/sbin/nologin qslicer
-sudo git clone <repo> /srv/quantum-slicer
-cd /srv/quantum-slicer
-sudo python3 -m venv .venv
-sudo .venv/bin/pip install -r requirements.txt -r webapp/requirements.txt gunicorn
-sudo mkdir -p logs
-sudo chown -R qslicer:qslicer /srv/quantum-slicer
+# 1. Code and a virtualenv in the ubuntu user's home. No service account is
+#    needed: the unit uses DynamicUser=, so the files only need to be
+#    world-readable, which they are after a normal clone.
+cd /home/ubuntu
+git clone <repo> slicing-for-quantum-programs
+cd slicing-for-quantum-programs
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt -r webapp/requirements.txt gunicorn
 
 # 2. The service
 sudo cp deploy/quantum-slicer.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now quantum-slicer
+systemctl status quantum-slicer --no-pager
 curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/     # expect 200
 
 # 3. The site
 sudo cp deploy/nginx/quantum-slicing.conf /etc/nginx/sites-available/quantum-slicing
-sudo ln -s /etc/nginx/sites-available/quantum-slicing /etc/nginx/sites-enabled/
+sudo ln -sf /etc/nginx/sites-available/quantum-slicing /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 ```
+
+After a `git pull`, run `sudo systemctl restart quantum-slicer`. If the unit
+file itself changed, copy it again and run `sudo systemctl daemon-reload` first.
+
+### If the service will not start
+
+| Status in `systemctl status` | Cause |
+|---|---|
+| `status=200/CHDIR` | `WorkingDirectory` is not visible. Check that `BindReadOnlyPaths` matches the checkout path. |
+| `status=203/EXEC` | `.venv/bin/gunicorn` does not exist. Install gunicorn into the venv. |
+| `status=226/NAMESPACE` | A path in `BindReadOnlyPaths`/`ReadWritePaths` does not exist. |
+| `Permission denied` in the journal | The checkout is not world-readable. Run `chmod -R o+rX` on it. |
 
 Then check the whole path end to end:
 
@@ -83,13 +96,9 @@ worker count.
 
 ## Paths to change
 
-The files assume `/srv/quantum-slicer`. If the checkout goes elsewhere, update:
-
-* `alias` in the nginx `/static/` block;
-* `WorkingDirectory`, `ExecStart` and `ReadWritePaths` in the service file.
-
-The nginx `alias` must keep its trailing slash, and must point at
-`webapp/static/`, not at the repository root.
+The files assume `/home/ubuntu/slicing-for-quantum-programs`. If the checkout
+goes elsewhere, update `WorkingDirectory`, `ExecStart` (both paths) and
+`BindReadOnlyPaths` in the service file.
 
 ## Windows
 

@@ -7,14 +7,17 @@
 #   systemctl status quantum-slicer
 #   journalctl -u quantum-slicer -f
 #
-# Assumes the checkout is at /srv/quantum-slicer with a virtualenv in
-# /srv/quantum-slicer/.venv, owned by a dedicated unprivileged user:
-#
-#   sudo useradd --system --home /srv/quantum-slicer --shell /usr/sbin/nologin qslicer
+# Assumes the checkout is at /home/ubuntu/slicing-for-quantum-programs with a
+# virtualenv in .venv inside it. The files only need to be world-readable
+# (the default after a git clone); no service account has to be created,
+# because DynamicUser= allocates a throwaway one each time the service starts.
 #
 # The hardening below is not decoration. Analysing a Python circuit executes it
 # in a child of this service, so these limits are what bound what that code can
 # reach. See deploy/README.md.
+#
+# Note: systemd does not allow comments at the end of a setting line. Keep
+# every comment on its own line or the setting is rejected.
 # ==========================================================================
 
 [Unit]
@@ -24,11 +27,17 @@ After=network.target
 
 [Service]
 Type=simple
-User=qslicer
-Group=qslicer
+# A fresh unprivileged UID per start. It owns nothing on disk, so submitted
+# code cannot modify the checkout, and it has no sudo, keys or shell history.
+DynamicUser=yes
 WorkingDirectory=/home/ubuntu/slicing-for-quantum-programs/webapp
 
 Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+# The dynamic user has no home. Point HOME and the matplotlib cache at the
+# private /tmp so Qiskit and matplotlib have somewhere writable.
+Environment=HOME=/tmp
+Environment=MPLCONFIGDIR=/tmp/matplotlib
 # Seconds a submitted circuit may run before its worker is killed.
 Environment=QSLICER_PARSE_TIMEOUT=20
 
@@ -56,11 +65,15 @@ LimitNOFILE=4096
 
 # ------------------------------------------------------------- hardening --
 NoNewPrivileges=yes
-PrivateTmp=yes                 # also where submitted files are written
+# Also where submitted files are written.
+PrivateTmp=yes
 PrivateDevices=yes
-ProtectSystem=strict           # the filesystem is read-only except the below
-ProtectHome=yes
-ReadWritePaths=/home/ubuntu/slicing-for-quantum-programs/logs
+# The whole filesystem is read-only to the service.
+ProtectSystem=strict
+# /home is replaced by an empty tmpfs and only the checkout is mounted back,
+# read-only. The rest of /home/ubuntu (SSH keys, history) stays invisible.
+ProtectHome=tmpfs
+BindReadOnlyPaths=/home/ubuntu/slicing-for-quantum-programs
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes

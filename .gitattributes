@@ -1,3 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 *.py text=lf
+# systemd and nginx reject CRLF (it breaks "\" line continuations)
+deploy/** text eol=lf
