@@ -93,7 +93,7 @@
 
     $('interpreter-select').addEventListener('change', function () {
       // Nothing re-runs on its own: say what will be used next time, and let
-      // the user press Analyze. The colouring does follow immediately, since
+      // the user press Analyze. The coloring does follow immediately, since
       // it is only a reading aid.
       updateGutter();
       announceInterpreter(false);
@@ -203,7 +203,7 @@
 
   /* Rebuild the highlighted copy of the source and the line numbers.
      ``errorLine`` marks one gutter number red, for a reported syntax error. */
-  var HIGHLIGHT_LIMIT = 120000;   // characters; past this, skip the tokeniser
+  var HIGHLIGHT_LIMIT = 120000;   // characters; past this, skip the tokenizer
   var LINE_LIMIT = 800;           // lines; past this, skip the per-line sync
   var INSTANT_LIMIT = 20000;      // characters; past this, re-render on a pause
 
@@ -222,7 +222,7 @@
       updateGutter(errorLine);
       return;
     }
-    // Keep the line count honest even while the colouring waits.
+    // Keep the line count honest even while the coloring waits.
     var lines = $('code').value.split('\n').length;
     $('editor-meta').textContent = lines + (lines === 1 ? ' line' : ' lines');
     renderTimer = setTimeout(function () {
@@ -246,7 +246,7 @@
 
     var rendered;
     if (text.length > HIGHLIGHT_LIMIT || !window.highlightCode) {
-      rendered = sourceLines.map(escapeHtml);       // too big to colour; still readable
+      rendered = sourceLines.map(escapeHtml);       // too big to color; still readable
     } else {
       rendered = window.highlightCode(text, highlightLanguage());
     }
@@ -328,7 +328,7 @@
     $('gutter').scrollTop = code.scrollTop;
   }
 
-  /* The Interpreter dropdown decides which tokeniser runs. */
+  /* The Interpreter dropdown decides which tokenizer runs. */
   function highlightLanguage() {
     return interpreter() === 'qasm' ? 'qasm' : 'python';
   }
@@ -483,7 +483,7 @@
     if (state.busy) return;
     var source = $('code').value;
     if (!source.trim()) {
-      setStatus('Nothing to analyse yet.');
+      setStatus('Nothing to analyze yet.');
       return;
     }
 
@@ -702,7 +702,10 @@
       .then(function (data) {
         if (seq !== state.sliceSeq) return;  // a newer request has overtaken this one
         if (!data.ok) {
-          setStatus(data.error + (data.stale ? ' Press Analyze again.' : ''));
+          var problem = data.error || {};
+          var text = typeof problem === 'string' ? problem : (problem.message || 'Slicing failed.');
+          if (problem.hint) text += ' ' + problem.hint;
+          setStatus(text);
           return;
         }
         graph.setSlice(data.slice, nodeIdx);
@@ -775,7 +778,7 @@
     if (!data) {
       var placeholder = document.createElement('span');
       placeholder.className = 'placeholder';
-      placeholder.textContent = 'Analyse a circuit to pick a wire.';
+      placeholder.textContent = 'Analyze a circuit to pick a wire.';
       container.appendChild(placeholder);
       return;
     }
@@ -833,7 +836,7 @@
     container.textContent = '';
 
     if (!data) {
-      container.innerHTML = '<p class="placeholder">Analyse a circuit to see its groups.</p>';
+      container.innerHTML = '<p class="placeholder">Analyze a circuit to see its groups.</p>';
       return;
     }
 
@@ -1069,7 +1072,7 @@
       '<li class="placeholder">Static checks run on every Python analysis, before your file is executed.</li>';
     $('diagnostics-summary').textContent = 'not run yet';
     $('diagnostics-summary').className = 'diagnostics-summary';
-    setStatus('Nothing analysed yet.');
+    setStatus('Nothing analyzed yet.');
     setSide('');
   }
 

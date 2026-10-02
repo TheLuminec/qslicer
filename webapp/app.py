@@ -34,8 +34,7 @@ import analysis  # noqa: E402
 import examples  # noqa: E402
 import gates  # noqa: E402
 from team import (  # noqa: E402
-    ADVISOR, CLIENT, CONSTRAINTS, COURSE, MEMBERS, MISSION, PROJECT_BLURB,
-    STANDARDS, SUCCESS_CRITERIA, VISION,
+    COURSE, MEMBERS, MISSION, PROJECT_BLURB, VISION,
 )
 
 MAX_SOURCE_BYTES = 256 * 1024
@@ -90,15 +89,10 @@ def team():
         "team.html",
         page="team",
         members=MEMBERS,
-        advisor=ADVISOR,
-        client=CLIENT,
         course=COURSE,
         blurb=PROJECT_BLURB,
         vision=VISION,
         mission=MISSION,
-        criteria=SUCCESS_CRITERIA,
-        constraints=CONSTRAINTS,
-        standards=STANDARDS,
     )
 
 
@@ -108,7 +102,7 @@ def team():
 
 @app.get("/api/examples")
 def api_examples():
-    return jsonify({"examples": examples.catalogue(), "groups": examples.grouped()})
+    return jsonify({"examples": examples.catalog(), "groups": examples.grouped()})
 
 
 @app.get("/api/examples/<key>")
@@ -119,9 +113,25 @@ def api_example(key):
     return jsonify(entry)
 
 
+def _bad_request(message: str, stage: str = "validation", **extra):
+    """A 400 for a request body the API cannot use, in the usual error shape."""
+    body = {
+        "ok": False,
+        "diagnostics": [],
+        "error": {"kind": "invalid_request", "stage": stage, "message": message,
+                  "detail": "", "hint": "", "line": 0},
+    }
+    body.update(extra)
+    return jsonify(body), 400
+
+
 @app.post("/api/analyze")
 def api_analyze():
-    payload = request.get_json(silent=True) or {}
+    payload = request.get_json(silent=True)
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        return _bad_request("The request body must be a JSON object.")
     source = payload.get("source", "")
     filename = payload.get("filename") or ""
     profile = payload.get("profile") or "baseline"
@@ -129,13 +139,21 @@ def api_analyze():
     # dropdown; without it the filename extension decides.
     language = payload.get("language")
 
+    if not isinstance(filename, str):
+        return _bad_request("filename must be a string.")
+    if not isinstance(profile, str):
+        return _bad_request("profile must be a string.")
+    language_error = analysis.unsupported_language(language)
+    if language_error is not None:
+        return jsonify({"ok": False, "diagnostics": [], "error": language_error}), 400
+
     if not isinstance(source, str) or not source.strip():
         return jsonify({
             "ok": False,
             "diagnostics": [],
             "error": {
                 "kind": "empty_input",
-                "message": "There is nothing to analyse yet.",
+                "message": "There is nothing to analyze yet.",
                 "detail": "",
                 "hint": "Paste a circuit, drop a .py file on the editor, or load an example.",
             },
@@ -160,16 +178,26 @@ def api_analyze():
 
 @app.post("/api/slice")
 def api_slice():
-    payload = request.get_json(silent=True) or {}
+    payload = request.get_json(silent=True)
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        return _bad_request("The request body must be a JSON object.", stage="slicing")
     token = payload.get("token")
     node_idx = payload.get("node_idx")
     direction = payload.get("direction", "backward")
     dep_types = payload.get("dep_types")
 
-    if not token or not isinstance(node_idx, int):
-        return jsonify({"ok": False, "error": "token and node_idx are required."}), 400
+    # bool is a subclass of int, so JSON true/false would otherwise pass.
+    if (not token or not isinstance(token, str)
+            or isinstance(node_idx, bool) or not isinstance(node_idx, int)):
+        return _bad_request("token and node_idx are required.", stage="slicing")
     if direction not in ("backward", "forward"):
-        return jsonify({"ok": False, "error": "direction must be backward or forward."}), 400
+        return _bad_request("direction must be backward or forward.", stage="slicing")
+    if dep_types is not None and (
+        not isinstance(dep_types, list) or not all(isinstance(n, str) for n in dep_types)
+    ):
+        return _bad_request("dep_types must be a list of dependency names.", stage="slicing")
 
     result = analysis.slice_program(token, node_idx, direction=direction, dep_types=dep_types)
     return jsonify(result), (200 if result.get("ok") else 409)

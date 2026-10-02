@@ -68,7 +68,7 @@ def backend_error() -> Optional[str]:
 # --------------------------------------------------------------------------
 # Analysis cache
 #
-# Slicing re-uses the QPDG that the analyse call already built, so picking a new
+# Slicing re-uses the QPDG that the analyze call already built, so picking a new
 # criterion never re-executes the submitted program.
 # --------------------------------------------------------------------------
 
@@ -263,7 +263,7 @@ def _note_interpreter_mismatch(error: Dict[str, Any], source: str, kind: str) ->
     looks_qasm = _looks_like_qasm(source)
     if kind == "python" and looks_qasm:
         error["hint"] = ("This looks like OpenQASM. Set Interpreter to OpenQASM 3 and "
-                         "analyse again. " + error.get("hint", ""))
+                         "analyze again. " + error.get("hint", ""))
     elif kind == "qasm" and not looks_qasm and source.strip():
         error["hint"] = ("This does not start with an OPENQASM header. If it is a Qiskit "
                          "program, set Interpreter to Qiskit (Python). " + error.get("hint", ""))
@@ -287,6 +287,10 @@ def analyze_source(
     Always returns a dict with an ``ok`` flag. Lint findings are returned even
     when the run fails, because they are usually what explains the failure.
     """
+    language_error = unsupported_language(language)
+    if language_error is not None:
+        return {"ok": False, "diagnostics": [], "error": language_error}
+
     kind = source_kind(filename, language)
     filename = filename or default_filename(kind)
 
@@ -420,6 +424,27 @@ _ALIASES = {
 }
 
 
+def unsupported_language(language: Any) -> Optional[Dict[str, Any]]:
+    """The validation error for an interpreter name nothing handles, else None.
+
+    None and the empty string mean "not chosen", which falls back to the
+    filename extension.
+    """
+    if language is None or language == "":
+        return None
+    if isinstance(language, str) and language.strip().lower() in _ALIASES:
+        return None
+    supported = ", ".join(option["id"] for option in INTERPRETERS)
+    return {
+        "kind": "unsupported_language",
+        "stage": "validation",
+        "message": f"{language!r} is not a supported interpreter.",
+        "detail": f"Supported interpreters: {supported}.",
+        "hint": "Pick Qiskit (Python) or OpenQASM 3 in the Interpreter dropdown.",
+        "line": 0,
+    }
+
+
 def interpreters() -> List[Dict[str, Any]]:
     """The dropdown's options, with the first marked as the default."""
     return [
@@ -472,7 +497,7 @@ def _parse_qasm_source(source: str, filename: str) -> Tuple[Any, str]:
         safe_name = os.path.splitext(safe_name)[0] + ".qasm"
     path = os.path.join(workdir, safe_name)
     try:
-        with open(path, "w", encoding="utf-8") as handle:
+        with open(path, "w", encoding="utf-8", newline="") as handle:
             handle.write(source)
 
         buffer = io.StringIO()
@@ -515,7 +540,7 @@ def _parse_python_source(source: str, filename: str) -> Tuple[Any, str]:
     workdir = tempfile.mkdtemp(prefix="qslice_")
     path = os.path.join(workdir, safe_name)
     try:
-        with open(path, "w", encoding="utf-8") as handle:
+        with open(path, "w", encoding="utf-8", newline="") as handle:
             handle.write(source)
 
         worker = os.path.join(os.path.dirname(os.path.abspath(__file__)), "parse_worker.py")
@@ -582,7 +607,7 @@ _HINTS = {
 
 
 def _read_worker_result(workdir: str, completed: Any) -> Dict[str, Any]:
-    """Read result.json, or synthesise a failure if the worker never wrote it."""
+    """Read result.json, or synthesize a failure if the worker never wrote it."""
     result_path = os.path.join(workdir, "result.json")
     try:
         with open(result_path, "r", encoding="utf-8") as handle:
@@ -602,7 +627,7 @@ def _read_worker_result(workdir: str, completed: Any) -> Dict[str, Any]:
 
 
 def _load_qpy(path: str) -> Any:
-    """Read the circuit the worker serialised."""
+    """Read the circuit the worker serialized."""
     import qiskit.qpy
 
     with open(path, "rb") as handle:
@@ -655,12 +680,12 @@ def _describe_edges(qpdg: Any) -> List[Dict[str, Any]]:
 
 
 def _describe_entanglement(program: Any) -> Dict[str, Any]:
-    """Run the entanglement analyser and flatten its groups for the side panel."""
+    """Run the entanglement analyzer and flatten its groups for the side panel."""
     analyzer = EntanglementAnalyzer(program)
     analyzer.analyze()
 
     # Group members are QuantumInstruction objects; map them back to indices via
-    # object identity, which holds because the analyser stores the very objects
+    # object identity, which holds because the analyzer stores the very objects
     # the program owns. Synthetic "init" instructions have no index.
     index_of = {id(program[i]): i for i in range(len(program))}
 
@@ -706,6 +731,17 @@ def _describe_stats(result: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _slice_error(kind: str, message: str, hint: str = "", **extra: Any) -> Dict[str, Any]:
+    """A failed slice, shaped like an analysis error so the page can say which stage failed."""
+    result = {
+        "ok": False,
+        "error": {"kind": kind, "stage": "slicing", "message": message,
+                  "detail": "", "hint": hint, "line": 0},
+    }
+    result.update(extra)
+    return result
+
+
 def slice_program(
     token: str,
     node_idx: int,
@@ -718,20 +754,28 @@ def slice_program(
     every dependency, matching SlicingCriterion's default.
     """
     if _IMPORT_ERROR is not None:
-        return {"ok": False, "error": "The analysis backend is unavailable."}
+        return _slice_error("backend_unavailable", "The analysis backend is unavailable.")
+
+    if isinstance(node_idx, bool) or not isinstance(node_idx, int):
+        return _slice_error("invalid_request", "node_idx must be an integer.")
+    if dep_types is not None and (
+        not isinstance(dep_types, list) or not all(isinstance(n, str) for n in dep_types)
+    ):
+        return _slice_error("invalid_request", "dep_types must be a list of dependency names.")
 
     entry = _cache_get(token)
     if entry is None:
-        return {
-            "ok": False,
-            "error": "This analysis is no longer cached on the server. Run it again.",
-            "stale": True,
-        }
+        return _slice_error(
+            "stale_token",
+            "This analysis is no longer cached on the server.",
+            hint="Press Analyze again.",
+            stale=True,
+        )
 
     qpdg = entry["qpdg"]
     program = entry["program"]
     if not 0 <= node_idx < len(program):
-        return {"ok": False, "error": f"Instruction {node_idx} is outside this program."}
+        return _slice_error("out_of_range", f"Instruction {node_idx} is outside this program.")
 
     selected = None
     if dep_types:

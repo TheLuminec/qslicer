@@ -2,7 +2,7 @@
 
 Each graph edge becomes an rzz interaction (the cost layer), followed by an rx
 on every qubit (the mixer). A real run alternates many such layers and lets an
-optimiser tune gamma and beta.
+optimizer tune gamma and beta.
 
 What to look for: rzz gates are both entangling and phase-carrying, which
 makes this the example where the disabled entanglement and phase rules would

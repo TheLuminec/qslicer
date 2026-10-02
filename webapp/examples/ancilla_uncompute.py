@@ -4,7 +4,7 @@ q2 is scratch space. The first Toffoli writes q0 AND q1 into it and the
 second, identical Toffoli erases it again, which is the standard way to
 return borrowed scratch space to |0) so it carries no leftover entanglement.
 
-What to look for: the analyser does NOT currently see this as uncomputation.
+What to look for: the analyzer does NOT currently see this as uncomputation.
 Its cancellation check only compares a gate against the last gate recorded in
 a group, and entangling gates are never recorded there -- they open a new
 group instead. So you get two nested entangled groups over q0, q1 and q2, and

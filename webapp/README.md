@@ -28,7 +28,7 @@ on every request. Loading an example or uploading a file sets the dropdown from
 the file's extension; nothing else moves it, so a circuit is never executed
 because something inferred that it was Python.
 
-If the text and the choice disagree, the error says so -- analysing OpenQASM as
+If the text and the choice disagree, the error says so -- analyzing OpenQASM as
 Qiskit reports a Python syntax error with a hint to switch the dropdown -- but
 the switch is yours to make.
 
@@ -98,19 +98,19 @@ it the filename extension decides -- but the page always sends it.
 `/api/analyze` returns nodes, edges, entanglement groups, lint diagnostics and
 a `token`. The token names the QPDG cached server-side, so slicing never
 re-executes the submitted program. The cache holds the 24 most recent analyses
-in memory; after a server restart the client is told to analyse again.
+in memory; after a server restart the client is told to analyze again.
 
 ## Layout
 
 ```
 webapp/
 ├── app.py          Flask routes and the JSON API
-├── analysis.py     bridge to scripts/ -- route, parse, build QPDG, slice, serialise
+├── analysis.py     bridge to scripts/ -- route, parse, build QPDG, slice, serialize
 ├── parse_worker.py the child process that runs a submitted .py file
 ├── capture_io.py   shim that keeps the stdout the Qiskit parser discards
 ├── lint.py         AST-based static checks (the LintQ stand-in)
 ├── gates.py        gate reference used by the hover cards and the glossary
-├── examples.py     reads the example catalogue (module, not the directory)
+├── examples.py     reads the example catalog (module, not the directory)
 ├── examples/       the example circuits themselves, plus manifest.json
 ├── team.py         team page content  <-- placeholder data, edit this
 ├── tools_make_hero_figure.py   regenerates the landing page's graph figure
@@ -118,7 +118,7 @@ webapp/
 └── static/
     ├── css/style.css
     └── js/
-        ├── swatches.js  shared dependency colours
+        ├── swatches.js  shared dependency colors
         ├── highlight.js the editor's syntax highlighter (Python and OpenQASM)
         ├── graph.js     the SVG graph: pan, zoom, drag, hover, PNG export
         └── slicer.js    page controller
@@ -139,7 +139,7 @@ with no manifest entry still appears, under "Unsorted". A `.py` file needs a
 module-level `QuantumCircuit`, since that is what the parser looks for; a
 `.qasm` file needs to be OpenQASM 3.
 
-Every claim in a docstring or blurb was checked against what the analyser
+Every claim in a docstring or blurb was checked against what the analyzer
 actually returns — including the two that turned out to be wrong on the first
 pass — so if you change a circuit, re-check its text.
 
@@ -153,7 +153,7 @@ in through `scripts/Parsers/openqasmparser.py`, which the web layer does not
 call yet.
 
 The circuits under `Attachments/Sample Code` are untouched and still drive the
-command-line visualiser. The site no longer lists them: two are named after
+command-line visualizer. The site no longer lists them: two are named after
 the opposite of what they contain (`entanglement.py` has no two-qubit gate,
 `independence.py` is a Bell pair) and `test.py` is a pytest module with no
 module-level circuit.
@@ -182,16 +182,16 @@ so only its caret and selection show. Every property that decides where a glyph
 lands -- font, size, line height, padding, wrapping -- is set once on
 `.editor-body` as a custom property and used by both.
 
-`static/js/highlight.js` is the tokeniser: about 180 lines, two languages, no
+`static/js/highlight.js` is the tokenizer: about 180 lines, two languages, no
 Prism or highlight.js, for the same reason there is no KaTeX. It knows comments,
 strings (including triple-quoted ones spanning lines), numbers, keywords,
-builtins, decorators, definitions, and **gate names**, which get their own colour
+builtins, decorators, definitions, and **gate names**, which get their own color
 because in a circuit file they are what you are reading for. The gate list is
-kept in step with `gates.py` by hand; a name missing from it is simply coloured
+kept in step with `gates.py` by hand; a name missing from it is simply colored
 as an ordinary call.
 
-Which tokeniser runs follows the Interpreter dropdown, and re-colouring happens
-immediately when you change it -- colouring is a reading aid, so it does not
+Which tokenizer runs follows the Interpreter dropdown, and re-coloring happens
+immediately when you change it -- coloring is a reading aid, so it does not
 wait for Analyze the way the Follow chips do.
 
 The gutter renders one element per line and matches each number's height to its
@@ -200,11 +200,11 @@ fractions, not `offsetHeight`: rounding each line drifts the gutter by several
 pixels by the bottom of a file.
 
 Two guards keep typing responsive, since each render is one DOM element per line:
-files over 20 KB re-colour on a pause in typing rather than on every keystroke
+files over 20 KB re-color on a pause in typing rather than on every keystroke
 (about 2 ms a keystroke in a 2000-line file, against 400 ms without it), and
-files over 120 KB are not coloured at all.
+files over 120 KB are not colored at all.
 
-## Maths notation
+## Math notation
 
 Gate descriptions and matrices are written in a small LaTeX-shaped markup and
 rendered by `static/js/mathfmt.js` — about 200 lines, no KaTeX, no CDN, so the
@@ -218,7 +218,7 @@ site still works offline.
 - `\matrix{a & b \\ c & d}` -- matrix with brackets that stretch to fit
 - `\cos`, `\sin`, `\exp`, `\text{...}` -- set upright rather than italic
 
-In prose, wrap maths in dollar signs:
+In prose, wrap math in dollar signs:
 
 ```
 Maps $|0>$ to $\frac{|0> + |1>}{\sqrt{2}}$.
@@ -241,7 +241,7 @@ visible instead of silent.
   highlight everything touching that qubit.
 * **Follow** chips choose which dependency kinds the traversal may use. They are
   passed to `SlicingCriterion.dep_types`, so this is the real filter, not a
-  display effect. The bar is empty until you analyse something, and is then
+  display effect. The bar is empty until you analyze something, and is then
   built from the rules that actually ran: the `baseline` profile offers four
   chips, not six, because it never runs the entanglement or phase rules. Each
   chip carries the number of edges its rule contributed, and a rule that ran
@@ -313,5 +313,5 @@ of the real thing:
 * Very large circuits (several hundred instructions) draw slowly, because every
   node and edge is a live DOM element. The Range control is the workaround.
 * Gate names come from the circuit *after* Qiskit has built and transpiled it,
-  so they may not match the source. That is the parser's behaviour, not the web
+  so they may not match the source. That is the parser's behavior, not the web
   layer's.

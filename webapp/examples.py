@@ -6,7 +6,7 @@ add an entry to the manifest. A file with no manifest entry still appears,
 grouped under "Unsorted", so nothing goes missing.
 
 The sample circuits under ``Attachments/Sample Code`` are left alone: they are
-what the command-line visualiser points at, and some of them are named after
+what the command-line visualizer points at, and some of them are named after
 something other than what they contain.
 
 Note that this module and the ``examples/`` data directory share a name. A
@@ -74,7 +74,7 @@ def _files_on_disk() -> List[str]:
     )
 
 
-def catalogue() -> List[Dict[str, Any]]:
+def catalog() -> List[Dict[str, Any]]:
     """Every example that exists on disk, in manifest order.
 
     Manifest entries whose file is missing are dropped; files missing from the
@@ -120,14 +120,14 @@ def catalogue() -> List[Dict[str, Any]]:
 
 
 def grouped() -> List[Dict[str, Any]]:
-    """The catalogue arranged into the manifest's categories, for optgroups."""
+    """The catalog arranged into the manifest's categories, for optgroups."""
     manifest = _read_manifest()
     categories = manifest.get("categories") or []
     order = {category["id"]: index for index, category in enumerate(categories)}
     titles = {category["id"]: category["title"] for category in categories}
 
     buckets: Dict[str, List[Dict[str, Any]]] = {}
-    for entry in catalogue():
+    for entry in catalog():
         buckets.setdefault(entry["category"], []).append(entry)
 
     groups = []
@@ -145,7 +145,7 @@ def load(key: str) -> Optional[Dict[str, Any]]:
     if key == _FALLBACK_ENTRY["key"]:
         return dict(_FALLBACK_ENTRY, filename="bell_pair.py", source=_FALLBACK_SOURCE)
 
-    for entry in catalogue():
+    for entry in catalog():
         if entry["key"] != key:
             continue
         if not entry["file"]:

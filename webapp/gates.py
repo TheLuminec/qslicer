@@ -3,9 +3,9 @@
 Used for the hover cards in the graph view and for the gate glossary on the
 quantum info page. Anything not listed here falls back to a generic entry.
 
-Maths notation
---------------
-``summary`` and ``detail`` are prose with inline maths between dollar signs;
+Math notation
+-------------
+``summary`` and ``detail`` are prose with inline math between dollar signs;
 ``matrix`` is a bare expression. Both are rendered by
 ``static/js/mathfmt.js``, whose docstring lists the markup it understands:
 
@@ -22,7 +22,7 @@ Keep these as raw strings so the backslashes survive.
 
 from typing import Any, Dict
 
-# Categories drive the node colour in the graph view.
+# Categories drive the node color in the graph view.
 SINGLE = "single-qubit"
 MULTI = "multi-qubit"
 MEASURE = "measurement"
@@ -37,7 +37,7 @@ _GATES: Dict[str, Dict[str, Any]] = {
         "summary": r"Puts a basis state into an equal superposition.",
         "detail": r"Maps $|0>$ to $\frac{|0> + |1>}{\sqrt{2}}$ and $|1>$ to "
                   r"$\frac{|0> - |1>}{\sqrt{2}}$. Two Hadamards in a row cancel, so the "
-                  r"entanglement analyser treats the second one as an uncomputation of the "
+                  r"entanglement analyzer treats the second one as an uncomputation of the "
                   r"first.",
         "matrix": r"\frac{1}{\sqrt{2}}\matrix{1 & 1 \\ 1 & -1}",
         "self_inverse": True,
@@ -108,7 +108,7 @@ _GATES: Dict[str, Dict[str, Any]] = {
         "detail": r"The angle comes from the first instruction parameter.",
         "matrix": r"\matrix{\cos\frac{\theta}{2} & -\i\sin\frac{\theta}{2} \\ "
                   r"-\i\sin\frac{\theta}{2} & \cos\frac{\theta}{2}}",
-        "phase": True,
+       
     },
     "ry": {
         "title": "RY(theta)", "category": SINGLE, "qubits": 1,
@@ -116,7 +116,7 @@ _GATES: Dict[str, Dict[str, Any]] = {
         "detail": r"The angle comes from the first instruction parameter.",
         "matrix": r"\matrix{\cos\frac{\theta}{2} & -\sin\frac{\theta}{2} \\ "
                   r"\sin\frac{\theta}{2} & \cos\frac{\theta}{2}}",
-        "phase": True,
+       
     },
     "rz": {
         "title": "RZ(theta)", "category": SINGLE, "qubits": 1,
@@ -128,32 +128,32 @@ _GATES: Dict[str, Dict[str, Any]] = {
     "p": {
         "title": "Phase(lambda)", "category": SINGLE, "qubits": 1,
         "summary": r"Adds a relative phase $\lambda$ to $|1>$.",
-        "detail": r"Generalises S and T to an arbitrary angle.",
+        "detail": r"Generalizes S and T to an arbitrary angle.",
         "matrix": r"\matrix{1 & 0 \\ 0 & e^{\i\lambda}}", "phase": True,
     },
     "u": {
         "title": "U(theta, phi, lambda)", "category": SINGLE, "qubits": 1,
         "summary": r"General single-qubit rotation.",
-        "detail": r"Every one-qubit gate can be written in this form. Transpilation often "
-                  r"rewrites source gates into u / u1 / u2 / u3, which is why the parsed names "
-                  r"sometimes differ from what you typed.",
+        "detail": r"Every one-qubit gate can be written in this form, up to a global phase. "
+                  r"Transpiled circuits are often expressed in u / u1 / u2 / u3, so a circuit "
+                  r"you transpiled yourself will show these names.",
         "matrix": r"\matrix{\cos\frac{\theta}{2} & -e^{\i\lambda}\sin\frac{\theta}{2} \\ "
                   r"e^{\i\phi}\sin\frac{\theta}{2} & e^{\i(\phi+\lambda)}\cos\frac{\theta}{2}}",
-        "phase": True,
+       
     },
     "u1": {
         "title": "U1(lambda)", "category": SINGLE, "qubits": 1,
-        "summary": r"Legacy phase gate emitted by transpilation.",
+        "summary": r"Legacy phase gate from older transpiler output.",
         "detail": r"Equivalent to $p(\lambda)$.",
         "matrix": r"\matrix{1 & 0 \\ 0 & e^{\i\lambda}}", "phase": True,
     },
     "u2": {
         "title": "U2(phi, lambda)", "category": SINGLE, "qubits": 1,
-        "summary": r"Legacy gate emitted by transpilation.",
+        "summary": r"Legacy gate from older transpiler output.",
         "detail": r"A Hadamard-like rotation carrying two phase angles.",
         "matrix": r"\frac{1}{\sqrt{2}}\matrix{1 & -e^{\i\lambda} \\ "
                   r"e^{\i\phi} & e^{\i(\phi+\lambda)}}",
-        "phase": True,
+       
     },
     "u3": {
         "title": "U3(theta, phi, lambda)", "category": SINGLE, "qubits": 1,
@@ -161,7 +161,7 @@ _GATES: Dict[str, Dict[str, Any]] = {
         "detail": r"The same operation as u.",
         "matrix": r"\matrix{\cos\frac{\theta}{2} & -e^{\i\lambda}\sin\frac{\theta}{2} \\ "
                   r"e^{\i\phi}\sin\frac{\theta}{2} & e^{\i(\phi+\lambda)}\cos\frac{\theta}{2}}",
-        "phase": True,
+       
     },
     "id": {
         "title": "Identity", "category": SINGLE, "qubits": 1,
@@ -175,10 +175,10 @@ _GATES: Dict[str, Dict[str, Any]] = {
         "category": MULTI,
         "qubits": 2,
         "summary": r"Flips the target when the control is $|1>$.",
-        "detail": r"The workhorse entangling gate. Applied to a control already in "
-                  r"superposition it produces $\frac{|00> + |11>}{\sqrt{2}}$, a Bell pair, "
+        "detail": r"The workhorse entangling gate. With the control in $\frac{|0> + |1>}{\sqrt{2}}$ "
+                  r"and the target in $|0>$ it produces $\frac{|00> + |11>}{\sqrt{2}}$, a Bell pair, "
                   r"which is where most entanglement groups are born.",
-        "matrix": r"\matrix{1 & 0 & 0 & 0 \\ 0 & 1 & 0 & 0 \\ 0 & 0 & 0 & 1 \\ 0 & 0 & 1 & 0}",
+        "matrix": r"\matrix{1 & 0 & 0 & 0 \\ 0 & 0 & 0 & 1 \\ 0 & 0 & 1 & 0 \\ 0 & 1 & 0 & 0}",
         "entangling": True,
         "self_inverse": True,
     },
@@ -186,8 +186,8 @@ _GATES: Dict[str, Dict[str, Any]] = {
         "title": "Controlled-Y", "category": MULTI, "qubits": 2,
         "summary": r"Applies Y to the target when the control is $|1>$.",
         "detail": r"Entangling.",
-        "matrix": r"\matrix{1 & 0 & 0 & 0 \\ 0 & 1 & 0 & 0 \\ 0 & 0 & 0 & -\i \\ 0 & 0 & \i & 0}",
-        "entangling": True,
+        "matrix": r"\matrix{1 & 0 & 0 & 0 \\ 0 & 0 & 0 & -\i \\ 0 & 0 & 1 & 0 \\ 0 & \i & 0 & 0}",
+        "entangling": True, "self_inverse": True,
     },
     "cz": {
         "title": "Controlled-Z", "category": MULTI, "qubits": 2,
@@ -199,29 +199,30 @@ _GATES: Dict[str, Dict[str, Any]] = {
     "ch": {
         "title": "Controlled-H", "category": MULTI, "qubits": 2,
         "summary": r"Hadamard on the target when the control is $|1>$.",
-        "detail": r"Entangling. The lower block is the Hadamard matrix.",
-        "matrix": r"\matrix{1 & 0 & 0 & 0 \\ 0 & 1 & 0 & 0 \\ "
-                  r"0 & 0 & \frac{1}{\sqrt{2}} & \frac{1}{\sqrt{2}} \\ "
-                  r"0 & 0 & \frac{1}{\sqrt{2}} & -\frac{1}{\sqrt{2}}}",
-        "entangling": True,
+        "detail": r"Entangling. The Hadamard acts on the amplitudes where the control is $|1>$.",
+        "matrix": r"\matrix{1 & 0 & 0 & 0 \\ "
+                  r"0 & \frac{1}{\sqrt{2}} & 0 & \frac{1}{\sqrt{2}} \\ "
+                  r"0 & 0 & 1 & 0 \\ "
+                  r"0 & \frac{1}{\sqrt{2}} & 0 & -\frac{1}{\sqrt{2}}}",
+        "entangling": True, "self_inverse": True,
     },
     "crx": {
         "title": "Controlled-RX", "category": MULTI, "qubits": 2,
         "summary": r"Conditional rotation of $\theta$ about X.",
-        "detail": r"Entangling. Identity on the $|0>$ block, $RX(\theta)$ on the $|1>$ block.",
-        "matrix": r"\text{diag}(I, RX(\theta))", "entangling": True, "phase": True,
+        "detail": r"Entangling. Identity where the control is $|0>$, $RX(\theta)$ where it is $|1>$.",
+        "matrix": r"I \otimes |0><0| + RX(\theta) \otimes |1><1|", "entangling": True,
     },
     "cry": {
         "title": "Controlled-RY", "category": MULTI, "qubits": 2,
         "summary": r"Conditional rotation of $\theta$ about Y.",
         "detail": r"Entangling.",
-        "matrix": r"\text{diag}(I, RY(\theta))", "entangling": True, "phase": True,
+        "matrix": r"I \otimes |0><0| + RY(\theta) \otimes |1><1|", "entangling": True,
     },
     "crz": {
         "title": "Controlled-RZ", "category": MULTI, "qubits": 2,
         "summary": r"Conditional rotation of $\theta$ about Z.",
         "detail": r"Entangling and phase-carrying.",
-        "matrix": r"\text{diag}(I, RZ(\theta))", "entangling": True, "phase": True,
+        "matrix": r"\text{diag}(1, e^{-\i\theta/2}, 1, e^{\i\theta/2})", "entangling": True, "phase": True,
     },
     "cp": {
         "title": "Controlled-phase", "category": MULTI, "qubits": 2,
@@ -235,7 +236,7 @@ _GATES: Dict[str, Dict[str, Any]] = {
         "title": "Controlled-sqrt(X)", "category": MULTI, "qubits": 2,
         "summary": r"Conditional half bit flip.",
         "detail": r"Entangling.",
-        "matrix": r"\text{diag}(I, \sqrt{X})", "entangling": True,
+        "matrix": r"I \otimes |0><0| + \sqrt{X} \otimes |1><1|", "entangling": True,
     },
     "ccx": {
         "title": "Toffoli (CCX)", "category": MULTI, "qubits": 3,
@@ -250,17 +251,19 @@ _GATES: Dict[str, Dict[str, Any]] = {
         "title": "3-controlled X", "category": MULTI, "qubits": 4,
         "summary": r"X with three controls.",
         "detail": r"Entangling.", "matrix": r"\text{permutation}", "entangling": True,
+        "self_inverse": True,
     },
     "c4x": {
         "title": "4-controlled X", "category": MULTI, "qubits": 5,
         "summary": r"X with four controls.",
         "detail": r"Entangling.", "matrix": r"\text{permutation}", "entangling": True,
+        "self_inverse": True,
     },
     "mcx": {
         "title": "Multi-controlled X", "category": MULTI, "qubits": 3,
         "summary": r"X with an arbitrary number of controls.",
-        "detail": r"Transpiles into a ladder of Toffolis, often with ancilla qubits.",
-        "matrix": r"\text{permutation}", "entangling": True,
+        "detail": r"Decomposes into a ladder of Toffolis, often with ancilla qubits.",
+        "matrix": r"\text{permutation}", "entangling": True, "self_inverse": True,
     },
     "swap": {
         "title": "SWAP", "category": MULTI, "qubits": 2,
@@ -293,25 +296,25 @@ _GATES: Dict[str, Dict[str, Any]] = {
         "title": "Echoed cross-resonance", "category": MULTI, "qubits": 2,
         "summary": r"Hardware-native entangling gate.",
         "detail": r"The basis two-qubit gate on several IBM devices.",
-        "matrix": r"\frac{1}{\sqrt{2}}(IX - XY)", "entangling": True,
+        "matrix": r"\frac{1}{\sqrt{2}}(IX - XY)", "entangling": True, "self_inverse": True,
     },
     "rxx": {
         "title": "RXX(theta)", "category": MULTI, "qubits": 2,
         "summary": r"XX interaction of angle $\theta$.",
         "detail": r"Entangling for most angles.",
-        "matrix": r"e^{-\i\theta(X \otimes X)/2}", "entangling": True, "phase": True,
+        "matrix": r"e^{-\i\theta(X \otimes X)/2}", "entangling": True,
     },
     "ryy": {
         "title": "RYY(theta)", "category": MULTI, "qubits": 2,
         "summary": r"YY interaction of angle $\theta$.",
         "detail": r"Entangling for most angles.",
-        "matrix": r"e^{-\i\theta(Y \otimes Y)/2}", "entangling": True, "phase": True,
+        "matrix": r"e^{-\i\theta(Y \otimes Y)/2}", "entangling": True,
     },
     "rzz": {
         "title": "RZZ(theta)", "category": MULTI, "qubits": 2,
         "summary": r"ZZ interaction of angle $\theta$.",
-        "detail": r"Entangling for most angles, and a phase gate as well. The cost layer of "
-                  r"QAOA is built from these.",
+        "detail": r"Entangling for most angles, and diagonal, so it only changes phases. The "
+                  r"cost layer of QAOA is built from these.",
         "matrix": r"e^{-\i\theta(Z \otimes Z)/2}", "entangling": True, "phase": True,
     },
 
@@ -323,7 +326,7 @@ _GATES: Dict[str, Dict[str, Any]] = {
         "detail": r"Irreversible. A state $\alpha|0> + \beta|1>$ reads 0 with probability "
                   r"$|\alpha|^{2}$ and 1 with probability $|\beta|^{2}$, and whatever it reads "
                   r"is what the qubit now is. Everything downstream that reads the classical "
-                  r"bit picks up a measurement dependency, and the entanglement analyser "
+                  r"bit picks up a measurement dependency, and the entanglement analyzer "
                   r"closes the group that contained the measured qubit.",
         "matrix": r"\text{not unitary}",
     },
@@ -356,21 +359,26 @@ _GATES: Dict[str, Dict[str, Any]] = {
     },
     "barrier": {
         "title": "Barrier", "category": BARRIER, "qubits": 0,
-        "summary": r"Optimisation fence and visual divider.",
+        "summary": r"Optimization fence and visual divider.",
         "detail": r"Carries no physics, but it does touch every qubit it spans, so it appears "
                   r"in the data-qubit chain and quietly links wires that never interact.",
         "matrix": r"\text{none}",
     },
     "init": {
-        "title": "Wire initialisation", "category": BARRIER, "qubits": 1,
+        "title": "Wire initialization", "category": BARRIER, "qubits": 1,
         "summary": r"Synthetic node for the $|0>$ state of a wire.",
-        "detail": r"Created by the entanglement analyser rather than by your program.",
+        "detail": r"Created by the entanglement analyzer rather than by your program.",
         "matrix": r"\text{none}",
     },
 }
 
-# The rule sets in scripts/Dependencies carry their own copies of these gate
-# lists; keep the two in step if either changes.
+# Flags use the standard physics meaning, not the dependency rules' gate sets
+# (those live in scripts/Dependencies and are expected to change):
+#   entangling    can create entanglement between the qubits it acts on
+#   phase         diagonal in the computational basis, so it only changes phases
+#   self_inverse  applying it twice is the identity
+# Multi-qubit matrices use Qiskit's little-endian ordering: the first qubit
+# argument is the least significant bit of the basis-state index.
 ENTANGLING = frozenset(name for name, info in _GATES.items() if info.get("entangling"))
 PHASE = frozenset(name for name, info in _GATES.items() if info.get("phase"))
 SELF_INVERSE = frozenset(name for name, info in _GATES.items() if info.get("self_inverse"))
@@ -386,7 +394,7 @@ def describe(name: str) -> Dict[str, Any]:
             "category": SINGLE,
             "qubits": 0,
             "summary": "No reference entry for this operation yet.",
-            "detail": "The parser took this name straight from the circuit. It is analysed "
+            "detail": "The parser took this name straight from the circuit. It is analyzed "
                       "normally; only the description is missing.",
             "matrix": r"\text{unknown}",
             "entangling": False,

@@ -1,7 +1,7 @@
 """GHZ state: entanglement spread across three qubits.
 
 The chain of CNOTs grows one entangled group outwards from q0. Measuring any
-one qubit collapses all three, which is why the entanglement analyser closes
+one qubit collapses all three, which is why the entanglement analyzer closes
 the whole group on the first measurement it sees.
 
 What to look for: the group in the Entanglement tab picks up a qubit at each

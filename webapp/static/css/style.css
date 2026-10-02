@@ -1,6 +1,6 @@
 /* ==========================================================================
    Quantum Program Slicer -- mock-up styles
-   Palette follows the desktop matplotlib visualisers so the two feel related.
+   Palette follows the desktop matplotlib visualizers so the two feel related.
    ========================================================================== */
 
 :root {
@@ -22,7 +22,7 @@
   --err:         #f38ba8;
   --info:        #89dceb;
 
-  /* Dependency edge colours, matching scripts/visualizer.py */
+  /* Dependency edge colors, matching scripts/visualizer.py */
   --dep-data-qubit:        #2196f3;
   --dep-entanglement:      #e91e63;
   --dep-measurement:       #4caf50;
@@ -42,7 +42,11 @@
 /* Our layout rules set display on elements we also toggle with [hidden]. */
 [hidden] { display: none !important; }
 
-html, body { height: 100%; }
+/* min-height, not height: a body capped at one viewport is the containing
+   block the sticky header is pinned within, so it would scroll away after
+   the first screen. */
+html { height: 100%; }
+body { min-height: 100%; }
 
 body {
   margin: 0;
@@ -213,7 +217,7 @@ input:focus-visible, select:focus-visible, button:focus-visible, textarea:focus-
 .hero-actions { display: flex; gap: 0.75rem; margin-top: 1.75rem; flex-wrap: wrap; }
 
 /* The hero figure is the graph view's own output, so it is styled to match:
-   same wires, same node colours, same in-slice blue and criterion orange. */
+   same wires, same node colors, same in-slice blue and criterion orange. */
 .hero-figure { margin: 0; }
 .hero-graph {
   width: 100%; height: auto;
@@ -260,7 +264,7 @@ input:focus-visible, select:focus-visible, button:focus-visible, textarea:focus-
 .lede-sub { color: var(--text-dim); max-width: 62ch; margin-top: -0.4rem; }
 
 /* The explainer: paired sections, two to a row. The pairs are deliberate --
-   classical against quantum, behaviour against representation -- so reading
+   classical against quantum, behavior against representation -- so reading
    across a row is as sensible as reading down the page. Collapses to one
    column when there is no room for two. */
 .explainer { background: var(--bg-sunken); border-block: 1px solid var(--line); }
@@ -485,7 +489,7 @@ body.page-slicer main { overflow: hidden; }
   -webkit-text-fill-color: var(--text-faint);
 }
 
-/* Token colours. Kept close to the node colours in the graph: gates are the
+/* Token colors. Kept close to the node colors in the graph: gates are the
    thing you are reading for, so they get the warm one. */
 .tok-comment   { color: #6c7086; font-style: italic; }
 .tok-string    { color: #a6e3a1; }
@@ -875,6 +879,8 @@ figcaption { font-size: 0.85rem; color: var(--text-faint); margin-top: 0.6rem; m
 .ref-table .off { color: var(--text-faint); white-space: nowrap; }
 .glossary-table td:first-child { white-space: nowrap; }
 .flags { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+.flags-cell { width: 1%; }
+.flags-cell .flag { white-space: nowrap; }
 
 .tool-list dt { font-weight: 600; color: var(--accent-2); margin-top: 0.9rem; }
 .tool-list dd { margin: 0.15rem 0 0; color: var(--text-dim); max-width: 68ch; }
@@ -883,7 +889,7 @@ figcaption { font-size: 0.85rem; color: var(--text-faint); margin-top: 0.6rem; m
 
 .team-hero { max-width: 1120px; margin: 0 auto; padding: 3.5rem 1.5rem 1.5rem; }
 .team-grid {
-  max-width: 1120px; margin: 0 auto; padding: 0 1.5rem;
+  max-width: 1120px; margin: 0 auto; padding: 0 1.5rem 4rem;
   display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem;
 }
 .member-card {
@@ -896,7 +902,6 @@ figcaption { font-size: 0.85rem; color: var(--text-faint); margin-top: 0.6rem; m
   display: grid; place-items: center; font-weight: 700; font-size: 1.2rem;
   margin-bottom: 0.8rem;
 }
-.avatar-advisor { background: var(--accent); color: #11111b; }
 .member-card h2 { font-size: 1.1rem; margin-bottom: 0.15rem; }
 .member-meta { font-size: 0.8rem; color: var(--accent-2); margin: 0 0 0.6rem; }
 .member-bio { font-size: 0.9rem; color: var(--text-dim); margin: 0; }
@@ -917,47 +922,6 @@ figcaption { font-size: 0.85rem; color: var(--text-faint); margin-top: 0.6rem; m
 }
 .vision-card p { margin: 0; color: var(--text-dim); font-size: 0.95rem; }
 
-.section-lede { color: var(--text-dim); max-width: 68ch; margin-top: -0.3rem; }
-
-.criteria-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;
-  margin-top: 1rem;
-}
-.criteria-card {
-  background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--radius); padding: 1.1rem 1.25rem;
-}
-.criteria-card h3 { color: var(--accent-2); }
-.criteria-list { list-style: none; margin: 0; padding: 0; }
-.criteria-list li {
-  display: flex; gap: 0.6rem; align-items: baseline;
-  font-size: 0.9rem; margin-bottom: 0.7rem; color: var(--text-dim);
-}
-.criteria-list li.done .criteria-mark { color: var(--ok); }
-.criteria-list li.pending { color: var(--text-faint); }
-.criteria-list li.pending .criteria-mark { color: var(--warn); }
-.criteria-mark { flex: none; font-weight: 700; }
-.criteria-note {
-  display: block; font-size: 0.8rem; color: var(--text-faint); margin-top: 0.15rem;
-}
-
-.plain-list { padding-left: 1.1rem; color: var(--text-dim); font-size: 0.92rem; }
-.plain-list li { margin-bottom: 0.35rem; }
-
-.advisor-block, .course-block { max-width: 1120px; margin: 0 auto; padding: 2.5rem 1.5rem 0; }
-.advisor-card {
-  display: flex; gap: 1.25rem; align-items: flex-start;
-  background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--radius); padding: 1.25rem;
-}
-.advisor-card h3 { margin-bottom: 0.15rem; }
-.course-block .console { max-height: none; }
-
-.placeholder-note {
-  max-width: 1120px; margin: 2.5rem auto 0; padding: 0 1.5rem 3rem;
-  font-size: 0.82rem; color: var(--text-faint); font-style: italic;
-}
-
 /* --------------------------------------------------------------- error -- */
 
 .error-page { max-width: 640px; margin: 0 auto; padding: 5rem 1.5rem; text-align: center; }
@@ -968,7 +932,7 @@ figcaption { font-size: 0.85rem; color: var(--text-faint); margin-top: 0.6rem; m
 
 @media (max-width: 1000px) {
   .hero { grid-template-columns: 1fr; padding-top: 2.5rem; }
-  .doc-layout { grid-template-columns: 1fr; gap: 1.5rem; }
+  .doc-layout { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
   .doc-toc { position: static; }
   .workbench { grid-template-columns: minmax(0, 1fr); height: auto; }
   .splitter { display: none; }
@@ -981,6 +945,8 @@ figcaption { font-size: 0.85rem; color: var(--text-faint); margin-top: 0.6rem; m
   .site-header { flex-direction: column; height: auto; gap: 0.5rem; padding: 0.7rem; position: static; }
   :root { --header-h: 0px; }
   h1 { font-size: 1.8rem; }
+  .pane-head { flex-wrap: wrap; gap: 0.4rem 1rem; }
+  .tabs { flex-wrap: wrap; }
   .hero h1 { font-size: 2rem; }
 }
 

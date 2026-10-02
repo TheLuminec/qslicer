@@ -19,7 +19,7 @@ _GATE_ARITY = {
     "cx": 2, "cy": 2, "cz": 2, "ch": 2, "swap": 2, "iswap": 2, "dcx": 2, "ecr": 2,
     "ccx": 3, "cswap": 3, "fredkin": 3, "toffoli": 3,
 }
-# Parameterised gates: (number of angle params, number of qubits).
+# Parameterized gates: (number of angle params, number of qubits).
 _PARAM_GATES = {
     "rx": (1, 1), "ry": (1, 1), "rz": (1, 1), "p": (1, 1), "u1": (1, 1),
     "u2": (2, 1), "u3": (3, 1), "u": (3, 1),
@@ -44,7 +44,16 @@ class _Finding(dict):
 
 
 def _const_int(node: ast.AST) -> Optional[int]:
-    """Return the value of an integer literal, or None if it is not one."""
+    """Return the value of an integer literal, or None if it is not one.
+
+    ``-1`` parses as a unary minus applied to a constant, so that is unwrapped too.
+    """
+    if (isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd))
+            and isinstance(node.operand, ast.Constant)):
+        value = _const_int(node.operand)
+        if value is None:
+            return None
+        return -value if isinstance(node.op, ast.USub) else value
     if isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(node.value, bool):
         return node.value
     return None
@@ -60,7 +69,7 @@ def _int_list(node: ast.AST) -> Optional[List[int]]:
 
 
 def _qubit_args(node: ast.AST) -> Optional[List[int]]:
-    """Normalise a gate argument into the list of qubit indices it names."""
+    """Normalize a gate argument into the list of qubit indices it names."""
     single = _const_int(node)
     if single is not None:
         return [single]
@@ -120,7 +129,7 @@ def check_source(source: str) -> List[Dict[str, Any]]:
             "line": exc.lineno or 0,
             "column": exc.offset or 0,
             "message": f"Python could not parse this file: {exc.msg}.",
-            "hint": "Fix the syntax error before the circuit can be analysed.",
+            "hint": "Fix the syntax error before the circuit can be analyzed.",
         }]
 
     collector = _CircuitCollector()
@@ -177,28 +186,35 @@ def _check_indices(collector: _CircuitCollector) -> List[Dict[str, Any]]:
             qargs = node.args[:arity]
             cargs = []
 
+        # Qiskit indexes qubits like a Python list: -1 is the last qubit, and
+        # anything below -num_qubits is out of range.
+        num_qubits = circuit["num_qubits"]
         seen_in_call: List[int] = []
+        scalar_args = True
         for arg in qargs:
             indices = _qubit_args(arg)
             if indices is None:
+                scalar_args = False
                 continue
+            if _const_int(arg) is None:
+                scalar_args = False        # a list broadcasts; repeats are not a clash
             for index in indices:
-                if index < 0:
-                    findings.append(_Finding(
-                        "QS002", "error", node,
-                        f"Negative qubit index {index} passed to {method}().",
-                        "Qubit indices start at 0.",
-                    ))
-                elif circuit["num_qubits"] is not None and index >= circuit["num_qubits"]:
+                if num_qubits is not None and not -num_qubits <= index < num_qubits:
                     findings.append(_Finding(
                         "QS002", "error", node,
                         f"{method}() uses qubit {index}, but {circuit['name']} only declares "
-                        f"{circuit['num_qubits']} qubit(s) (0-{circuit['num_qubits'] - 1}).",
+                        f"{num_qubits} qubit(s) (0-{num_qubits - 1}, or -{num_qubits}--1 "
+                        "counting from the end).",
                         "Widen the register or correct the index.",
                     ))
-                seen_in_call.append(index)
+                    scalar_args = False
+                elif num_qubits is None and index < 0:
+                    scalar_args = False    # cannot tell which qubit it wraps to
+                else:
+                    seen_in_call.append(index % num_qubits if index < 0 else index)
 
-        if len(seen_in_call) != len(set(seen_in_call)) and method in _GATE_ARITY and _GATE_ARITY[method] > 1:
+        gate_qubits = param_spec[1] if param_spec is not None else (arity or 0)
+        if scalar_args and gate_qubits > 1 and len(seen_in_call) != len(set(seen_in_call)):
             findings.append(_Finding(
                 "QS003", "error", node,
                 f"{method}() names the same qubit more than once ({seen_in_call}).",
@@ -347,7 +363,7 @@ def _check_self_inverse_pairs(collector: _CircuitCollector) -> List[Dict[str, An
                 "QS010", "info", call["node"],
                 f"{method}() repeats the identical call from line "
                 f"{previous['node'].lineno}; the pair cancels.",
-                "The entanglement analyser reads this as an uncomputation. If that is what you "
+                "The entanglement analyzer reads this as an uncomputation. If that is what you "
                 "meant, fine -- if not, one of the two is probably a typo.",
             ))
         previous = {"signature": signature, "node": call["node"]}

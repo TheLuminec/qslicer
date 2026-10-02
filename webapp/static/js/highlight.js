@@ -2,7 +2,7 @@
    A small syntax highlighter for the editor pane.
 
    Two languages, because the editor accepts two: Python (Qiskit) and
-   OpenQASM 3. It is a tokeniser, not a parser -- it knows nothing about scope
+   OpenQASM 3. It is a tokenizer, not a parser -- it knows nothing about scope
    or types, and it is not trying to. Getting a comment, a string, a keyword
    and a gate name apart is most of the readability win.
 
@@ -17,9 +17,9 @@
 (function () {
   'use strict';
 
-  /* Gate names get their own colour: in a circuit file they are the thing you
+  /* Gate names get their own color: in a circuit file they are the thing you
      are actually reading. Kept in step with webapp/gates.py by hand -- a name
-     missing here is simply coloured as an ordinary call. */
+     missing here is simply colored as an ordinary call. */
   var GATE_NAMES = {};
   ('h x y z s sdg t tdg sx sxdg id p u u1 u2 u3 rx ry rz ' +
    'cx cy cz ch cp crx cry crz csx cu cu1 cu3 swap iswap dcx ecr ' +
@@ -55,7 +55,7 @@
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  /* --------------------------------------------------------- tokenising -- */
+  /* --------------------------------------------------------- tokenizing -- */
 
   /* Each rule is [class, sticky regex]. Order matters: whatever can swallow
      another construct has to come first, which is why comments and strings
@@ -104,7 +104,7 @@
           finalClass = classify(value, previousWord);
           previousWord = value;
         } else if (cls === 'tok-call') {
-          // The dot stays plain; only the name after it is coloured.
+          // The dot stays plain; only the name after it is colored.
           var name = value.slice(1);
           tokens.push({ cls: null, value: '.' });
           tokens.push({

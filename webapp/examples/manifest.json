@@ -1,9 +1,9 @@
 {
   "_comment": [
-    "Catalogue for the examples dropdown on the slicer page.",
+    "Catalog for the examples dropdown on the slicer page.",
     "To add a circuit: drop a .py file in this directory and add an entry here.",
     "A .py file with no entry still shows up, under 'Unsorted', using its filename.",
-    "Every entry's claims were checked against the analyser's actual output;",
+    "Every entry's claims were checked against the analyzer's actual output;",
     "if you change a circuit, re-check its blurb.",
     "A .qasm entry goes to the OpenQASM front end, which parses without executing."
   ],
@@ -171,7 +171,7 @@
       "file": "uncomputation.py",
       "category": "analysis",
       "title": "Uncomputation (detected)",
-      "blurb": "An adjacent pair of identical single-qubit gates, which the analyser does record as uncomputation.",
+      "blurb": "An adjacent pair of identical single-qubit gates, which the analyzer does record as uncomputation.",
       "highlight": "Try: instruction #3 under 'uncomputed' in the Entanglement tab."
     },
     {
@@ -179,7 +179,7 @@
       "file": "ancilla_uncompute.py",
       "category": "analysis",
       "title": "Ancilla uncompute (missed)",
-      "blurb": "The same idea with Toffolis, which the analyser does not catch yet -- a known gap, not a bug in the circuit.",
+      "blurb": "The same idea with Toffolis, which the analyzer does not catch yet -- a known gap, not a bug in the circuit.",
       "highlight": "Try: compare its groups with uncomputation.py."
     },
     {
@@ -195,7 +195,7 @@
       "file": "linter_showcase.py",
       "category": "analysis",
       "title": "Static-check showcase",
-      "blurb": "Runs fine, but trips three checks: no measurement, an idle qubit, and a cancelling gate pair.",
+      "blurb": "Runs fine, but trips three checks: no measurement, an idle qubit, and a canceling gate pair.",
       "highlight": "Try: read the Diagnostics panel rather than the graph."
     },
     {

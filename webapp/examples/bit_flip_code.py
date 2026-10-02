@@ -1,7 +1,7 @@
 """Three-qubit bit-flip code: detect and repair a single X error.
 
 The logical qubit is spread across q0..q2. Two ancillas measure the parity of
-neighbouring pairs, which identifies which qubit flipped without ever learning
+neighboring pairs, which identifies which qubit flipped without ever learning
 the logical state itself. The correction is applied conditionally.
 
 An X error is injected on q1 on purpose. Move it to q0 or q2 and the syndrome

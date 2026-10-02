@@ -1,4 +1,4 @@
-/* Dependency colours, shared by the graph, the legend chips and the reference
+/* Dependency colors, shared by the graph, the legend chips and the reference
    tables. These match the palette in scripts/visualizer.py so a screenshot from
    the web view and one from the desktop viewer can sit side by side. */
 

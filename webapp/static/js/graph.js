@@ -546,8 +546,8 @@
   /* ----------------------------------------------------- png download --- */
 
   /* The live SVG is styled by the page stylesheet and by CSS variables, neither
-     of which survives serialisation, so the clone gets its own literal
-     stylesheet before it is rasterised. */
+     of which survives serialization, so the clone gets its own literal
+     stylesheet before it is rasterized. */
   var EXPORT_CSS = [
     '.lane-line { stroke: #313244; stroke-width: 1; stroke-dasharray: 3 5; }',
     '.lane-label { fill: #7f849c; font-size: 10px; font-family: monospace; }',
@@ -601,7 +601,7 @@
       ctx.drawImage(image, 0, 0, width, height);
       canvas.toBlob(function (blob) { callback(null, blob); }, 'image/png');
     };
-    image.onerror = function () { callback(new Error('Could not rasterise the graph.')); };
+    image.onerror = function () { callback(new Error('Could not rasterize the graph.')); };
     image.src = url;
   };
 

@@ -4,6 +4,32 @@ import runpy
 import io
 from contextlib import redirect_stdout
 from qiskit import QuantumCircuit
+from qiskit.circuit import ClassicalRegister, Clbit
+from qiskit.circuit.classical import expr
+
+def _condition_clbits(circuit: QuantumCircuit, condition) -> list:
+    """Indices of the classical bits a condition reads.
+
+    A condition is ``(Clbit, value)``, ``(ClassicalRegister, value)``, or a
+    classical expression; only the bits it actually names are returned.
+    """
+    if condition is None:
+        return []
+    if isinstance(condition, tuple):
+        targets = [condition[0]]
+    else:
+        targets = [var.var for var in expr.iter_vars(condition)]
+
+    indices = []
+    for target in targets:
+        bits = list(target) if isinstance(target, ClassicalRegister) else [target]
+        for bit in bits:
+            if isinstance(bit, Clbit):
+                index = circuit.find_bit(bit).index
+                if index not in indices:
+                    indices.append(index)
+    return indices
+
 
 class QiskitParser(AbstractParser):
     """
@@ -32,21 +58,16 @@ class QiskitParser(AbstractParser):
         )
 
         # Iterate over instructions
-        for instruction, qargs, cargs in circuit.data:
-            # Support both Qiskit 0.x (instruction is the gate) and 1.x (instruction is CircuitInstruction)
-            op = getattr(instruction, 'operation', instruction)
+        for instruction in circuit.data:
+            op = instruction.operation
             name = op.name
-            qubits = [circuit.qubits.index(q) for q in qargs]
-            clbits = [circuit.clbits.index(c) for c in cargs]
+            qubits = [circuit.find_bit(q).index for q in instruction.qubits]
+            clbits = [circuit.find_bit(c).index for c in instruction.clbits]
             params = list(op.params)
 
-            # Extract c_if classical condition if present
+            # Classical condition, e.g. from `with qc.if_test((clbit, value))`
             condition_raw = getattr(op, 'condition', None)
-            condition_clbits = []
-            if condition_raw is not None:
-                reg, _ = condition_raw  # (ClassicalRegister, int_value)
-                for clbit in reg._register:
-                    condition_clbits.append(circuit.clbits.index(clbit))
+            condition_clbits = _condition_clbits(circuit, condition_raw)
 
             ir_instr = QuantumInstruction(
                 name=name,
@@ -73,7 +94,7 @@ class QiskitParser(AbstractParser):
                 # Execute the file to get its namespace
                 result = runpy.run_path(path)
             except Exception as e:
-                raise ValueError(f"Failed to execute the script for parsing: {e}")
+                raise ValueError(f"Failed to execute the script for parsing: {e}") from e
                 
         # Find all QuantumCircuit objects in the script's namespace
         circuits = [v for k, v in result.items() if isinstance(v, QuantumCircuit)]

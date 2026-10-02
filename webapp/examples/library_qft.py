@@ -1,6 +1,6 @@
 """The same QFT, taken from qiskit.circuit.library instead of written out.
 
-qiskit.circuit.library is a catalogue of ready-made circuits: QFT, Grover
+qiskit.circuit.library is a catalog of ready-made circuits: QFT, Grover
 operators, arithmetic blocks, variational ansatze. Composing one in is the
 normal way to build a real program.
 

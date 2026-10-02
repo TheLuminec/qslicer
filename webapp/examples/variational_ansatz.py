@@ -2,7 +2,7 @@
 
 Hardware-efficient ansatze like this one are the workhorse of VQE and QAOA:
 layers of single-qubit rotations separated by a fixed entangling pattern, with
-a classical optimiser choosing the angles.
+a classical optimizer choosing the angles.
 
 What to look for: lots of rotation gates, so a good test of how the graph
 handles parameters, and of a phase rule if you enable one. Also note that the

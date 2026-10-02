@@ -30,7 +30,7 @@
   {% if not backend_ok %}
   <div class="banner banner-warning" role="status">
     <strong>Analysis backend unavailable.</strong>
-    The pages render, but circuits cannot be analysed until the dependencies are installed.
+    The pages render, but circuits cannot be analyzed until the dependencies are installed.
     <code>{{ backend_error }}</code>
   </div>
   {% endif %}
@@ -46,7 +46,7 @@
       <a href="{{ url_for('team') }}">Who built it</a>
     </p>
     <p class="footnote">
-      Analysing a circuit runs the submitted Python file. Intended for local use.
+      Analyzing a Python circuit runs the submitted file. Intended for local use.
     </p>
   </footer>
 

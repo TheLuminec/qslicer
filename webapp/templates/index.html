@@ -105,7 +105,7 @@
         </svg>
     <figcaption class="figure-caption">
       <strong>Superdense coding.</strong> A backward slice from the measurement of q1
-      (orange) reaches five of the seven instructions. The two greyed instructions only touch
+      (orange) reaches five of the seven instructions. The two grayed-out instructions only touch
       q0, after the last operation that could still reach q1 &mdash; so neither of them can
       have affected the result being measured.
     </figcaption>
@@ -141,8 +141,8 @@
         <strong>qubits</strong>.
       </p>
       <p>
-        These fundamental units of quantum information exist in a <strong>superposition</strong>,
-        where a qubit can simultaneously be 0 and 1. Rather than representing several classical
+        These fundamental units of quantum information can be in a <strong>superposition</strong>,
+        a weighted combination of 0 and 1 that only settles on one value when it is measured. Rather than representing several classical
         values as separate pieces of data, a quantum state can encode a combination of possible
         outcomes that is manipulated by quantum operations.
       </p>
@@ -151,11 +151,11 @@
     <article class="explainer-section">
       <h2>You read probabilities, not answers</h2>
       <p>
-        Since a quantum program can produce every possible answer to a calculation, the output
-        cannot simply be the list of solutions to a problem. Instead, quantum operations modify
+        A quantum program does not try every answer at once and hand back the right one. Each
+        run ends in a single measured result, so instead, quantum operations modify
         the probabilities associated with possible outcomes. Quantum algorithms are designed so
         that useful outcomes can be amplified while undesirable outcomes are reduced or
-        cancelled through the behavior of quantum states.
+        canceled through the behavior of quantum states.
       </p>
       <p>
         When a qubit is measured, its quantum state produces a classical result. Repeated
@@ -173,7 +173,7 @@
         information, and classical information can subsequently influence other operations.
       </p>
       <p>
-        These circuits can become <strong>entangled</strong>. Entanglement occurs when the
+        The qubits in these circuits can become <strong>entangled</strong>. Entanglement occurs when the
         states of multiple qubits become related in a way that cannot be described by
         considering each qubit independently. What happens to one qubit in an entangled group
         is therefore vital to understanding the others.

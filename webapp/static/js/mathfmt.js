@@ -37,7 +37,7 @@
     langle: '⟨', rangle: '⟩', half: '½'
   };
 
-  // Function names are set upright, the way they are in printed maths.
+  // Function names are set upright, the way they are in printed math.
   var FUNCTIONS = ['cos', 'sin', 'tan', 'exp', 'log', 'det', 'diag', 'Tr', 'max', 'min'];
 
   var LKET = '|';        // vertical bar
@@ -50,7 +50,7 @@
       .replace(/"/g, '&quot;');
   }
 
-  /* Read a {...} group starting at src[index] (which must be '{'), honouring
+  /* Read a {...} group starting at src[index] (which must be '{'), honoring
      nesting. Returns [contents, indexAfterClosingBrace]. */
   function readGroup(src, index) {
     if (src[index] !== '{') {

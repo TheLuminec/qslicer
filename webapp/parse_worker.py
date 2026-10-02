@@ -101,10 +101,46 @@ def main(argv):
     return 0 if payload["ok"] else 1
 
 
+MAX_TRACEBACK_LINES = 20
+
+
+def _user_traceback(exc, circuit_path):
+    """The traceback of the exception the submitted file raised, from its frames on.
+
+    The parser re-raises the program's exception wrapped in a ValueError, so the
+    interesting frames sit in an earlier exception of the chain. Returns None
+    when no exception in the chain passed through the submitted file.
+    """
+    chain = []
+    while exc is not None and exc not in chain:
+        chain.append(exc)
+        exc = exc.__cause__ or exc.__context__
+    for candidate in reversed(chain):          # innermost (original) first
+        stack = traceback.extract_tb(candidate.__traceback__)
+        starts = [i for i, frame in enumerate(stack) if frame.filename == circuit_path]
+        if starts:
+            lines = ["Traceback (most recent call last):"]
+            for frame in traceback.format_list(stack[starts[0]:]):
+                lines.extend(frame.rstrip("\n").splitlines())
+            for text in traceback.format_exception_only(type(candidate), candidate):
+                lines.extend(text.rstrip("\n").splitlines())
+            return lines
+    return None
+
+
 def _clean_traceback(circuit_path):
-    """Trim the traceback to the tail, with absolute paths taken out."""
+    """The traceback from the submitted file's frames on, with absolute paths taken out.
+
+    Falls back to the tail of the full traceback when the error did not pass
+    through the submitted file. Long tracebacks keep their first frame (the
+    user's line) and their tail.
+    """
     display = os.path.basename(circuit_path)
-    lines = traceback.format_exc().splitlines()[-12:]
+    lines = _user_traceback(sys.exc_info()[1], circuit_path)
+    if lines is None:
+        lines = traceback.format_exc().splitlines()[-12:]
+    elif len(lines) > MAX_TRACEBACK_LINES:
+        lines = lines[:3] + ["  ..."] + lines[-(MAX_TRACEBACK_LINES - 4):]
     return [
         line.replace(circuit_path, display)
             .replace(REPO_ROOT + os.sep, "")
