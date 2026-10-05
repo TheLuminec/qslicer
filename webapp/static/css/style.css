@@ -449,6 +449,18 @@ body.page-slicer main { overflow: hidden; }
 .gutter-line { white-space: pre; }
 .gutter-line.err-line { color: var(--err); font-weight: 700; }
 
+/* Source lines linked to the graph (FR-07): the hovered node's line, the lines
+   a slice covers, the criterion's line, and a line picked from the gutter. */
+.gutter.linked .gutter-line { cursor: pointer; }
+.gutter.linked .gutter-line:hover { color: var(--accent); }
+.gutter-line.src-slice { color: var(--in-slice); font-weight: 700; }
+.gutter-line.src-criterion { color: var(--criterion); font-weight: 700; }
+.gutter-line.src-picked { color: var(--accent); font-weight: 700; }
+.hl-line.src-slice { background: rgba(74, 144, 217, 0.16); }
+.hl-line.src-criterion { background: rgba(255, 107, 53, 0.22); }
+.hl-line.src-picked { background: rgba(137, 180, 250, 0.16); }
+.hl-line.src-hover { background: rgba(255, 255, 255, 0.10); box-shadow: inset 3px 0 0 var(--accent); }
+
 .editor-input { position: relative; flex: 1 1 auto; min-width: 0; }
 
 .editor-highlight {
@@ -675,6 +687,9 @@ body.page-slicer main { overflow: hidden; }
 #graph .node.dimmed { opacity: 0.22; }
 #graph .node.hovered .node-shape { stroke: #fff; stroke-width: 2.5; }
 #graph .node.qubit-selected .node-shape { stroke: var(--criterion); stroke-width: 2.5; }
+#graph .node .node-line { fill: var(--text-faint); font-size: 9px; font-family: var(--mono); text-anchor: middle; pointer-events: none; }
+#graph .node.marked .node-shape { stroke: var(--accent); stroke-width: 3; }
+#graph .node.marked .node-line { fill: var(--accent); font-weight: 700; }
 
 /* status bar */
 
@@ -697,6 +712,9 @@ body.page-slicer main { overflow: hidden; }
 .instr-table tr.in-slice td { color: var(--accent); }
 .instr-table tr.criterion td { background: rgba(255, 107, 53, 0.14); color: #fff; }
 .instr-table .tick { color: var(--ok); }
+.instr-table .line-cell { color: var(--text-faint); white-space: nowrap; }
+.instr-table .line-link { color: var(--accent); cursor: pointer; text-decoration: underline dotted; }
+.instr-table tr.marked td { background: rgba(137, 180, 250, 0.12); }
 
 .qubit-filter .chip { font-family: var(--mono); }
 

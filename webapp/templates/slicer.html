@@ -35,7 +35,7 @@
       <label class="field field-narrow">
         <span>Interpreter</span>
         <select id="interpreter-select"
-                title="Qiskit (Python) executes the file to reach the circuit it builds. Qiskit (Python, static) rebuilds the circuit by reading the file without running it. OpenQASM is parsed as text and never executed.">
+                title="Qiskit (Python) executes the file to reach the circuit it builds. Qiskit (Python, static) rebuilds the circuit by reading the file without running it. OpenQASM 3 is parsed as text through Qiskit; OpenQASM 2/3 (static) is interpreted without Qiskit. The two static options link every instruction back to its source line.">
           {% for option in interpreters %}
             <option value="{{ option.id }}" {{ 'selected' if option.default else '' }}>{{ option.label }}</option>
           {% endfor %}
@@ -192,7 +192,7 @@
       <div class="table-scroll">
         <table class="instr-table">
           <thead>
-            <tr><th>#</th><th>Gate</th><th>Qubits</th><th>Clbits</th><th>Params</th><th>In slice</th></tr>
+            <tr><th>#</th><th>Gate</th><th>Qubits</th><th>Clbits</th><th>Params</th><th>Line</th><th>In slice</th></tr>
           </thead>
           <tbody id="instr-body">
             <tr><td colspan="6" class="placeholder">No instructions yet.</td></tr>

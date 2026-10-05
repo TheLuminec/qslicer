@@ -72,7 +72,45 @@ qc = QuantumCircuit(1)
 qc.rz(np.pi / 4, 0)
 """).program
     assert program[0].params == [pytest.approx(math.pi / 4)]
-    assert program[0].metadata["lineno"] == 4
+    location = program[0].location
+    assert (location.line, location.column, location.end_line, location.end_column) == (4, 0, 4, 19)
+    assert location.via == ()
+
+
+@pytest.mark.requirement("FR-07")
+def test_locations_follow_calls_loops_and_blocks():
+    program = parse("""from qiskit import QuantumCircuit
+def entangle(circuit, a, b):
+    circuit.h(a)
+    circuit.cx(a, b)
+
+qc = QuantumCircuit(3, 1)
+entangle(qc, 0, 1)
+for q in range(2):
+    qc.x(q)
+qc.measure(0, 0)
+with qc.if_test((qc.clbits[0], 1)):
+    qc.z(2)
+""").program
+    lines = [(i.name, i.location.line, i.location.via) for i in program.instructions]
+    assert lines == [("h", 3, (7,)), ("cx", 4, (7,)), ("x", 9, ()), ("x", 9, ()),
+                     ("measure", 10, ()), ("if_else", 11, ())]
+    body = program[5].params[0]
+    assert body.data[0].location.line == 12
+
+
+@pytest.mark.requirement("FR-07")
+def test_composed_gates_keep_where_they_were_written():
+    program = parse("""from qiskit import QuantumCircuit
+from qiskit.circuit.library import QFT
+sub = QuantumCircuit(2)
+sub.cz(0, 1)
+qc = QuantumCircuit(2)
+qc.compose(sub, inplace=True)
+qc.compose(QFT(2).decompose(), inplace=True)
+""").program
+    assert program[0].location.line == 4          # where the cz was written
+    assert {i.location.line for i in program.instructions[1:]} == {7}   # library gates: the compose
 
 
 def test_loops_functions_and_comprehensions():

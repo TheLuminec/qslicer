@@ -21,7 +21,10 @@
     activeDeps: null,   // Set of dependency names
     basis: 'z',
     busy: false,
-    sliceSeq: 0        // guards against an older slice response landing last
+    sliceSeq: 0,       // guards against an older slice response landing last
+    // FR-07: which source lines are linked to the graph right now. Cleared
+    // whenever the text changes, since the payload no longer describes it.
+    source: { linked: false, hover: [], slice: [], criterion: [], picked: null }
   };
 
   var graph = null;
@@ -32,9 +35,15 @@
     graph = new window.QGraph($('graph'), {
       onNodePick: pickCriterion,
       onQubitPick: pickQubit,
-      onHover: showTooltip,
+      onHover: function (node, event, html) {
+        showTooltip(node, event, html);
+        hoverSource(node);
+      },
       onHoverMove: moveTooltip,
-      onHoverEnd: hideTooltip
+      onHoverEnd: function () {
+        hideTooltip();
+        hoverSource(null);
+      }
     });
 
     wireEditor();
@@ -55,6 +64,7 @@
     var code = $('code');
 
     code.addEventListener('input', function () {
+      unlinkSource();
       scheduleEditorRender();
       // What is in the editor is no longer the example or file that was loaded,
       // so it goes back to being a pasted circuit. The interpreter stays as it
@@ -63,6 +73,12 @@
       state.filename = '';
     });
     code.addEventListener('scroll', syncEditorScroll);
+    $('gutter').addEventListener('click', function (event) {
+      var row = event.target.closest('.gutter-line');
+      if (!row) return;
+      var line = Array.prototype.indexOf.call($('gutter').children, row) + 1;
+      if (line > 0) pickLine(line);
+    });
     code.addEventListener('keydown', function (event) {
       if (event.key === 'Tab') {
         event.preventDefault();
@@ -188,12 +204,18 @@
   /* Both Qiskit parsers read .py files, so a Python file or example keeps
      whichever of the two is selected rather than resetting to the default. */
   function keepPythonParser(value) {
-    if (value === 'qiskit' && interpreter() !== 'qasm') return interpreter();
+    // Each language has an executing/importing route and a static one; a file
+    // of the same language keeps whichever of the two is selected.
+    if (isQasm(value) === isQasm(interpreter())) return interpreter();
     return value;
   }
 
+  function isQasm(value) {
+    return String(value || '').indexOf('qasm') === 0;
+  }
+
   function defaultFilename() {
-    return interpreter() === 'qasm' ? 'pasted_circuit.qasm' : 'pasted_circuit.py';
+    return isQasm(interpreter()) ? 'pasted_circuit.qasm' : 'pasted_circuit.py';
   }
 
   function announceInterpreter(switched) {
@@ -263,6 +285,7 @@
       .join('');
 
     renderGutter(sourceLines.length, errorLine || 0);
+    applySourceMarks();
     syncGutterHeights(sourceLines.length);
     syncEditorScroll();
     $('editor-meta').textContent =
@@ -337,7 +360,7 @@
 
   /* The Interpreter dropdown decides which tokenizer runs. */
   function highlightLanguage() {
-    return interpreter() === 'qasm' ? 'qasm' : 'python';
+    return isQasm(interpreter()) ? 'qasm' : 'python';
   }
 
   /* --------------------------------------------------------- toolbar ---- */
@@ -535,6 +558,8 @@
       ? formatErrorForConsole(data.error)
       : '(none)';
 
+    resetSourceLinks(data.ok && data.nodes.some(function (node) { return node.line; }));
+
     if (!data.ok) {
       state.payload = null;
       state.token = null;
@@ -684,6 +709,142 @@
     code.scrollTop = target ? Math.max(0, target.offsetTop - 60) : 0;
   }
 
+  /* ---------------------------------------------------- source links ---- */
+
+  /* FR-07: every node the static front ends produce knows the span of source
+     it came from. These keep the editor and the graph pointing at each other:
+     hovering a node lights its line, a slice paints every line it covers, and
+     clicking a line number marks the nodes that line produced. */
+
+  function spanLines(node) {
+    var lines = [];
+    if (!node || !node.source) return lines;
+    for (var line = node.source.line; line <= node.source.end_line; line++) lines.push(line);
+    return lines;
+  }
+
+  function resetSourceLinks(linked) {
+    state.source = { linked: !!linked, hover: [], slice: [], criterion: [], picked: null };
+    $('gutter').classList.toggle('linked', !!linked);
+    $('gutter').title = linked ? 'Click a line number to find the instructions it produced.' : '';
+    applySourceMarks();
+  }
+
+  function unlinkSource() {
+    if (!state.source.linked) return;
+    resetSourceLinks(false);
+    graph.setMarked(null);
+    markPickedInTable([]);
+  }
+
+  function hoverSource(node) {
+    if (!state.source.linked) return;
+    state.source.hover = spanLines(node);
+    applySourceMarks();
+  }
+
+  /* Paint the lines of a slice; returns them, sorted, for the status line. */
+  function sliceSource(ids, criterion) {
+    if (!state.source.linked || !state.payload) return [];
+    var nodes = state.payload.nodes;
+    var lines = {};
+    ids.forEach(function (id) {
+      spanLines(nodes[id]).forEach(function (line) { lines[line] = true; });
+    });
+    state.source.slice = Object.keys(lines).map(Number).sort(function (a, b) { return a - b; });
+    state.source.criterion = spanLines(nodes[criterion]);
+    applySourceMarks();
+    if (state.source.criterion.length) revealLine(state.source.criterion[0]);
+    return state.source.slice;
+  }
+
+  function pickLine(line) {
+    if (!state.source.linked || !state.payload) return;
+    if (state.source.picked === line) {
+      state.source.picked = null;
+      graph.setMarked(null);
+      markPickedInTable([]);
+      applySourceMarks();
+      setStatus('Click a gate to slice from it.');
+      return;
+    }
+    var ids = state.payload.nodes
+      .filter(function (node) { return spanLines(node).indexOf(line) !== -1; })
+      .map(function (node) { return node.id; });
+    state.source.picked = line;
+    graph.setMarked(ids);
+    markPickedInTable(ids);
+    applySourceMarks();
+    setStatus(ids.length
+      ? 'Line ' + line + ' produced ' + ids.length + ' instruction' + (ids.length === 1 ? '' : 's') +
+        ': #' + ids.join(', #') + '. Click one to slice from it; click the line number again to clear.'
+      : 'Line ' + line + ' produced no instructions.');
+  }
+
+  function markPickedInTable(ids) {
+    var picked = new Set(ids);
+    $('instr-body').querySelectorAll('tr').forEach(function (row) {
+      row.classList.toggle('marked', picked.has(parseInt(row.dataset.id, 10)));
+    });
+  }
+
+  var MARK_CLASSES = ['src-slice', 'src-criterion', 'src-picked', 'src-hover'];
+  var markedRows = [];          // line numbers currently carrying a mark
+
+  /* Re-applied after every editor render, which rebuilds the line elements. */
+  function applySourceMarks() {
+    var highlight = $('highlight').children;
+    var gutter = $('gutter').children;
+    markedRows.forEach(function (line) {
+      [highlight[line - 1], gutter[line - 1]].forEach(function (row) {
+        if (row) row.classList.remove.apply(row.classList, MARK_CLASSES);
+      });
+    });
+    markedRows = [];
+
+    var marks = {};
+    function add(lines, cls) {
+      lines.forEach(function (line) { (marks[line] = marks[line] || []).push(cls); });
+    }
+    add(state.source.slice, 'src-slice');
+    add(state.source.criterion, 'src-criterion');
+    if (state.source.picked) add([state.source.picked], 'src-picked');
+    add(state.source.hover, 'src-hover');
+
+    Object.keys(marks).forEach(function (key) {
+      var line = Number(key);
+      var row = highlight[line - 1];
+      if (row) row.classList.add.apply(row.classList, marks[key]);
+      var number = gutter[line - 1];
+      var gutterMarks = marks[key].filter(function (cls) { return cls !== 'src-hover'; });
+      if (number && gutterMarks.length) number.classList.add.apply(number.classList, gutterMarks);
+      markedRows.push(line);
+    });
+  }
+
+  /* Scroll the editor so a line is in view, without moving the caret. */
+  function revealLine(line) {
+    var code = $('code');
+    var target = $('highlight').children[line - 1];
+    if (!target) return;
+    var top = target.offsetTop;
+    if (top < code.scrollTop + 20 || top > code.scrollTop + code.clientHeight - 40) {
+      code.scrollTop = Math.max(0, top - 60);
+      syncEditorScroll();
+    }
+  }
+
+  /* [3, 5, 6, 7, 10] -> "lines 3, 5-7, 10" */
+  function formatLines(lines) {
+    var parts = [];
+    for (var i = 0; i < lines.length; i++) {
+      var start = lines[i];
+      while (i + 1 < lines.length && lines[i + 1] === lines[i] + 1) i++;
+      parts.push(start === lines[i] ? String(start) : start + '\u2013' + lines[i]);
+    }
+    return (lines.length === 1 ? 'line ' : 'lines ') + parts.join(', ');
+  }
+
   /* ----------------------------------------------------------- slice ---- */
 
   function pickCriterion(node) {
@@ -718,11 +879,13 @@
         graph.setSlice(data.slice, nodeIdx);
         markSliceInTable(data.slice, nodeIdx);
         var node = state.payload.nodes[nodeIdx];
+        var lines = sliceSource(data.slice, nodeIdx);
         var percent = Math.round((data.size / data.total) * 100);
         setStatus(
           data.direction + ' slice from #' + nodeIdx + ' (' + (node.short || node.label) + '): ' +
           data.size + ' of ' + data.total + ' instructions (' + percent + '%)' +
-          (data.dep_types ? ' following ' + data.dep_types.join(', ') : ' following all dependencies')
+          (data.dep_types ? ' following ' + data.dep_types.join(', ') : ' following all dependencies') +
+          (lines.length ? '; source ' + formatLines(lines) : '')
         );
       })
       .catch(function (error) {
@@ -737,7 +900,7 @@
     body.textContent = '';
 
     if (!data) {
-      body.innerHTML = '<tr><td colspan="6" class="placeholder">No instructions yet.</td></tr>';
+      body.innerHTML = '<tr><td colspan="7" class="placeholder">No instructions yet.</td></tr>';
       return;
     }
 
@@ -750,8 +913,21 @@
         '<td>' + (node.qubits.length ? 'q' + node.qubits.join(', q') : '—') + '</td>' +
         '<td>' + (node.clbits.length ? 'c' + node.clbits.join(', c') : '—') + '</td>' +
         '<td>' + (node.params.length ? escapeHtml(node.params.join(', ')) : '—') + '</td>' +
+        '<td class="line-cell">' + (node.source
+          ? '<span class="line-link" title="Show in the editor">' +
+            escapeHtml(window.describeSource(node.source)) + '</span>'
+          : '—') + '</td>' +
         '<td class="slice-cell"></td>';
       row.addEventListener('click', function () { requestSlice(node.id); });
+      row.addEventListener('mouseenter', function () { hoverSource(node); });
+      row.addEventListener('mouseleave', function () { hoverSource(null); });
+      var link = row.querySelector('.line-link');
+      if (link) {
+        link.addEventListener('click', function (event) {
+          event.stopPropagation();
+          jumpToLine(node.source.line);
+        });
+      }
       body.appendChild(row);
     });
   }
@@ -1066,6 +1242,7 @@
     state.token = null;
     state.criterion = null;
     state.selectedQubit = null;
+    resetSourceLinks(false);
     graph.clear();
     $('graph-empty').hidden = false;
     renderInstructions(null);

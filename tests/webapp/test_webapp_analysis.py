@@ -31,6 +31,8 @@ from webapp_helpers import GHZ_QASM
     ("circuit.py", "", "python"),
     ("circuit.py", "qiskit-static", "python-static"),
     ("", "static", "python-static"),
+    ("circuit.qasm", "qasm-static", "qasm-static"),
+    ("", "openqasm-static", "qasm-static"),
 ])
 def test_source_kind(filename, language, expected):
     assert analysis.source_kind(filename, language) == expected
@@ -83,8 +85,8 @@ def test_note_interpreter_mismatch_silent_when_consistent(source, kind):
 
 def test_interpreters_first_is_default():
     options = analysis.interpreters()
-    assert [o["id"] for o in options] == ["qiskit", "qiskit-static", "qasm"]
-    assert [o["default"] for o in options] == [True, False, False]
+    assert [o["id"] for o in options] == ["qiskit", "qiskit-static", "qasm", "qasm-static"]
+    assert [o["default"] for o in options] == [True, False, False, False]
     for option in options:
         assert set(option) == {"id", "label", "suffix", "note", "default"}
     # Calling it does not mutate the module constant.
@@ -183,7 +185,8 @@ def test_node_labels():
 # ----------------------------------------------------------- payloads --
 
 NODE_KEYS = {"id", "name", "label", "short", "qubits", "clbits", "params",
-             "condition_clbits", "lane", "gate", "category", "is_measurement"}
+             "condition_clbits", "lane", "gate", "category", "is_measurement",
+             "line", "source"}
 
 
 @pytest.mark.requirement("FR-07")

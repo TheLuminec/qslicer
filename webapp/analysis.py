@@ -18,6 +18,10 @@ Two front ends:
   files without executing them: StaticQiskitParser interprets the source
   itself and refuses, with a line number, anything it cannot work out. It runs
   alongside the executing route for now so the two can be compared.
+* **OpenQASM, static** (``language="qasm-static"``) interprets the reference
+  parser's syntax tree itself instead of going through ``qiskit.qasm3``. Like
+  the static Python route, it records where in the source every instruction
+  came from (FR-07); the two routes without that knowledge send no location.
 """
 
 import io
@@ -55,6 +59,7 @@ try:
     from entanglement import EntanglementAnalyzer
     from Parsers.openqasmparser import OpenQASMParser
     from Parsers.qiskitparser import QiskitParser
+    from Parsers.staticopenqasmparser import StaticOpenQASMParser
     from Parsers.staticqiskitparser import StaticParseError, StaticQiskitParser
     from qpdg import QPDG, get_rule_profile, list_rule_profiles
     from slicer import QuantumSlicer, SlicingCriterion
@@ -266,10 +271,10 @@ def _note_interpreter_mismatch(error: Dict[str, Any], source: str, kind: str) ->
     useful explanation than "invalid syntax".
     """
     looks_qasm = _looks_like_qasm(source)
-    if kind != "qasm" and looks_qasm:
+    if kind not in QASM_KINDS and looks_qasm:
         error["hint"] = ("This looks like OpenQASM. Set Interpreter to OpenQASM 3 and "
                          "analyze again. " + error.get("hint", ""))
-    elif kind == "qasm" and not looks_qasm and source.strip():
+    elif kind in QASM_KINDS and not looks_qasm and source.strip():
         error["hint"] = ("This does not start with an OPENQASM header. If it is a Qiskit "
                          "program, set Interpreter to Qiskit (Python). " + error.get("hint", ""))
 
@@ -302,7 +307,7 @@ def analyze_source(
     # The static checks read a Python AST, so they have nothing to say about
     # OpenQASM. Rather than report a syntax error on a perfectly good .qasm
     # file, say plainly that the checks did not run.
-    if kind == "qasm":
+    if kind in QASM_KINDS:
         diagnostics = [{
             "code": "QS100",
             "severity": "info",
@@ -432,12 +437,22 @@ INTERPRETERS = [
         "suffix": ".qasm",
         "note": "Parsed as text. Nothing in the file is executed.",
     },
+    {
+        "id": "qasm-static",
+        "label": "OpenQASM 2/3 (static)",
+        "suffix": ".qasm",
+        "note": "Parsed and interpreted without Qiskit; every instruction keeps its source line.",
+    },
 ]
+
+# The kinds of front end that read OpenQASM rather than Python.
+QASM_KINDS = ("qasm", "qasm-static")
 
 _ALIASES = {
     "qiskit": "python", "python": "python", "py": "python",
     "qiskit-static": "python-static", "static": "python-static",
     "qasm": "qasm", "openqasm": "qasm", "qasm3": "qasm",
+    "qasm-static": "qasm-static", "openqasm-static": "qasm-static",
 }
 
 
@@ -457,8 +472,7 @@ def unsupported_language(language: Any) -> Optional[Dict[str, Any]]:
         "stage": "validation",
         "message": f"{language!r} is not a supported interpreter.",
         "detail": f"Supported interpreters: {supported}.",
-        "hint": "Pick Qiskit (Python), Qiskit (Python, static) or OpenQASM 3 in the "
-                "Interpreter dropdown.",
+        "hint": "Pick one of the options in the Interpreter dropdown.",
         "line": 0,
     }
 
@@ -472,7 +486,8 @@ def interpreters() -> List[Dict[str, Any]]:
 
 
 def source_kind(filename: str = "", language: Optional[str] = None) -> str:
-    """Which front end a submission goes to: ``"qasm"``, ``"python"`` or ``"python-static"``.
+    """Which front end a submission goes to: ``"qasm"``, ``"qasm-static"``, ``"python"``
+    or ``"python-static"``.
 
     ``language`` is the caller's explicit choice and wins outright -- the page
     always sends one, taken from the Interpreter dropdown. The extension is
@@ -488,13 +503,15 @@ def source_kind(filename: str = "", language: Optional[str] = None) -> str:
 
 def default_filename(kind: str) -> str:
     """What to call a pasted circuit that has no file of its own."""
-    return "pasted_circuit.qasm" if kind == "qasm" else "pasted_circuit.py"
+    return "pasted_circuit.qasm" if kind in QASM_KINDS else "pasted_circuit.py"
 
 
 def _parse_source(source: str, filename: str, kind: str) -> Tuple[Any, str]:
     """Turn submitted text into a QuantumProgram, by the route the caller chose."""
     if kind == "qasm":
         return _parse_qasm_source(source, filename)
+    if kind == "qasm-static":
+        return _parse_qasm_static_source(source)
     if kind == "python-static":
         return _parse_static_source(source, filename)
     return _parse_python_source(source, filename)
@@ -503,6 +520,7 @@ def _parse_source(source: str, filename: str, kind: str) -> Tuple[Any, str]:
 # How each front end reached the circuit, as shown on the page.
 _ROUTES = {
     "qasm": "OpenQASM, parsed without executing",
+    "qasm-static": "OpenQASM, interpreted statically with source locations",
     "python": "Python, executed in a worker process (timeout {timeout}s)",
     "python-static": "Python, interpreted statically without executing",
 }
@@ -593,8 +611,34 @@ def _static_diagnostics(notes: List[Tuple[Any, str]]) -> List[Dict[str, Any]]:
         "line": lineno or 0,
         "column": 0,
         "message": message[:1].upper() + message[1:] + ".",
-        "hint": "The static parser skipped or approximated this instead of running it.",
+        "hint": "The static parser skipped or approximated this rather than guess.",
     } for lineno, message in notes]
+
+
+def _parse_qasm_static_source(source: str) -> Tuple[Any, str]:
+    """Interpret OpenQASM 2/3 with StaticOpenQASMParser, which keeps source locations."""
+    parser = StaticOpenQASMParser()
+    parser.source = source
+    try:
+        program = parser.parse()
+    except StaticParseError as exc:
+        raise _ParseFailure({
+            "kind": "qasm_error",
+            "message": "That OpenQASM file could not be parsed.",
+            "detail": exc.message,
+            "hint": "The static OpenQASM route reads OpenQASM 2 and 3 itself; anything that "
+                    "needs a run-time value in an unsupported shape is refused with its line.",
+            "line": exc.lineno or 0,
+        })
+    except ValueError as exc:
+        raise _ParseFailure({
+            "kind": "backend_unavailable",
+            "message": "The static OpenQASM parser is not available.",
+            "detail": str(exc),
+            "hint": _HINTS["backend_unavailable"],
+        })
+    program.static_notes = list(parser.notes)
+    return program, ""
 
 
 # --------------------------------------------------------------------------
@@ -741,8 +785,20 @@ def _describe_nodes(program: Any) -> List[Dict[str, Any]]:
             "gate": info,
             "category": info["category"],
             "is_measurement": info["category"] == gates.MEASURE,
+            **_describe_location(getattr(instruction, "location", None)),
         })
     return nodes
+
+
+def _describe_location(location: Any) -> Dict[str, Any]:
+    """Where a node came from in the source (FR-07): ``line`` plus the full span.
+
+    Both are None when the front end could not tell, as for the executing
+    Python route and the qiskit.qasm3 one.
+    """
+    if location is None:
+        return {"line": None, "source": None}
+    return {"line": location.line, "source": location.to_dict()}
 
 
 def _describe_edges(qpdg: Any) -> List[Dict[str, Any]]:

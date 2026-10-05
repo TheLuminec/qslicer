@@ -67,6 +67,7 @@
     this.range = null;         // [from, to] inclusive, or null
     this.basis = 'z';
     this.hoveredId = null;
+    this.marked = null;        // Set of ids picked from the source, or null
 
     this.root = el('g', { class: 'graph-root' });
     this.defs = el('defs');
@@ -111,6 +112,7 @@
     this.criterion = null;
     this.selectedQubit = null;
     this.range = null;
+    this.marked = null;
     this._computeLayout();
     this.render();
     this.fit(READABLE_SCALE);
@@ -126,6 +128,12 @@
   QGraph.prototype.setSlice = function (ids, criterion) {
     this.slice = ids ? new Set(ids) : null;
     this.criterion = (criterion === undefined) ? this.criterion : criterion;
+    this.render();
+  };
+
+  /* Nodes that came from the source line the user picked in the editor. */
+  QGraph.prototype.setMarked = function (ids) {
+    this.marked = ids && ids.length ? new Set(ids) : null;
     this.render();
   };
 
@@ -303,6 +311,7 @@
       }
       if (self.criterion === node.id) classes.push('criterion');
       if (self.hoveredId === node.id) classes.push('hovered');
+      if (self.marked && self.marked.has(node.id)) classes.push('marked');
       if (self.selectedQubit !== null && node.qubits.indexOf(self.selectedQubit) !== -1) {
         classes.push('qubit-selected');
       }
@@ -345,6 +354,13 @@
       var index = el('text', { class: 'node-index', x: 0, y: -pos.h / 2 - 5 });
       index.textContent = '#' + node.id;
       g.appendChild(index);
+
+      // Where the instruction was written (FR-07), when the front end knows.
+      if (node.line) {
+        var where = el('text', { class: 'node-line', x: 0, y: pos.h / 2 + 11 });
+        where.textContent = 'L' + node.line;
+        g.appendChild(where);
+      }
 
       self._wireNode(g, node);
       group.appendChild(g);
@@ -408,6 +424,16 @@
     g.addEventListener('pointercancel', endDrag);
   };
 
+  /* "line 4", "lines 8-10", with the calls that led there: "line 3 (via 7)". */
+  function describeSource(source) {
+    var text = source.end_line > source.line
+      ? 'lines ' + source.line + '–' + source.end_line
+      : 'line ' + source.line;
+    if (source.via && source.via.length) text += ' (via ' + source.via.join(' → ') + ')';
+    return text;
+  }
+  window.describeSource = describeSource;
+
   QGraph.prototype._tooltipHtml = function (node) {
     var gate = node.gate;
     var parts = [];
@@ -426,6 +452,7 @@
     if (node.condition_clbits.length) {
       rows += '<dt>reads</dt><dd>c' + node.condition_clbits.join(', c') + '</dd>';
     }
+    if (node.source) rows += '<dt>source</dt><dd>' + escapeHtml(describeSource(node.source)) + '</dd>';
     if (rows) parts.push('<dl>' + rows + '</dl>');
 
     var flags = [];

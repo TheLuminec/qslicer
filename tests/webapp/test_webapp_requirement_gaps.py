@@ -17,15 +17,6 @@ def test_ir_fields_present_in_nodes(ghz_qasm_result):
             assert key in node
 
 
-@pytest.mark.requirement("FR-07")
-@pytest.mark.xfail(strict=True, reason="FR-07: neither the IR nor the node payload records a "
-                   "source location (line) for each instruction")
-def test_nodes_carry_source_location(ghz_qasm_result):
-    lines = [node.get("line") for node in ghz_qasm_result["nodes"]]
-    # GHZ_QASM: the six instructions are on lines 5-10.
-    assert lines == [5, 6, 7, 8, 9, 10]
-
-
 @pytest.mark.requirement("FR-10")
 @pytest.mark.xfail(strict=True, reason="FR-10: there is only the 'baseline' rule profile, with "
                    "the entanglement and phase rules commented out in scripts/qpdg.py, and no "

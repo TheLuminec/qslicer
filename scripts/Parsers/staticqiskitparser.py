@@ -501,14 +501,14 @@ class StaticGate:
 class StaticInstruction:
     """An operation placed on bits: Qiskit's CircuitInstruction."""
 
-    __slots__ = ("operation", "qubits", "clbits", "lineno", "condition", "condition_bits")
+    __slots__ = ("operation", "qubits", "clbits", "location", "condition", "condition_bits")
 
-    def __init__(self, operation, qubits, clbits=(), lineno=None, condition=None,
+    def __init__(self, operation, qubits, clbits=(), location=None, condition=None,
                  condition_bits=()):
         self.operation = operation
         self.qubits = list(qubits)
         self.clbits = list(clbits)
-        self.lineno = lineno
+        self.location = location        # SourceLocation, or None for library-made gates
         self.condition = condition
         self.condition_bits = list(condition_bits)
 
@@ -521,7 +521,7 @@ class StaticInstruction:
         return self.operation.params
 
     def copy(self):
-        return StaticInstruction(self.operation, self.qubits, self.clbits, self.lineno,
+        return StaticInstruction(self.operation, self.qubits, self.clbits, self.location,
                                  self.condition, self.condition_bits)
 
     def __repr__(self):
@@ -529,8 +529,12 @@ class StaticInstruction:
                 f"clbits={self.clbits})")
 
 
-def _remap(instr, qmap, cmap, lineno=None):
-    """Copy ``instr`` onto other bits (compose, decompose), bodies included."""
+def _remap(instr, qmap, cmap, location=None):
+    """Copy ``instr`` onto other bits (compose, decompose), bodies included.
+
+    The copy keeps its own source location; ``location`` stands in for
+    instructions that have none (gates a library made, such as a QFT's).
+    """
     op = instr.operation
     if op.name == "if_else":
         bodies = []
@@ -539,7 +543,7 @@ def _remap(instr, qmap, cmap, lineno=None):
                 bodies.append(None)
                 continue
             bodies.append(StaticCircuit.body(
-                [_remap(i, qmap, cmap, lineno) for i in body.data],
+                [_remap(i, qmap, cmap, location) for i in body.data],
                 [qmap[b] for b in body.qubits], [cmap[b] for b in body.clbits]))
         op = op.with_params(bodies)
     condition = instr.condition
@@ -553,7 +557,7 @@ def _remap(instr, qmap, cmap, lineno=None):
         condition = (target, value)
     return StaticInstruction(
         op, [qmap[q] for q in instr.qubits], [cmap[c] for c in instr.clbits],
-        instr.lineno if instr.lineno is not None else lineno, condition,
+        instr.location if instr.location is not None else location, condition,
         [cmap.get(b, b) for b in instr.condition_bits])
 
 
@@ -678,7 +682,8 @@ class StaticCircuit:
                     continue
                 qmap = dict(zip(definition.qubits, instr.qubits))
                 cmap = dict(zip(definition.clbits, instr.clbits))
-                out.data.extend(_remap(sub, qmap, cmap, instr.lineno) for sub in definition.data)
+                out.data.extend(_remap(sub, qmap, cmap, instr.location)
+                                for sub in definition.data)
             current = out
         return current
 
@@ -725,11 +730,11 @@ class _InstructionSet:
 class _IfContext:
     """``qc.if_test(condition)``, waiting to be entered by a ``with``."""
 
-    def __init__(self, circuit, condition, condition_bits, lineno):
+    def __init__(self, circuit, condition, condition_bits, location):
         self.circuit = circuit
         self.condition = condition
         self.condition_bits = condition_bits
-        self.lineno = lineno
+        self.location = location
         self.entered = False
         self.instruction = None          # the if_else, once the block closes
         self.true_instructions = None
@@ -821,6 +826,29 @@ def _qft_definition(num_qubits, approximation_degree=0, do_swaps=True, inverse=F
             circuit.data.append(
                 StaticInstruction(StaticGate("swap", 2), [q[i], q[num_qubits - i - 1]]))
     return circuit.inverse() if inverse else circuit
+
+
+def broadcast(gate, bit_lists):
+    """Qiskit's argument broadcasting: one (qubits, clbits) pair per instruction.
+
+    ``bit_lists`` holds one list of bits per gate argument, qubits first. A
+    list of length one is reused against longer ones; other lengths must agree.
+    """
+    if any(len(bits) == 0 for bits in bit_lists):
+        return []
+    width = max((len(bits) for bits in bit_lists), default=1)
+    for bits in bit_lists:
+        if len(bits) not in (1, width):
+            raise CircuitError(f"arguments of '{gate.name}' cannot be broadcast together "
+                               f"(lengths {[len(b) for b in bit_lists]})")
+    out = []
+    for i in range(width):
+        combo = [bits[i] if len(bits) > 1 else bits[0] for bits in bit_lists]
+        qubits = combo[:gate.num_qubits]
+        if len({id(q) for q in qubits}) != len(qubits):
+            raise CircuitError(f"duplicate qubit arguments to '{gate.name}'")
+        out.append((qubits, combo[gate.num_qubits:]))
+    return out
 
 
 _STATIC_TYPES = (StaticCircuit, StaticGate, StaticRegister, StaticInstruction, _InstructionSet,
@@ -921,7 +949,9 @@ class _Interpreter:
         self.placed = 0
         self.depth = 0
         self.lineno = None
-        self._call_node = None
+        self._stmt_node = None          # the statement being run
+        self._call_node = None          # the call being made
+        self._via = []                  # lines of the calls into functions defined in the file
         self.star_imports = []
         self.counters = {}
         self.np_legacy = _RandomSource("np-legacy", None)
@@ -951,6 +981,13 @@ class _Interpreter:
             raise self.error("the program runs too long to analyse statically "
                              f"(more than {MAX_STEPS} steps)", getattr(node, "lineno", None))
         self.lineno = getattr(node, "lineno", self.lineno)
+        if isinstance(node, ast.stmt):
+            self._stmt_node = node
+
+    def here(self):
+        """The source location of whatever is placing an instruction right now."""
+        node = self._call_node if self._call_node is not None else self._stmt_node
+        return SourceLocation.of(node, self._via) if node is not None else None
 
     def check_size(self, value):
         try:
@@ -1348,6 +1385,8 @@ class _Interpreter:
         if context.entered:
             raise CircuitError("an if_test context can only be entered once")
         context.entered = True
+        # The if_else spans the whole block, so its body's lines are part of it.
+        context.location = SourceLocation.of(node, self._via) or context.location
         circuit = context.circuit
         scope = _Scope()
         circuit._scopes.append(scope)
@@ -1393,7 +1432,7 @@ class _Interpreter:
             b for b in scope.clbits if not any(b is c for c in context.condition_bits)]
         body = StaticCircuit.body(scope.instructions, qubits, clbits)
         operation = StaticGate("if_else", len(qubits), len(clbits), [body, None])
-        instruction = StaticInstruction(operation, qubits, clbits, context.lineno,
+        instruction = StaticInstruction(operation, qubits, clbits, context.location,
                                         context.condition, context.condition_bits)
         context.instruction = instruction
         context.true_instructions = scope.instructions
@@ -1936,8 +1975,9 @@ class _Interpreter:
         if self.depth >= MAX_CALL_DEPTH:
             raise self.error(f"calls nest more than {MAX_CALL_DEPTH} deep")
         frame = _Frame(self._bind_function(function, args, kwargs), function.closure)
-        saved_lineno = self.lineno
+        saved_lineno, saved_stmt = self.lineno, self._stmt_node
         self.depth += 1
+        self._via.append(self._call_node.lineno if self._call_node is not None else self.lineno)
         try:
             if isinstance(function.node, ast.Lambda):
                 return self.eval(function.node.body, frame)
@@ -1947,7 +1987,8 @@ class _Interpreter:
             return result.value
         finally:
             self.depth -= 1
-            self.lineno = saved_lineno
+            self._via.pop()
+            self.lineno, self._stmt_node = saved_lineno, saved_stmt
 
     def _bind_function(self, function, args, kwargs):
         spec = function.node.args
@@ -2163,7 +2204,7 @@ class _Interpreter:
                     if not any(bit is b for b in bits):
                         bits.append(bit)
             gate = StaticGate("barrier", len(bits), 0, [], label=gate.label)
-            instruction = StaticInstruction(gate, bits, [], self.lineno)
+            instruction = StaticInstruction(gate, bits, [], self.here())
             self.count(1)
             circuit.append(instruction)
             return _InstructionSet([instruction])
@@ -2173,20 +2214,9 @@ class _Interpreter:
             raise CircuitError(
                 f"'{gate.name}' expects {gate.num_qubits} qubit and {gate.num_clbits} clbit "
                 f"arguments, got {len(qubit_specs)} and {len(clbit_specs)}")
-        if any(len(bits) == 0 for bits in lists):
-            return _InstructionSet([])
-        width = max((len(bits) for bits in lists), default=1)
-        for bits in lists:
-            if len(bits) not in (1, width):
-                raise CircuitError(f"arguments of '{gate.name}' cannot be broadcast together "
-                                   f"(lengths {[len(b) for b in lists]})")
-        placed = []
-        for i in range(width):
-            combo = [bits[i] if len(bits) > 1 else bits[0] for bits in lists]
-            qubits = combo[:gate.num_qubits]
-            if len({id(q) for q in qubits}) != len(qubits):
-                raise CircuitError(f"duplicate qubit arguments to '{gate.name}'")
-            placed.append(StaticInstruction(gate, qubits, combo[gate.num_qubits:], self.lineno))
+        location = self.here()
+        placed = [StaticInstruction(gate, qubits, clbits, location)
+                  for qubits, clbits in broadcast(gate, lists)]
         self.count(len(placed))
         for instruction in placed:
             circuit.append(instruction)
@@ -2368,7 +2398,7 @@ class _Interpreter:
                       else self.resolve_bits(target, bound["clbits"], "clbit"))
             if len(qubits) != other.num_qubits or len(clbits) != other.num_clbits:
                 raise CircuitError("the qubits/clbits given do not match the instruction's width")
-            self._insert(target, [StaticInstruction(other, qubits, clbits, self.lineno)], front)
+            self._insert(target, [StaticInstruction(other, qubits, clbits, self.here())], front)
         elif isinstance(other, StaticCircuit):
             if other.num_qubits > target.num_qubits or other.num_clbits > target.num_clbits:
                 raise CircuitError("Trying to compose with another QuantumCircuit which has "
@@ -2382,7 +2412,7 @@ class _Interpreter:
                                    "of qubits in the circuit.")
             qmap = dict(zip(other.qubits, qubits))
             cmap = dict(zip(other.clbits, clbits))
-            self._insert(target, [_remap(i, qmap, cmap, self.lineno) for i in other.data], front)
+            self._insert(target, [_remap(i, qmap, cmap, self.here()) for i in other.data], front)
         else:
             raise self.error("cannot compose this value: the static parser cannot see a "
                              "circuit or gate in it")
@@ -2410,7 +2440,7 @@ class _Interpreter:
             bit = self._one_bit(circuit, target, "clbit")
             target = bit
             bits = [bit]
-        return _IfContext(circuit, (target, value), bits, self.lineno)
+        return _IfContext(circuit, (target, value), bits, self.here())
 
     def _qc_to_gate(self, circuit, args, kwargs):
         return circuit.to_gate(kwargs.get("label"))
@@ -2691,7 +2721,7 @@ class _Interpreter:
         circuit = StaticCircuit(str(name))
         circuit.add_register(StaticRegister("qubit", "q", n))
         circuit.data.append(StaticInstruction(StaticGate(str(name), n, 0, [], definition),
-                                              circuit.qubits, [], self.lineno))
+                                              circuit.qubits, [], self.here()))
         return circuit
 
     def _size_arg(self, value):
@@ -3199,24 +3229,29 @@ class StaticQiskitParser(AbstractParser):
 
     @staticmethod
     def _build_program(circuit) -> QuantumProgram:
-        program = QuantumProgram()
-        program.set_registers(num_qubits=circuit.num_qubits, num_clbits=circuit.num_clbits)
-        for instruction in circuit.data:
-            condition_clbits = []
-            for bit in instruction.condition_bits:
-                index = circuit.find(bit)
-                if index not in condition_clbits:
-                    condition_clbits.append(index)
-            program.add_instruction(QuantumInstruction(
-                name=instruction.operation.name,
-                qubits=[circuit.find(q) for q in instruction.qubits],
-                clbits=[circuit.find(c) for c in instruction.clbits],
-                params=list(instruction.operation.params),
-                metadata={
-                    "frontend": "qiskit-static",
-                    "condition": instruction.condition,
-                    "condition_clbits": condition_clbits,
-                    "lineno": instruction.lineno,
-                },
-            ))
-        return program
+        return circuit_to_program(circuit, "qiskit-static")
+
+
+def circuit_to_program(circuit, frontend) -> QuantumProgram:
+    """The QuantumProgram IR of a StaticCircuit, source locations included."""
+    program = QuantumProgram()
+    program.set_registers(num_qubits=circuit.num_qubits, num_clbits=circuit.num_clbits)
+    for instruction in circuit.data:
+        condition_clbits = []
+        for bit in instruction.condition_bits:
+            index = circuit.find(bit)
+            if index not in condition_clbits:
+                condition_clbits.append(index)
+        program.add_instruction(QuantumInstruction(
+            name=instruction.operation.name,
+            qubits=[circuit.find(q) for q in instruction.qubits],
+            clbits=[circuit.find(c) for c in instruction.clbits],
+            params=list(instruction.operation.params),
+            metadata={
+                "frontend": frontend,
+                "condition": instruction.condition,
+                "condition_clbits": condition_clbits,
+            },
+            location=instruction.location,
+        ))
+    return program
