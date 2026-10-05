@@ -134,7 +134,7 @@
     reader.onload = function () {
       $('code').value = reader.result;
       state.filename = file.name;
-      setInterpreter(interpreterForFilename(file.name));
+      setInterpreter(keepPythonParser(interpreterForFilename(file.name)));
       $('example-select').value = '';
       $('example-blurb').textContent = 'Loaded from ' + file.name + '.';
       updateGutter();
@@ -155,7 +155,7 @@
       .then(function (data) {
         $('code').value = data.source;
         state.filename = data.filename;
-        setInterpreter(data.interpreter || interpreterForFilename(data.filename));
+        setInterpreter(keepPythonParser(data.interpreter || interpreterForFilename(data.filename)));
         var blurb = data.blurb || '';
         $('example-blurb').innerHTML = escapeHtml(blurb) +
           (data.highlight ? ' <span class="highlight">' + escapeHtml(data.highlight) + '</span>' : '');
@@ -183,6 +183,13 @@
 
   function interpreterForFilename(name) {
     return /\.qasm3?$/i.test(name || '') ? 'qasm' : 'qiskit';
+  }
+
+  /* Both Qiskit parsers read .py files, so a Python file or example keeps
+     whichever of the two is selected rather than resetting to the default. */
+  function keepPythonParser(value) {
+    if (value === 'qiskit' && interpreter() !== 'qasm') return interpreter();
+    return value;
   }
 
   function defaultFilename() {

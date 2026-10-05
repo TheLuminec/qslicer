@@ -29,6 +29,8 @@ from webapp_helpers import GHZ_QASM
     ("", "Python", "python"),
     ("circuit.qasm", "unknown-lang", "qasm"),   # unknown language: extension decides
     ("circuit.py", "", "python"),
+    ("circuit.py", "qiskit-static", "python-static"),
+    ("", "static", "python-static"),
 ])
 def test_source_kind(filename, language, expected):
     assert analysis.source_kind(filename, language) == expected
@@ -81,8 +83,8 @@ def test_note_interpreter_mismatch_silent_when_consistent(source, kind):
 
 def test_interpreters_first_is_default():
     options = analysis.interpreters()
-    assert [o["id"] for o in options] == ["qiskit", "qasm"]
-    assert [o["default"] for o in options] == [True, False]
+    assert [o["id"] for o in options] == ["qiskit", "qiskit-static", "qasm"]
+    assert [o["default"] for o in options] == [True, False, False]
     for option in options:
         assert set(option) == {"id", "label", "suffix", "note", "default"}
     # Calling it does not mutate the module constant.

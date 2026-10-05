@@ -14,6 +14,10 @@ Two front ends:
   process under a timeout (``parse_worker.py``), which bounds accidents -- an
   endless loop kills a worker rather than the server -- but is not a sandbox.
   See webapp/README.md before exposing this app to anyone but yourself.
+* **Python, static** (``language="qiskit-static"``) reads the same ``.py``
+  files without executing them: StaticQiskitParser interprets the source
+  itself and refuses, with a line number, anything it cannot work out. It runs
+  alongside the executing route for now so the two can be compared.
 """
 
 import io
@@ -51,6 +55,7 @@ try:
     from entanglement import EntanglementAnalyzer
     from Parsers.openqasmparser import OpenQASMParser
     from Parsers.qiskitparser import QiskitParser
+    from Parsers.staticqiskitparser import StaticParseError, StaticQiskitParser
     from qpdg import QPDG, get_rule_profile, list_rule_profiles
     from slicer import QuantumSlicer, SlicingCriterion
 except Exception as exc:  # pragma: no cover - depends on the local environment
@@ -261,7 +266,7 @@ def _note_interpreter_mismatch(error: Dict[str, Any], source: str, kind: str) ->
     useful explanation than "invalid syntax".
     """
     looks_qasm = _looks_like_qasm(source)
-    if kind == "python" and looks_qasm:
+    if kind != "qasm" and looks_qasm:
         error["hint"] = ("This looks like OpenQASM. Set Interpreter to OpenQASM 3 and "
                          "analyze again. " + error.get("hint", ""))
     elif kind == "qasm" and not looks_qasm and source.strip():
@@ -350,6 +355,10 @@ def analyze_source(
         return result
 
     result["stdout"] = captured
+    notes = getattr(program, "static_notes", None)
+    if notes:
+        result["diagnostics"] = sorted(diagnostics + _static_diagnostics(notes),
+                                       key=lambda d: d["line"])
 
     if len(program) == 0:
         result["error"] = {
@@ -368,7 +377,8 @@ def analyze_source(
 
     qpdg = QPDG(program, rules=rules)
 
-    token = sha256(f"{filename}\x00{profile}\x00{source}".encode("utf-8")).hexdigest()[:32]
+    # The front end is part of the key: the two Python routes must not share an entry.
+    token = sha256(f"{filename}\x00{profile}\x00{kind}\x00{source}".encode("utf-8")).hexdigest()[:32]
     _cache_put(token, {"qpdg": qpdg, "program": program})
 
     result.update({
@@ -379,8 +389,7 @@ def analyze_source(
             "num_clbits": program.num_clbits,
             "num_instructions": len(program),
         },
-        "route": ("OpenQASM, parsed without executing" if kind == "qasm"
-                  else f"Python, executed in a worker process (timeout {PARSE_TIMEOUT}s)"),
+        "route": _ROUTES[kind].format(timeout=PARSE_TIMEOUT),
         "nodes": _describe_nodes(program),
         "edges": _describe_edges(qpdg),
         "entanglement": _describe_entanglement(program),
@@ -411,6 +420,13 @@ INTERPRETERS = [
         "note": "Executed in a worker process to reach the circuit it builds.",
     },
     {
+        "id": "qiskit-static",
+        "label": "Qiskit (Python, static)",
+        "suffix": ".py",
+        "note": "Read without executing: the parser interprets the file itself to rebuild "
+                "the circuit.",
+    },
+    {
         "id": "qasm",
         "label": "OpenQASM 3",
         "suffix": ".qasm",
@@ -420,6 +436,7 @@ INTERPRETERS = [
 
 _ALIASES = {
     "qiskit": "python", "python": "python", "py": "python",
+    "qiskit-static": "python-static", "static": "python-static",
     "qasm": "qasm", "openqasm": "qasm", "qasm3": "qasm",
 }
 
@@ -440,7 +457,8 @@ def unsupported_language(language: Any) -> Optional[Dict[str, Any]]:
         "stage": "validation",
         "message": f"{language!r} is not a supported interpreter.",
         "detail": f"Supported interpreters: {supported}.",
-        "hint": "Pick Qiskit (Python) or OpenQASM 3 in the Interpreter dropdown.",
+        "hint": "Pick Qiskit (Python), Qiskit (Python, static) or OpenQASM 3 in the "
+                "Interpreter dropdown.",
         "line": 0,
     }
 
@@ -454,7 +472,7 @@ def interpreters() -> List[Dict[str, Any]]:
 
 
 def source_kind(filename: str = "", language: Optional[str] = None) -> str:
-    """Which front end a submission goes to: ``"qasm"`` or ``"python"``.
+    """Which front end a submission goes to: ``"qasm"``, ``"python"`` or ``"python-static"``.
 
     ``language`` is the caller's explicit choice and wins outright -- the page
     always sends one, taken from the Interpreter dropdown. The extension is
@@ -477,7 +495,17 @@ def _parse_source(source: str, filename: str, kind: str) -> Tuple[Any, str]:
     """Turn submitted text into a QuantumProgram, by the route the caller chose."""
     if kind == "qasm":
         return _parse_qasm_source(source, filename)
+    if kind == "python-static":
+        return _parse_static_source(source, filename)
     return _parse_python_source(source, filename)
+
+
+# How each front end reached the circuit, as shown on the page.
+_ROUTES = {
+    "qasm": "OpenQASM, parsed without executing",
+    "python": "Python, executed in a worker process (timeout {timeout}s)",
+    "python-static": "Python, interpreted statically without executing",
+}
 
 
 # --------------------------------------------------------------------------
@@ -516,6 +544,57 @@ def _parse_qasm_source(source: str, filename: str) -> Tuple[Any, str]:
         return program, buffer.getvalue()
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+# --------------------------------------------------------------------------
+# Python, static: interpreted, never executed
+# --------------------------------------------------------------------------
+
+def _parse_static_source(source: str, filename: str) -> Tuple[Any, str]:
+    """Rebuild the circuit with StaticQiskitParser, which never runs the file.
+
+    Nothing is executed, so there is no worker process and no timeout; the
+    parser bounds its own work. What it had to skip or approximate is attached
+    to the program as ``static_notes``, which analyze_source reports as
+    warning diagnostics.
+    """
+    parser = StaticQiskitParser(filename=os.path.basename(filename) or "pasted_circuit.py")
+    parser.source = source
+    try:
+        program = parser.parse()
+    except StaticParseError as exc:
+        raise _ParseFailure({
+            "kind": "static_error",
+            "message": "The static parser could not work out the circuit.",
+            "detail": exc.message,
+            "hint": "This route reads the file without running it, so it stops at anything "
+                    "only a real run could decide. Switch Interpreter to Qiskit (Python) to "
+                    "execute the file instead.",
+            "line": exc.lineno or 0,
+        })
+    except ValueError as exc:
+        no_circuit = "No QuantumCircuit" in str(exc)
+        raise _ParseFailure({
+            "kind": "no_circuit" if no_circuit else "static_error",
+            "message": ("No QuantumCircuit was left in the file's module namespace."
+                        if no_circuit else "The static parser could not work out the circuit."),
+            "detail": str(exc),
+            "hint": _HINTS["no_circuit"] if no_circuit else "",
+        })
+    program.static_notes = list(parser.notes)
+    return program, ""
+
+
+def _static_diagnostics(notes: List[Tuple[Any, str]]) -> List[Dict[str, Any]]:
+    """The static parser's warnings, in the lint diagnostics format."""
+    return [{
+        "code": "QS200",
+        "severity": "warning",
+        "line": lineno or 0,
+        "column": 0,
+        "message": message[:1].upper() + message[1:] + ".",
+        "hint": "The static parser skipped or approximated this instead of running it.",
+    } for lineno, message in notes]
 
 
 # --------------------------------------------------------------------------
