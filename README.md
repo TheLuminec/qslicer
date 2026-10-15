@@ -1,146 +1,391 @@
-# Quantum Program Analysis Framework
+# Quantum Program Slicer
 
-## Overview
+Static slicing for quantum programs. Give it a circuit written in **Qiskit
+(Python)** or **OpenQASM 2/3**, and it builds a **Quantum Dependency Graph
+(QDG)**, then answers the question a developer actually has:
 
-This project implements a static analysis framework for **quantum programs**. At its core it provides:
+> Which instructions can influence this measurement, and what does this gate
+> go on to affect?
 
-- A **frontend‑agnostic intermediate representation (IR)** to describe quantum circuits as sequences of instructions.
-- Construction of a **Quantum Program Dependence Graph (QPDG)** that captures how operations depend on each other via classical and quantum effects.
-- A **slicer** that can compute backward or forward program slices based on dependency types.
-- An **entanglement analyser** that approximates entanglement groups and tracks when operations are uncomputed or measured.
-- Optional **visualisation utilities** for debugging dependency graphs and entanglement structure.
+A **backward slice** from an instruction collects everything it depends on. A
+**forward slice** collects everything it can affect. Both are graph
+reachability over the QDG, restricted to whichever dependency types you choose,
+and both are shown in a web app that links every graph node back to the source
+line that produced it.
 
-These tools enable researchers and developers to reason about quantum programs, debug and optimise circuits, and explore how quantum‑specific phenomena such as entanglement and measurement affect program behaviour.
+The analysis is **static**. The recommended front ends read your program
+without running it, so you can analyse code you did not write.
 
-## Getting started
+## Contents
 
-### Prerequisites
+1. [Quick start: the web app](#quick-start-the-web-app)
+2. [Front ends: static first](#front-ends-static-first)
+3. [Using the web app](#using-the-web-app)
+4. [Quick start: the library](#quick-start-the-library)
+5. [How it works](#how-it-works)
+6. [Dependency types](#dependency-types)
+7. [Static parsing in detail](#static-parsing-in-detail)
+8. [Source locations](#source-locations)
+9. [Repository layout](#repository-layout)
+10. [Testing](#testing)
+11. [Deployment](#deployment)
+12. [Documentation](#documentation)
+13. [Status and limitations](#status-and-limitations)
 
-The framework requires Python 3.10+ and the following Python packages:
+## Quick start: the web app
 
-- [networkx](https://networkx.org/) - for graph construction and traversal.
-- [qiskit](https://qiskit.org/) - used by the Qiskit parser to load QuantumCircuit objects.
-
-Install the dependencies using `pip`:
+Requires Python 3.10+.
 
 ```bash
 pip install -r requirements.txt
+pip install -r webapp/requirements.txt
+python webapp/app.py
 ```
 
-If you plan to use the Qiskit parser, install qiskit separately via `pip install qiskit`.
+Open <http://127.0.0.1:5000/>, go to **Slicer**, pick an example, choose a
+static interpreter, press **Analyze**, then click any node in the graph.
 
-### Directory structure
+## Front ends: static first
 
-```
-project/  
-├── scripts/ # Core modules and utilities  
-│ ├── Dependencies/ # Dependency rules used to build the QPDG  
-│ ├── Parsers/ # Language-specific parsers (Qiskit, OpenQASM)  
-│ ├── combined_visualizer.py  
-│ ├── entangle_viewer.py  
-│ ├── entanglement.py # Approximate entanglement analysis  
-│ ├── parser.py # Abstract parser base class  
-│ ├── qinstruction.py # IR instruction class  
-│ ├── qpdg.py # QPDG construction and rule management  
-│ ├── qprogram.py # IR program container  
-│ ├── slicer.py # Slicing algorithms  
-│ └── visualizer.py  
-├── Attachments/ # Sample circuits used for testing/visualisation  
-├── requirements.txt  
-└── README.md # This file
-```
-## Usage
+The Interpreter dropdown offers four front ends. Which one runs is always your
+explicit choice: loading an example or uploading a file sets the dropdown from
+the file extension, and nothing else changes it. If the text and the choice
+disagree, the error says so instead of guessing.
 
-The typical workflow is:
+| Interpreter | How it gets the circuit | Executes your code? | Source lines |
+|---|---|---|---|
+| **Qiskit (Python, static)** | Parses with `ast` and interprets the tree with its own interpreter | **No** | Yes |
+| **OpenQASM 2/3 (static)** | The `openqasm3` reference parser plus its own interpreter | **No** | Yes |
+| Qiskit (Python) | Runs the file in a worker process and keeps the largest `QuantumCircuit` | **Yes** | No |
+| OpenQASM 3 | `qiskit.qasm3.load` builds a circuit from the text | No | No |
 
-- **Parse a quantum circuit** into the intermediate representation. Use one of the provided parsers; for example, the Qiskit parser executes a Python file that builds a qiskit.QuantumCircuit and extracts its gates into the IR.
-- **Build the QPDG** for the program. The QPDG constructor takes a QuantumProgram and an optional list of dependency rules. By default, it builds edges for data dependencies on qubits and classical bits and links measurements to classically conditioned operations.
-- **Slice the program**. Use QuantumSlicer.backward_slice or QuantumSlicer.forward_slice with a SlicingCriterion specifying the instruction index and the dependency types of interest. The result is a set of instruction indices that belong to the slice.
-- **Analyse entanglement**. The EntanglementAnalyzer creates groups that approximate how qubits become entangled over the course of a program. Although not integrated into the QPDG by default, it can be used to explore entanglement dependencies and inform slicing.
+**Prefer the two static front ends.** They are safe on untrusted input and they
+are the only ones that record where each instruction came from, which powers
+the source highlighting in the app. The executing Qiskit route remains for
+comparison and for programs the static interpreter cannot yet follow. It
+**executes the submitted file** in a child process with a timeout (default 20 s,
+`QSLICER_PARSE_TIMEOUT`) and a scratch working directory. That bounds
+accidents. **It is not a sandbox.** Do not expose it to untrusted users.
 
-### Example: slicing a small circuit
+The dropdown currently starts on the executing "Qiskit (Python)" option.
+Switch it to a static option for the behaviour described in this README.
+
+## Using the web app
+
+| Page | Purpose |
+|---|---|
+| `/` | Landing page |
+| `/slicer` | The application: source on the left, graph and analysis on the right |
+| `/quantum` | Background on quantum programs, the QDG and the tools used |
+
+On the slicer page:
+
+- **Example, upload or paste.** 24 bundled circuits (22 Qiskit, 2 OpenQASM)
+  are grouped as Basics, Algorithms, Communication protocols, Analysis
+  showcases and OpenQASM.
+- **Click a node** to slice from it. Toggle backward or forward in the toolbar.
+- **Follow chips** choose which dependency types the traversal may use. They
+  are passed straight to the slicer, so they are a real filter, and they are
+  built from the rules that actually ran, with the edge count each contributed.
+- **Source links, both directions.** Hover a node or table row to highlight its
+  line. A slice highlights every source line it covers and scrolls to the
+  criterion. Click a gutter line number to see which nodes that line produced.
+- **Instructions tab** lists every instruction with its line; **Console** shows
+  the program's output (executing route only); **diagnostics** list lint
+  findings and parser warnings, each jumping to its line.
+- **Range**, drag-to-move nodes, relayout, zoom/fit, a resizable divider, and
+  **PNG export**.
+- Parse errors name the failing stage and mark the offending line in the gutter.
+
+The JSON API behind it:
+
+| Endpoint | Method | Body |
+|---|---|---|
+| `/api/examples` | GET | none |
+| `/api/examples/<key>` | GET | none |
+| `/api/analyze` | POST | `{source, filename, profile, language}` |
+| `/api/slice` | POST | `{token, node_idx, direction, dep_types}` |
+
+`language` is one of `qiskit`, `qiskit-static`, `qasm`, `qasm-static`.
+`/api/analyze` returns nodes (each with `line` and `source`), edges,
+entanglement groups, diagnostics and a `token` naming the cached QDG, so
+slicing never re-parses. The cache holds the 24 most recent analyses in memory.
+
+The full front-end reference (editor, graph view, math notation, the mocked and
+partial features) is in [webapp/README.md](webapp/README.md).
+
+## Quick start: the library
+
+The modules in `scripts/` import each other by bare name, so put `scripts/` on
+the path (or run from inside it):
 
 ```python
-from scripts.Parsers.qiskitparser import QiskitParser  
-from scripts.qpdg import QPDG  
-from scripts.slicer import QuantumSlicer, SlicingCriterion  
-# Parse a Qiskit circuit defined in a file  
-parser = QiskitParser()  
-program = parser.parse_file('Attachments/Sample Code/grovers_algorithm_exception.py')  
-# Build the QPDG using default rules  
-graph = QPDG(program)  
-# Slice backwards from the measurement on qubit 0 (index 3)  
-criterion = SlicingCriterion(node_idx=3)  
-slice_indices = QuantumSlicer.backward_slice(graph, criterion)  
-print('Backward slice:', sorted(slice_indices))
+import sys
+sys.path.insert(0, "scripts")
 
-# To visualize the QPDG
-from scripts.visualizer import QPDGVisualizer
-visualizer = QPDGVisualizer(graph)
+from Parsers.staticqiskitparser import StaticQiskitParser
+from qdg import QDG
+from slicer import QuantumSlicer, SlicingCriterion
+
+# Read a Qiskit program WITHOUT executing it
+parser = StaticQiskitParser()
+program = parser.parse_file("webapp/examples/bell_pair.py")
+print(parser.warnings)                        # anything skipped or approximated
+
+# Every instruction knows its source line
+for i, ins in enumerate(program.instructions):
+    print(i, ins.name, "line", ins.location.line)
+
+graph = QDG(program)                          # default rules
+
+# Backward slice from the last instruction
+last = len(program.instructions) - 1
+print(sorted(QuantumSlicer.backward_slice(graph, SlicingCriterion(node_idx=last))))
 ```
-This example collects all instructions that could influence the measurement at node 3. The set of indices returned can be used to extract a sub‑circuit or highlight relevant operations.
 
-![QPDG Graph](Attachments/Images/g1.png)
-
-
-### Example: visualising entanglement
+OpenQASM works the same way:
 
 ```python
-from scripts.Parsers.qiskitparser import QiskitParser
-from scripts.entanglement import EntanglementAnalyzer, EntanglementGraph
-from scripts.entangle_viewer import visualize_entanglement_graph
-# Parse a Qiskit circuit defined in a file  
-parser = QiskitParser()  
-program = parser.parse_file('Attachments/Sample Code/grovers_algorithm_exception.py')
+from Parsers.staticopenqasmparser import StaticOpenQASMParser
 
-analyzer = EntanglementAnalyzer(program)
-analyzer.analyze()
-
-graph = EntanglementGraph(analyzer)
-
-visualize_entanglement_graph(graph)
+program = StaticOpenQASMParser().parse_file("webapp/examples/ghz_openqasm.qasm")
 ```
 
-![Entanglement Graph](Attachments/Images/g2.png)
+Both parsers raise `StaticParseError` with a line number when the circuit
+cannot be determined. Restrict a slice with
+`SlicingCriterion(node_idx, dep_types={DependencyType.DATA_QUBIT})` (import
+`DependencyType` from `Dependencies.dependency_rules`) and use
+`QuantumSlicer.forward_slice` for the other direction.
 
-### Command Line Usage
-To simply view a Qiskit program using the terminal you can use the combined visualizer with the `--circuit_path` flag:
+### Command-line visualisation
+
+`scripts/combined_visualizer.py` draws the QDG and the entanglement graph with
+matplotlib. It still uses the executing `QiskitParser`, so use it on circuits
+you trust:
+
 ```bash
 python scripts/combined_visualizer.py --circuit_path 'Attachments/Sample Code/grovers_algorithm_exception.py'
 ```
-This creates the graphs seen above.
 
-## Core modules
+![QDG](Attachments/Images/g1.png)
+![Entanglement graph](Attachments/Images/g2.png)
 
-Below is a brief overview of the main modules. For details, consult the docstrings in the source files.
+## How it works
 
-| Module | Description|
-|-------------------|-------------------|
-| **qinstruction.py** | Defines the QuantumInstruction class used to represent a single quantum operation. Includes attributes for gate name, qubits, classical bits, parameters and metadata.|
-| **qprogram.py** | Represents an ordered list of QuantumInstruction objects along with register sizes. Acts as the IR for subsequent analysis.|
-| **parser.py / Parsers** | Provides an abstract parser and language‑specific parsers (e.g., QiskitParser, OpenQASMParser) to convert frontend quantum languages into the IR.|
-| **Dependencies/** | Contains dependency rules for building the QPDG. Current rules cover data dependencies on qubits (DataQubitRule), measurement dependencies (MeasurementRule), classical data dependencies (DataClassicalRule) and an empty placeholder for control dependencies. Additional rules (entanglement, phase) are implemented but not enabled by default.|
-| **qpdg.py** | Builds the QPDG. Each instruction becomes a node and dependency rules emit labelled edges between nodes. The rule set can be customised when constructing the graph.|
-| **slicer.py** | Implements backward and forward slicing. Slicing can be constrained by dependency type and a reachability threshold (default 1.0).|
-| **entanglement.py** | Implements EntanglementGraph and EntanglementAnalyzer to approximate entanglement groups and track measured/uncomputed state. Edges can be extracted and visualised as an auxiliary graph.|
-| **visualizer.py** | Contains helper functions to draw dependency graphs and entanglement graphs using matplotlib. Supports interactive or static display.|
-| **combined_visualizer.py** | Utility script to load, parse, build QPDG, analyse entanglement and generate combined visualisations.|
-| **slicer.py**                          | Implements backward and forward slicing. Given a QPDG and a SlicingCriterion, it performs a breadth‑first traversal of the graph along selected dependency types.                                                                                                                                                                                   |
-| **entanglement.py**                    | Approximates entanglement relationships by grouping qubits whenever an entangling operation occurs. Tracks uncomputation (self‑inverse gates) and measurement to model when entanglement is destroyed. Not yet integrated into the QPDG.                                                                                                            |
-| **visualizer.py / entangle_viewer.py** | Utilities for visualising the dependency graph and entanglement groups using NetworkX/Matplotlib.                                                                                                                                                                                                                                                   |
+```
+ .py  ──ast──▶ Python interpreter ─┐
+                                   ├─▶ circuit model ─▶ QuantumProgram (IR) ─▶ QDG ─▶ slicer ─▶ web payload
+ .qasm ─openqasm3─▶ QASM interpreter ┘     (shared)      + SourceLocation
+```
 
-## Understanding dependency types
+1. **Parse.** A front end turns the program into the frontend-agnostic IR, a
+   `QuantumProgram` of `QuantumInstruction`s: gate name, qubit and classical-bit
+   operands, parameters, and a `SourceLocation`.
+2. **Build the QDG.** Each instruction becomes a node. Dependency rules scan the
+   program in order and add edges labelled with their dependency type.
+3. **Slice.** Breadth-first traversal along incoming (backward) or outgoing
+   (forward) edges, optionally filtered by dependency type. A slice always
+   contains its criterion.
+4. **Analyse entanglement (optional).** `EntanglementAnalyzer` approximates
+   entanglement groups and marks each active, uncomputed or measured.
 
-The QPDG extends the classical Program Dependence Graph by incorporating quantum‑specific dependencies. Supported dependency types include:
+Everything after the IR is independent of which front end produced it. Adding a
+dependency type needs only a new rule class, with no change to the slicer.
 
-| Type                 | Meaning                                                                                                                                    |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| **DataQubit**        | A gate writes to a qubit; later gates using that qubit depend on the writer (def‑use).                                                     |
-| **Measurement**      | Later operations that are classically conditioned on the result of a measurement depend on the measurement.                                |
-| **DataClassical**    | Classic reaching‑definition dependency on classical bits (used to implement classical logic).                                              |
-| **ControlClassical** | Placeholder for control dependencies; currently not implemented.                                                                           |
-| **Entanglement**     | (Disabled by default) Connects entangling gates to subsequent operations on entangled qubits. Enables tracking of entanglement dependence. |
-| **Phase**            | (Disabled by default) Tracks dependencies arising from phase‑changing gates. Useful for capturing qubit‑data dependence and uncomputation. |
+## Dependency types
 
-Additional rules can be enabled or customised when constructing a QPDG. See scripts/Dependencies/rules.py for details.
+| Type | Meaning | Default |
+|---|---|---|
+| **DataQubit** | A gate writes a qubit; later gates on it depend on the writer | on |
+| **Measurement** | An operation conditioned on a measurement depends on it | on |
+| **DataClassical** | Reaching definitions on classical bits | on |
+| **ControlClassical** | Control dependence; a placeholder emitting no edges yet | on, empty |
+| **Entanglement** | Links an entangling gate to later operations on entangled qubits | off |
+| **Phase** | Dependencies through phase-changing gates | off |
 
+Entanglement matters because a gate that entangles two qubits changes what a
+later measurement of either means, unless it is **uncomputed** first (applied
+again in reverse). Entanglement is approximated syntactically: groups merge when
+an entangling gate spans them, and self-inverse gates applied twice cancel. It
+misses cancellations that need state tracking, such as `S` then `S†`.
+
+## Static parsing in detail
+
+### Qiskit (Python)
+
+`StaticQiskitParser` (`scripts/Parsers/staticqiskitparser.py`) does not
+pattern-match `qc.h(0)`-shaped lines. It **interprets** the module's syntax
+tree over a value domain it fully controls:
+
+- Plain Python data, plus its own model of `QuantumCircuit`, registers, bits,
+  gates and `Parameter`s.
+- Imports are recorded, **never performed**. Anything only a real run could
+  produce (a simulator result, `open(...)`, an unseeded random number) is an
+  `Unknown`.
+
+It covers arithmetic, containers, comprehensions, `for`/`while`/`if`, functions,
+closures, lambdas, `try`/`except`, a whitelist of pure built-ins, `math`,
+`itertools`, the basics of `numpy`, and **seeded** randomness, which calls the
+real generator so angles match a real run. On the Qiskit side it handles every
+standard gate with argument broadcasting, `measure`/`measure_all`, `barrier`,
+`reset`, `mcx`, `append`, `compose`, `to_gate`, `inverse`, `decompose`,
+`if_test`/`else`, parameters and the `qiskit.circuit.library` gates.
+
+**Unknowns are harmless until the circuit needs them.** Post-processing such as
+simulating, transpiling and plotting a result just becomes unknowns, so scripts
+with a results section still parse. But an unknown used as a qubit index,
+register size, or the condition of a loop or `if` that touches a circuit stops
+the parse with the line number. An unknown gate angle is kept symbolic with a
+warning, since parameters do not affect dependencies.
+
+**Safety.** The interpreter never calls `import`, `eval`, `exec` or `compile`,
+refuses any attribute starting with `_`, and bounds resources: 2,000,000
+statements and loop iterations, 200,000 instructions, 40 nested calls, and
+1,000,000 elements in anything it builds (checked before an expression like
+`"x" * 10**9` is evaluated).
+
+### OpenQASM 2/3
+
+`StaticOpenQASMParser` uses the OpenQASM project's reference parser for syntax,
+so coverage tracks the language specification, and its own interpreter for
+meaning:
+
+- `qubit`/`bit` and OpenQASM 2 `qreg`/`creg`; `const`, `input` and classical
+  variables.
+- `stdgates.inc` and `qelib1.inc` gates named as Qiskit names them; user `gate`
+  definitions.
+- Gate modifiers `inv @`, `ctrl @`, `negctrl @`, and `pow @` (kept as one
+  instruction, with a warning).
+- Measurement in both syntaxes, `reset`, `barrier`, `delay`.
+- `if`/`else`, taken at compile time when computable, or kept as one `if_else`
+  instruction when it compares a bit or register to a constant.
+- **Loops are unrolled** and subroutines **inlined**, so each iteration's gates
+  are separate nodes, which is better for slicing than an opaque loop.
+
+It refuses, with a line number, `while` loops on measured values, `box`,
+physical qubits and unsupported conditions. Unlike the `qiskit.qasm3` route it
+reads OpenQASM 2 and register indexing by a loop variable.
+
+### How close is it to executing?
+
+| Check | Result |
+|---|---|
+| Static vs executing Qiskit parser, 35 programs | 32 identical. The other three are explained differences, not bugs |
+| Same, through the running web app | 21 of 22 examples identical |
+| Static OpenQASM vs `qiskit.qasm3` | Identical on both `.qasm` examples and a mixed program |
+| Hostile input (dunder access, `eval`, runaway recursion, `9 ** 9 ** 9`) | Every case refused cleanly with a line |
+
+The known differences: a script that keeps a transpiled copy at module level
+makes the executing parser pick that copy while the static parser keeps the
+circuit as written; `decompose()` of a composite such as QFT can order commuting
+gates differently; and `mcrx`/`mcry`/`mcrz` stay one instruction each.
+
+## Source locations
+
+Every `QuantumInstruction` from a static parser carries a `SourceLocation`:
+start line and column, end line and column, and a `via` tuple listing the lines
+of the calls that led there, outermost first. A gate placed inside a helper
+`entangle(qc, 0, 1)` points at its line in the helper and lists the call line
+in `via`. Broadcast gates such as `qc.h(range(3))` share one location, and an
+OpenQASM loop body is shared by every iteration. Front ends that cannot know a
+location leave it `None`, and everything downstream treats that as "no link".
+
+This is what lets the web app move between source and graph in both directions,
+and it is why parse errors and warnings land on a line.
+
+## Repository layout
+
+```
+.
+├── scripts/                     Analysis library
+│   ├── Parsers/
+│   │   ├── staticqiskitparser.py     Static Qiskit front end (interpreter)
+│   │   ├── staticopenqasmparser.py   Static OpenQASM 2/3 front end
+│   │   ├── qiskitparser.py           Executing Qiskit front end
+│   │   └── openqasmparser.py         qiskit.qasm3-based front end
+│   ├── Dependencies/            Dependency types and the rules that emit edges
+│   ├── qinstruction.py          QuantumInstruction and SourceLocation
+│   ├── qprogram.py              QuantumProgram (the IR)
+│   ├── parser.py                Abstract parser base class
+│   ├── qdg.py                   QDG construction and rule profiles
+│   ├── slicer.py                Backward and forward slicing
+│   ├── entanglement.py          Approximate entanglement analysis
+│   └── visualizer.py, entangle_viewer.py, combined_visualizer.py
+├── webapp/                      Flask web app (see webapp/README.md)
+│   ├── app.py, analysis.py      Routes and the bridge to scripts/
+│   ├── parse_worker.py          Child process for the executing Qiskit route
+│   ├── lint.py, gates.py        Static checks and the gate reference
+│   ├── examples/                Bundled circuits and manifest.json
+│   └── templates/, static/      Pages, CSS, JavaScript (no build step, no CDN)
+├── deploy/                      nginx config and systemd unit
+├── tests/                       core/, webapp/ and js/ suites
+├── Attachments/                 Sample circuits and images
+└── wiki/                        Research notes (separate repo)
+```
+
+## Testing
+
+```bash
+pytest                       # everything
+pytest -m "not slow"         # skip tests that start the Qiskit worker subprocess
+```
+
+The suites are `tests/core` (parsers, QDG, rules, slicer, entanglement,
+including both static parsers), `tests/webapp` (API, pages, routes, source
+locations, lint, worker) and `tests/js` (run through Node's built-in test
+runner, so Node.js is required).
+
+Known gaps are recorded as strict `xfail`s in
+`tests/webapp/test_webapp_requirement_gaps.py`; one that starts passing fails the
+run, which is the cue to remove the marker.
+
+## Deployment
+
+[deploy/README.md](deploy/README.md) covers nginx plus gunicorn under a
+hardened systemd unit (`DynamicUser`, `IPAddressDeny=any`, memory and task
+caps, a read-only filesystem), `waitress` on Windows, and logs. The service runs
+**one worker with several threads on purpose**: the QDG cache is in process
+memory, so a second worker would not recognise another's slice tokens.
+
+For a public host, the safest configuration is to use only the static
+interpreters, since they execute nothing. Restricting access in nginx
+(`allow`/`deny`) is what decides who can reach the executing route.
+
+## Documentation
+
+The research notes live in the project wiki (a separate repository, checked
+out under `wiki/`): classical and quantum slicing, the dependency types, the
+approximate entanglement representation, uncomputation, LintQ, and static
+parsing.
+
+The static parsing page records the interpreter design, the validation, and a
+proposal for **chunking** large programs: because
+static parsing unrolls loops, a 4,000-layer, 20-qubit ansatz becomes about
+156,000 IR nodes from three source sites. Every current rule keeps one "last
+writer per wire" state, so a program can be cut along its source structure
+(helper calls, loop iterations, `if` blocks), each chunk summarised at its
+qubit/clbit boundary, and slices run over the summaries, expanding only the
+chunks they enter. That is exact for the current rules, not an approximation.
+It is a proposal, not yet implemented.
+
+## Status and limitations
+
+This is a research prototype. It analyses statically only, and conservative
+approximations are accepted. Specifically:
+
+- **Entanglement and phase rules ship disabled.** Only the `baseline` profile
+  exists, so there is no per-analysis toggle yet.
+- **Classical control dependence** (`ControlClassical`) is a placeholder, and
+  slices do not yet exclude an entangling gate that is uncomputed before the
+  criterion.
+- **Qubit-wise (horizontal) slices** are computed in the browser;
+  `SlicingCriterion.qubits` is not consumed by the slicer yet. The X/Y/Z
+  measurement-basis toggle is a placeholder pending research.
+- **Static checks** (`QS000`–`QS010`) read only Python source, are not LintQ,
+  and see only literal arguments. OpenQASM input gets none.
+- **Large circuits** (several hundred instructions and up) draw slowly, since
+  each node is a DOM element; use Range. Chunking is the planned fix.
+- **Static interpreter limits:** unmodelled code (user-defined classes,
+  `transpile` and pass managers) is not followed, and control flow that depends
+  on an unknown value and touches a circuit is refused rather than guessed.
+- **Export** covers PNG; JSON export of a slice is not done.

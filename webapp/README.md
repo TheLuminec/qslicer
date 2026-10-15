@@ -2,7 +2,7 @@
 
 A Flask front end over the analysis code in `scripts/`. It is a working
 mock-up: the pages, the interactions and the API are real, and the graph it
-draws comes from the actual parser, QPDG and slicer rather than from canned
+draws comes from the actual parser, QDG and slicer rather than from canned
 data. What is *mocked* is called out under [Mocked or partial](#mocked-or-partial)
 below.
 
@@ -80,7 +80,7 @@ Qiskit, so expect a couple of seconds per run even for a four-gate circuit.
 |------------|-------------------------------------------------------------------------|
 | `/`        | Landing page: what the tool does, quantum programming in brief           |
 | `/slicer`  | The application: source on the left, graph and analysis on the right     |
-| `/quantum` | Background on quantum programs, on the QPDG, and on the tools we use     |
+| `/quantum` | Background on quantum programs, on the QDG, and on the tools we use     |
 | `/team`    | Team, advisor, course                                                    |
 
 ## JSON API
@@ -96,7 +96,7 @@ Qiskit, so expect a couple of seconds per run even for a four-gate circuit.
 it the filename extension decides -- but the page always sends it.
 
 `/api/analyze` returns nodes, edges, entanglement groups, lint diagnostics and
-a `token`. The token names the QPDG cached server-side, so slicing never
+a `token`. The token names the QDG cached server-side, so slicing never
 re-executes the submitted program. The cache holds the 24 most recent analyses
 in memory; after a server restart the client is told to analyze again.
 
@@ -105,7 +105,7 @@ in memory; after a server restart the client is told to analyze again.
 ```
 webapp/
 ├── app.py          Flask routes and the JSON API
-├── analysis.py     bridge to scripts/ -- route, parse, build QPDG, slice, serialize
+├── analysis.py     bridge to scripts/ -- route, parse, build QDG, slice, serialize
 ├── parse_worker.py the child process that runs a submitted .py file
 ├── capture_io.py   shim that keeps the stdout the Qiskit parser discards
 ├── lint.py         AST-based static checks (the LintQ stand-in)
@@ -280,7 +280,7 @@ of the real thing:
 * **Static checks.** Ten heuristics over the Python AST, not LintQ. They see
   only literal arguments — anything built in a loop or passed through a helper
   is invisible to them. Codes are `QS000`–`QS010`; the rules live in `lint.py`.
-* **Rule profiles.** The dropdown lists whatever `qpdg.list_rule_profiles()`
+* **Rule profiles.** The dropdown lists whatever `qdg.list_rule_profiles()`
   returns, which today is just `baseline`. Entanglement and phase rules exist in
   `scripts/Dependencies/rules.py` but ship disabled, so a profile that enables
   them is the thing that makes their Follow chips appear.

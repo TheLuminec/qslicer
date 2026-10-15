@@ -84,14 +84,14 @@ curl -sS http://quantum-slicing.capstone.csi.miamioh.edu/api/examples | head -c 
 ## One worker, several threads
 
 `--workers 1 --threads 4` in the service file is deliberate, not a default left
-in place. `/api/analyze` builds a QPDG, caches it in memory and returns a token;
+in place. `/api/analyze` builds a QDG, caches it in memory and returns a token;
 `/api/slice` looks the token up again. The cache is a module-level dictionary,
 so a second worker process would answer some slice requests without ever having
 seen the token, and the user would be told to analyse again, seemingly at
 random.
 
 If you need real concurrency later, the fix is to move the cache out of process
-(a small Redis, or reconstruct the QPDG per slice request), not to raise the
+(a small Redis, or reconstruct the QDG per slice request), not to raise the
 worker count.
 
 ## Paths to change
