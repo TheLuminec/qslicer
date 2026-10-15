@@ -18,8 +18,8 @@ COURSE = {
 MEMBERS = [
     {
         "name": "Max Lovell",
-        "handle": "",
-        "role": "Team Lead",
+        "handle": "lovellmb",
+        "role": "Team Lead / Developer",
         "year": "Senior",
         "focus": "Sprint reviews, merge approvals",
         "bio": "Accountable for the structural integrity of the main branch. Prepares the brief "
