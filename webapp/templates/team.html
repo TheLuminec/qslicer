@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Team &middot; Quantum Program Slicer{% endblock %}
+
+{% block content %}
+<section class="team-hero">
+  <p class="eyebrow">{{ course.term }} &middot; {{ course.institution }}</p>
+  <h1>The team</h1>
+  <p class="lede">{{ blurb }}</p>
+</section>
+
+<section class="vision-block">
+  <div class="two-col">
+    <blockquote class="vision-card">
+      <h2>Vision</h2>
+      <p>{{ vision }}</p>
+    </blockquote>
+    <blockquote class="vision-card">
+      <h2>Mission</h2>
+      <p>{{ mission }}</p>
+    </blockquote>
+  </div>
+</section>
+
+<section class="team-grid">
+  {% for member in members %}
+  <article class="member-card">
+    <div class="avatar" aria-hidden="true">{{ member.name.split()[0][0] }}</div>
+    <h2>{{ member.name }}</h2>
+    <p class="member-meta">{{ member.role }}</p>
+    <p class="member-focus">{{ member.year }} &middot; {{ member.focus }}</p>
+    <p class="member-bio">{{ member.bio }}</p>
+    {% if member.handle %}<p class="member-handle">@{{ member.handle }}</p>{% endif %}
+    {% if member.links %}
+    <ul class="member-links">
+      {% for label, href in member.links.items() %}
+        <li><a href="{{ href }}" rel="noopener">{{ label }}</a></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </article>
+  {% endfor %}
+</section>
+{% endblock %}

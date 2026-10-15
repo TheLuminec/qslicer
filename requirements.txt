@@ -1,5 +1,5 @@
 qiskit
 qiskit-aer
-qiskit[qasm3]
+qiskit-qasm3-import
 networkx
 matplotlib

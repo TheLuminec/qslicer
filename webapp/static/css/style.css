@@ -1,0 +1,973 @@
+/* ==========================================================================
+   Quantum Program Slicer -- mock-up styles
+   Palette follows the desktop matplotlib visualizers so the two feel related.
+   ========================================================================== */
+
+:root {
+  --bg:          #1e1e2e;
+  --bg-sunken:   #181825;
+  --surface:     #252539;
+  --surface-2:   #313244;
+  --surface-3:   #45475a;
+  --line:        #3a3c52;
+  --text:        #cdd6f4;
+  --text-dim:    #a6adc8;
+  --text-faint:  #7f849c;
+  --accent:      #89b4fa;
+  --accent-2:    #b4befe;
+  --criterion:   #ff6b35;
+  --in-slice:    #4a90d9;
+  --ok:          #a6e3a1;
+  --warn:        #f9e2af;
+  --err:         #f38ba8;
+  --info:        #89dceb;
+
+  /* Dependency edge colors, matching scripts/visualizer.py */
+  --dep-data-qubit:        #2196f3;
+  --dep-entanglement:      #e91e63;
+  --dep-measurement:       #4caf50;
+  --dep-data-classical:    #ff9800;
+  --dep-control-classical: #795548;
+  --dep-phase:             #8d1eac;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+  --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --header-h: 58px;
+}
+
+* { box-sizing: border-box; }
+
+/* Our layout rules set display on elements we also toggle with [hidden]. */
+[hidden] { display: none !important; }
+
+/* min-height, not height: a body capped at one viewport is the containing
+   block the sticky header is pinned within, so it would scroll away after
+   the first screen. */
+html { height: 100%; }
+body { min-height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+code, pre, .mono { font-family: var(--mono); font-size: 0.9em; }
+code { background: var(--surface-2); padding: 0.1em 0.38em; border-radius: 4px; color: var(--accent-2); }
+pre code { background: none; padding: 0; }
+
+h1, h2, h3 { line-height: 1.25; margin: 0 0 0.5em; }
+h1 { font-size: 2.1rem; letter-spacing: -0.02em; }
+h2 { font-size: 1.4rem; }
+h3 { font-size: 1.05rem; }
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  color: var(--accent-2);
+  margin: 0 0 0.6em;
+  font-weight: 600;
+}
+
+.lede { font-size: 1.1rem; color: var(--text-dim); max-width: 62ch; }
+
+.placeholder { color: var(--text-faint); font-style: italic; }
+
+.skip-link {
+  position: absolute; left: -9999px; top: 0; z-index: 100;
+  background: var(--accent); color: var(--bg-sunken); padding: 0.6em 1em;
+}
+.skip-link:focus { left: 0; }
+
+/* --------------------------------------------------------------- header -- */
+
+.site-header {
+  height: var(--header-h);
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem;
+  padding: 0 1.25rem;
+  background: var(--bg-sunken);
+  border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 50;
+}
+
+.brand { display: flex; align-items: center; gap: 0.6rem; color: var(--text); }
+.brand:hover { text-decoration: none; }
+.brand-mark { font-size: 1.5rem; color: var(--accent); }
+.brand-text { display: flex; flex-direction: column; line-height: 1.15; }
+.brand-text strong { font-size: 0.98rem; letter-spacing: -0.01em; }
+.brand-text small { font-size: 0.7rem; color: var(--text-faint); }
+
+.site-nav { display: flex; gap: 0.25rem; }
+.site-nav a {
+  padding: 0.45rem 0.8rem;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+.site-nav a:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
+.site-nav a.active { background: var(--surface-3); color: #fff; }
+
+.banner {
+  padding: 0.7rem 1.25rem;
+  font-size: 0.88rem;
+  border-bottom: 1px solid var(--line);
+}
+.banner code { display: inline-block; margin-left: 0.4rem; }
+.banner-warning { background: #4a3a1a; color: var(--warn); }
+
+/* --------------------------------------------------------------- footer -- */
+
+.site-footer {
+  border-top: 1px solid var(--line);
+  padding: 1.5rem 1.25rem 2.5rem;
+  color: var(--text-faint);
+  font-size: 0.85rem;
+  text-align: center;
+}
+.site-footer p { margin: 0.3rem 0; }
+.footnote { font-size: 0.78rem; }
+
+/* --------------------------------------------------------------- shared -- */
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+  padding: 0.55rem 1.05rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--surface-3);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit; font-size: 0.9rem; font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.06s ease;
+}
+.btn:hover { background: var(--surface-3); text-decoration: none; }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #11111b; font-weight: 600; }
+.btn-primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
+.btn-ghost { background: transparent; }
+.btn-small { padding: 0.35rem 0.7rem; font-size: 0.82rem; }
+
+.chip {
+  padding: 0.3rem 0.62rem;
+  border-radius: 999px;
+  border: 1px solid var(--surface-3);
+  background: var(--surface);
+  color: var(--text-dim);
+  font: inherit; font-size: 0.78rem;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  white-space: nowrap;
+}
+.chip:hover { background: var(--surface-2); color: var(--text); }
+.chip.active { background: var(--surface-3); color: #fff; border-color: var(--accent); }
+.chip-dep.active .swatch { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2); }
+.chip-dep:not(.active) { opacity: 0.5; }
+
+/* How many edges this rule contributed to the circuit on screen. Zero means
+   the rule ran and found nothing, which is worth showing rather than hiding. */
+.chip-count {
+  font-family: var(--mono); font-size: 0.7rem;
+  color: var(--text-faint); margin-left: 0.1rem;
+}
+.chip-dep.active .chip-count { color: var(--text-dim); }
+.chip-empty { border-style: dashed; }
+.chip-empty .swatch { opacity: 0.45; }
+
+.swatch {
+  width: 10px; height: 10px; border-radius: 3px;
+  display: inline-block; background: var(--surface-3); flex: none;
+  margin-right: 0.2rem;
+}
+
+.field { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.75rem; color: var(--text-faint); }
+.field span { text-transform: uppercase; letter-spacing: 0.08em; }
+.field select, .field input {
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--surface-3); border-radius: var(--radius-sm);
+  padding: 0.4rem 0.5rem; font: inherit; font-size: 0.85rem;
+}
+.field-narrow select { max-width: 8.5rem; }
+
+input:focus-visible, select:focus-visible, button:focus-visible, textarea:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
+.section-title { text-align: center; margin-bottom: 1.5rem; }
+
+/* ----------------------------------------------------------- home page -- */
+
+.hero {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 2.5rem; align-items: center;
+  max-width: 1180px; margin: 0 auto; padding: 4rem 1.5rem 3rem;
+}
+.hero h1 { font-size: 2.7rem; }
+.hero-actions { display: flex; gap: 0.75rem; margin-top: 1.75rem; flex-wrap: wrap; }
+
+/* The hero figure is the graph view's own output, so it is styled to match:
+   same wires, same node colors, same in-slice blue and criterion orange. */
+.hero-figure { margin: 0; }
+.hero-graph {
+  width: 100%; height: auto;
+  background: var(--bg-sunken);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 0.4rem 0.2rem;
+}
+
+.hero-wire { stroke: var(--surface-2); stroke-width: 1; stroke-dasharray: 3 5; }
+.hero-wire-label { fill: var(--text-faint); font-size: 12px; font-family: var(--mono); }
+
+.hero-edge { fill: none; stroke: var(--dep-data-qubit); stroke-width: 1.4; }
+.hero-edge.in-slice { stroke-width: 2.4; opacity: 1; }
+.hero-edge.dim { opacity: 0.18; }
+.hero-arrowhead { fill: var(--dep-data-qubit); }
+.hero-arrowhead.dim { fill: var(--dep-data-qubit); opacity: 0.25; }
+
+.hero-node .hero-shape { stroke: #11111b; stroke-width: 1.5; }
+.hero-node .hero-label {
+  fill: #11111b; font-size: 12.5px; font-weight: 600;
+  font-family: var(--mono); text-anchor: middle;
+}
+.hero-node .hero-index {
+  fill: var(--text-faint); font-size: 10.5px; font-family: var(--mono); text-anchor: middle;
+}
+.hero-node .hero-span { stroke: #c6a0f6; stroke-width: 2; opacity: 0.55; }
+.hero-node .hero-tick { fill: #c6a0f6; opacity: 0.8; }
+
+/* Category fills, for the instructions the slice did not reach. */
+.hero-node.cat-single .hero-shape { fill: #9aa6cf; }
+.hero-node.cat-multi .hero-shape { fill: #c6a0f6; }
+.hero-node.cat-measurement .hero-shape { fill: #a6e3a1; }
+/* In the slice, and the criterion itself: these override the category. */
+.hero-node.in-slice .hero-shape { fill: var(--in-slice); stroke: #cdd6f4; }
+.hero-node.criterion .hero-shape { fill: var(--criterion); stroke: #fff; stroke-width: 2.5; }
+.hero-node.dim { opacity: 0.28; }
+
+.figure-caption {
+  font-size: 0.82rem; color: var(--text-faint);
+  margin-top: 0.7rem; line-height: 1.5; max-width: 52ch;
+}
+.figure-caption strong { color: var(--text-dim); }
+
+.lede-sub { color: var(--text-dim); max-width: 62ch; margin-top: -0.4rem; }
+
+/* The explainer: paired sections, two to a row. The pairs are deliberate --
+   classical against quantum, behavior against representation -- so reading
+   across a row is as sensible as reading down the page. Collapses to one
+   column when there is no room for two. */
+.explainer { background: var(--bg-sunken); border-block: 1px solid var(--line); }
+.explainer-inner { max-width: 1120px; margin: 0 auto; padding: 3.5rem 1.5rem 3rem; }
+.explainer-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.1rem;
+  counter-reset: explainer;
+  align-items: stretch;
+}
+.explainer-section {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.4rem 1.6rem 1.1rem;
+  display: flex; flex-direction: column;
+}
+.explainer-wide { grid-column: 1 / -1; border-left: 3px solid var(--accent); }
+
+.explainer-section h2 {
+  position: relative; padding-left: 2.3rem; margin-bottom: 0.85rem;
+  font-size: 1.2rem; line-height: 1.3;
+}
+.explainer-section h2::before {
+  counter-increment: explainer; content: counter(explainer);
+  position: absolute; left: 0; top: 0;
+  width: 1.65rem; height: 1.65rem; border-radius: 50%;
+  background: var(--surface-2); color: var(--accent-2);
+  display: grid; place-items: center;
+  font-size: 0.78rem; font-weight: 700;
+}
+.explainer-section p {
+  color: var(--text-dim); font-size: 0.95rem; max-width: 62ch;
+  margin: 0 0 0.85rem;
+}
+.explainer-section p:last-child { margin-bottom: 0.35rem; }
+.explainer-section strong { color: var(--text); font-weight: 600; }
+.explainer-link { font-size: 0.9rem !important; }
+
+/* The wide closing section reads better as two columns of its own. */
+.explainer-wide p { max-width: none; }
+.explainer-wide .explainer-body {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 0 2rem;
+}
+
+.slice-pair {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.7rem; margin-top: auto; padding-top: 0.4rem;
+}
+.slice-pair > div {
+  background: var(--bg-sunken); border: 1px solid var(--line);
+  border-left: 3px solid var(--accent); border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 0.75rem 0.9rem;
+}
+.slice-pair h3 { color: var(--accent-2); font-size: 0.9rem; margin-bottom: 0.25rem; }
+.slice-pair p { margin: 0; font-size: 0.88rem; }
+
+@media (max-width: 900px) {
+  .explainer-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+.strip { background: var(--bg-sunken); border-block: 1px solid var(--line); }
+.strip-inner {
+  max-width: 1120px; margin: 0 auto; padding: 3rem 1.5rem;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 2.5rem;
+}
+.strip p { color: var(--text-dim); }
+
+.cards { max-width: 1120px; margin: 0 auto; padding: 3.5rem 1.5rem; }
+.card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; }
+.card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 1.25rem;
+}
+.card h3 { color: var(--accent-2); }
+.card p { margin: 0; color: var(--text-dim); font-size: 0.92rem; }
+
+.cta { text-align: center; padding: 1rem 1.5rem 4rem; }
+.cta p { color: var(--text-dim); margin-bottom: 1.25rem; }
+
+/* ----------------------------------------------------------- workbench -- */
+
+/* Source pane, draggable divider, output pane. --split is the left pane's
+   share, set by slicer.js and remembered per browser. */
+.workbench {
+  display: grid;
+  grid-template-columns: minmax(0, var(--split, 50%)) 7px minmax(0, 1fr);
+  background: var(--line);
+  height: calc(100vh - var(--header-h));
+  min-height: 560px;
+}
+
+.splitter {
+  position: relative;
+  background: var(--line);
+  cursor: col-resize;
+  touch-action: none;
+}
+/* A wider invisible grab area than the 7px the divider actually occupies. */
+.splitter::before {
+  content: ""; position: absolute; inset: 0 -4px;
+}
+/* The grip: three dots, so it reads as something you can pull. */
+.splitter::after {
+  content: ""; position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px; height: 28px; border-radius: 2px;
+  background: var(--surface-3);
+  transition: background 0.12s ease;
+}
+.splitter:hover::after, .splitter:focus-visible::after { background: var(--accent); }
+.splitter:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+body.splitting { cursor: col-resize; user-select: none; }
+body.splitting .splitter::after { background: var(--accent); }
+body.page-slicer .site-footer { display: none; }
+body.page-slicer main { overflow: hidden; }
+
+.pane { background: var(--bg); display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+.pane-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-sunken);
+  flex: none;
+}
+.pane-head h2 { margin: 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-faint); }
+.pane-head-actions { display: flex; gap: 0.4rem; align-items: center; }
+.pane-head-actions label.btn { cursor: pointer; }
+
+.source-toolbar {
+  display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.source-toolbar .field { flex: 1 1 10rem; min-width: 0; }
+
+.example-blurb {
+  margin: 0; padding: 0.5rem 0.9rem;
+  font-size: 0.82rem; color: var(--text-faint);
+  border-bottom: 1px solid var(--line);
+  min-height: 2.1rem;
+  flex: none;
+}
+.example-blurb .highlight { color: var(--accent-2); }
+
+/* editor */
+
+.editor-shell { position: relative; flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+/* The line count sits in the pane header; there is no filename field. */
+.editor-meta {
+  font-size: 0.75rem; color: var(--text-faint); white-space: nowrap;
+  margin-right: 0.3rem; font-family: var(--mono);
+}
+
+/* The editor is two layers that must agree to the pixel: a highlighted copy
+   of the text underneath, and the real textarea on top with transparent text
+   so only its caret and selection show. Every property that affects where a
+   glyph lands is set once here and shared by both. */
+.editor-body {
+  display: flex; flex: 1 1 auto; min-height: 0;
+  background: var(--bg-sunken);
+
+  --editor-font: var(--mono);
+  --editor-size: 0.84rem;
+  --editor-leading: 1.55;
+  --editor-pad-y: 0.75rem;
+  --editor-pad-x: 0.9rem;
+}
+
+.gutter {
+  margin: 0;
+  padding: var(--editor-pad-y) 0.5rem var(--editor-pad-y) var(--editor-pad-x);
+  color: var(--text-faint); background: var(--bg-sunken);
+  font-family: var(--editor-font); font-size: var(--editor-size);
+  line-height: var(--editor-leading);
+  text-align: right; user-select: none; overflow: hidden; flex: none;
+  border-right: 1px solid var(--line);
+}
+.gutter-line { white-space: pre; }
+.gutter-line.err-line { color: var(--err); font-weight: 700; }
+
+/* Source lines linked to the graph (FR-07): the hovered node's line, the lines
+   a slice covers, the criterion's line, and a line picked from the gutter. */
+.gutter.linked .gutter-line { cursor: pointer; }
+.gutter.linked .gutter-line:hover { color: var(--accent); }
+.gutter-line.src-slice { color: var(--in-slice); font-weight: 700; }
+.gutter-line.src-criterion { color: var(--criterion); font-weight: 700; }
+.gutter-line.src-picked { color: var(--accent); font-weight: 700; }
+.hl-line.src-slice { background: rgba(74, 144, 217, 0.16); }
+.hl-line.src-criterion { background: rgba(255, 107, 53, 0.22); }
+.hl-line.src-picked { background: rgba(137, 180, 250, 0.16); }
+.hl-line.src-hover { background: rgba(255, 255, 255, 0.10); box-shadow: inset 3px 0 0 var(--accent); }
+
+.editor-input { position: relative; flex: 1 1 auto; min-width: 0; }
+
+.editor-highlight {
+  position: absolute; inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.hl-inner { padding: var(--editor-pad-y) var(--editor-pad-x); will-change: transform; }
+
+/* One element per logical line, so a wrapped line can be measured and the
+   gutter can be given a matching height. */
+.hl-line {
+  font-family: var(--editor-font); font-size: var(--editor-size);
+  line-height: var(--editor-leading);
+  white-space: pre-wrap; overflow-wrap: break-word; word-break: normal;
+  tab-size: 4; color: var(--text);
+}
+.hl-line:empty::after { content: "\200b"; }   /* keeps blank lines their height */
+
+#code {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  border: 0; resize: none; outline: none;
+  background: transparent;
+  padding: var(--editor-pad-y) var(--editor-pad-x);
+  font-family: var(--editor-font); font-size: var(--editor-size);
+  line-height: var(--editor-leading);
+  white-space: pre-wrap; overflow-wrap: break-word; word-break: normal;
+  tab-size: 4;
+  /* The text itself is drawn by the layer underneath. */
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: var(--text);
+}
+#code::selection { background: rgba(137, 180, 250, 0.32); }
+#code::placeholder {
+  color: var(--text-faint);
+  -webkit-text-fill-color: var(--text-faint);
+}
+
+/* Token colors. Kept close to the node colors in the graph: gates are the
+   thing you are reading for, so they get the warm one. */
+.tok-comment   { color: #6c7086; font-style: italic; }
+.tok-string    { color: #a6e3a1; }
+.tok-number    { color: #fab387; }
+.tok-keyword   { color: #cba6f7; }
+.tok-constant  { color: #f9e2af; }
+.tok-builtin   { color: #89dceb; }
+.tok-def       { color: #89b4fa; }
+.tok-call      { color: #b4befe; }
+.tok-gate      { color: #f38ba8; font-weight: 600; }
+.tok-decorator { color: #f5c2e7; }
+.tok-op        { color: #7f849c; }
+
+.drop-overlay {
+  position: absolute; inset: 0; z-index: 5;
+  display: grid; place-items: center;
+  background: rgba(137, 180, 250, 0.12);
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius);
+  font-weight: 600; color: var(--accent-2);
+  pointer-events: none;
+}
+
+/* diagnostics */
+
+.diagnostics {
+  flex: none; max-height: 36%;
+  display: flex; flex-direction: column;
+  border-top: 1px solid var(--line); background: var(--bg);
+}
+.diagnostics-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.45rem 0.9rem; border-bottom: 1px solid var(--line); flex: none;
+}
+.diagnostics-head h3 { margin: 0; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-faint); }
+.diagnostics-summary { font-size: 0.78rem; color: var(--text-faint); }
+.diagnostics-summary.has-errors { color: var(--err); }
+.diagnostics-summary.has-warnings { color: var(--warn); }
+.diagnostics-summary.clean { color: var(--ok); }
+
+.diagnostics-list { list-style: none; margin: 0; padding: 0.4rem 0.6rem 0.8rem; overflow-y: auto; }
+.diagnostics-list li { padding: 0.45rem 0.55rem; border-radius: var(--radius-sm); font-size: 0.85rem; }
+.diagnostics-list li.placeholder { font-size: 0.8rem; }
+.diagnostics-list li.diag { border-left: 3px solid var(--surface-3); background: var(--surface); margin-bottom: 0.4rem; cursor: pointer; }
+.diagnostics-list li.diag:hover { background: var(--surface-2); }
+.diagnostics-list li.sev-error { border-left-color: var(--err); }
+.diagnostics-list li.sev-warning { border-left-color: var(--warn); }
+.diagnostics-list li.sev-info { border-left-color: var(--info); }
+.diag-head { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; }
+.diag-code { font-family: var(--mono); font-size: 0.74rem; color: var(--text-faint); }
+.diag-loc { font-family: var(--mono); font-size: 0.74rem; color: var(--accent); }
+.diag-message { font-weight: 500; }
+.diag-hint { display: block; margin-top: 0.2rem; font-size: 0.8rem; color: var(--text-dim); }
+.diag-trace { margin: 0.4rem 0 0; font-size: 0.74rem; color: var(--text-faint); white-space: pre-wrap; max-height: 9rem; overflow: auto; }
+
+/* tabs */
+
+.tabs { display: flex; gap: 0.2rem; }
+.tab {
+  padding: 0.35rem 0.75rem; border-radius: var(--radius-sm);
+  border: 1px solid transparent; background: none; color: var(--text-faint);
+  font: inherit; font-size: 0.82rem; cursor: pointer;
+}
+.tab:hover { color: var(--text); background: var(--surface-2); }
+.tab.active { background: var(--surface-3); color: #fff; }
+
+.tab-panel { display: none; flex: 1 1 auto; min-height: 0; flex-direction: column; }
+.tab-panel.active { display: flex; }
+
+/* graph toolbar */
+
+.graph-toolbar, .dep-filter, .qubit-filter {
+  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+  padding: 0.5rem 0.9rem;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.dep-filter { padding-top: 0.35rem; padding-bottom: 0.45rem; min-height: 2.4rem; }
+.dep-filter .placeholder { font-size: 0.78rem; }
+.tool-group { display: flex; align-items: center; gap: 0.3rem; }
+.tool-group-right { margin-left: auto; }
+.tool-label {
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.09em;
+  color: var(--text-faint); margin-right: 0.15rem;
+}
+.num {
+  width: 3.6rem; background: var(--surface); color: var(--text);
+  border: 1px solid var(--surface-3); border-radius: var(--radius-sm);
+  padding: 0.25rem 0.35rem; font: inherit; font-size: 0.8rem;
+}
+.dash { color: var(--text-faint); }
+
+/* graph stage */
+
+.graph-stage { position: relative; flex: 1 1 auto; min-height: 0; background: var(--bg-sunken); overflow: hidden; }
+#graph { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+#graph.panning { cursor: grabbing; }
+
+.graph-empty {
+  position: absolute; inset: 0; display: grid; place-content: center; text-align: center;
+  color: var(--text-faint); pointer-events: none; gap: 0.2rem;
+}
+.graph-empty p { margin: 0; }
+
+/* View controls live on the canvas, the way they do on a map. */
+.graph-controls {
+  position: absolute; top: 0.6rem; right: 0.6rem; z-index: 10;
+  display: flex; flex-direction: column; gap: 0.3rem;
+}
+.graph-btn {
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  border: 1px solid var(--surface-3); border-radius: var(--radius-sm);
+  background: rgba(37, 37, 57, 0.92);
+  color: var(--text-dim);
+  font: inherit; font-size: 0.95rem; line-height: 1;
+  cursor: pointer;
+  backdrop-filter: blur(2px);
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.graph-btn svg { width: 14px; height: 14px; display: block; }
+.graph-btn:hover { background: var(--surface-3); color: #fff; border-color: var(--accent); }
+.graph-btn:active { transform: translateY(1px); }
+
+.graph-hint {
+  position: absolute; left: 0.75rem; bottom: 0.6rem; max-width: calc(100% - 3.5rem);
+  font-size: 0.72rem; color: var(--text-faint);
+  background: rgba(24, 24, 37, 0.8); padding: 0.2rem 0.5rem; border-radius: 4px;
+  pointer-events: none;
+}
+
+.tooltip {
+  position: absolute; z-index: 20; max-width: 22rem;
+  background: var(--surface); border: 1px solid var(--surface-3);
+  border-radius: var(--radius); padding: 0.7rem 0.8rem;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);
+  font-size: 0.83rem; pointer-events: none;
+}
+.tooltip h4 { margin: 0 0 0.15rem; font-size: 0.95rem; color: var(--accent-2); }
+.tooltip .tip-sub { font-family: var(--mono); font-size: 0.75rem; color: var(--text-faint); margin: 0 0 0.45rem; }
+.tooltip p { margin: 0 0 0.4rem; color: var(--text-dim); }
+.tooltip dl { margin: 0.4rem 0 0; display: grid; grid-template-columns: auto 1fr; gap: 0.15rem 0.6rem; font-size: 0.78rem; }
+.tooltip dt { color: var(--text-faint); }
+.tooltip dd { margin: 0; font-family: var(--mono); }
+.tooltip .tip-flags { display: flex; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.5rem; }
+.tooltip .tip-basis { margin-top: 0.5rem; padding-top: 0.45rem; border-top: 1px solid var(--surface-3); font-size: 0.78rem; color: var(--warn); }
+
+.flag {
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 0.1rem 0.4rem; border-radius: 999px; border: 1px solid currentColor;
+}
+.flag-ent { color: var(--dep-entanglement); }
+.flag-phase { color: var(--dep-phase); }
+.flag-inv { color: var(--ok); }
+
+/* svg graph internals */
+
+#graph .lane-line { stroke: var(--surface-2); stroke-width: 1; stroke-dasharray: 3 5; }
+#graph .lane-label { fill: var(--text-faint); font-size: 10px; font-family: var(--mono); cursor: pointer; }
+#graph .lane-label:hover { fill: var(--accent); }
+#graph .lane-label.selected { fill: var(--criterion); font-weight: 700; }
+#graph .lane-hit { fill: transparent; cursor: pointer; }
+#graph .lane-hit.selected { fill: rgba(255, 107, 53, 0.07); }
+
+#graph .edge { fill: none; stroke-width: 1.4; opacity: 0.55; }
+#graph .edge.dimmed { opacity: 0.08; }
+#graph .edge.in-slice { opacity: 1; stroke-width: 2.4; }
+
+#graph .node { cursor: pointer; }
+#graph .node .node-shape {
+  fill: var(--surface-3); stroke: #11111b; stroke-width: 1.5;
+  transition: fill 0.12s ease;
+}
+#graph .node .node-text { fill: #11111b; font-size: 11px; font-family: var(--mono); text-anchor: middle; pointer-events: none; }
+#graph .node .node-index { fill: var(--text-faint); font-size: 9px; font-family: var(--mono); text-anchor: middle; pointer-events: none; }
+#graph .node.cat-single .node-shape { fill: #9aa6cf; }
+#graph .node.cat-multi .node-shape { fill: #c6a0f6; }
+#graph .node.cat-measurement .node-shape { fill: #a6e3a1; }
+#graph .node.cat-classical .node-shape { fill: #f9e2af; }
+#graph .node.cat-structural .node-shape { fill: #6c7086; }
+#graph .node.in-slice .node-shape { fill: var(--in-slice); stroke: #cdd6f4; }
+#graph .node.criterion .node-shape { fill: var(--criterion); stroke: #fff; stroke-width: 2.5; }
+#graph .node.dimmed { opacity: 0.22; }
+#graph .node.hovered .node-shape { stroke: #fff; stroke-width: 2.5; }
+#graph .node.qubit-selected .node-shape { stroke: var(--criterion); stroke-width: 2.5; }
+#graph .node .node-line { fill: var(--text-faint); font-size: 9px; font-family: var(--mono); text-anchor: middle; pointer-events: none; }
+#graph .node.marked .node-shape { stroke: var(--accent); stroke-width: 3; }
+#graph .node.marked .node-line { fill: var(--accent); font-weight: 700; }
+
+/* status bar */
+
+.graph-status {
+  display: flex; justify-content: space-between; gap: 1rem; align-items: center;
+  padding: 0.45rem 0.9rem; border-top: 1px solid var(--line);
+  font-size: 0.8rem; color: var(--text-dim); flex: none;
+}
+.status-side { color: var(--text-faint); font-family: var(--mono); font-size: 0.75rem; }
+
+/* tables in the right pane */
+
+.table-scroll { overflow: auto; flex: 1 1 auto; min-height: 0; padding: 0.75rem 0.9rem 1.5rem; }
+.instr-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+.instr-table th, .instr-table td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--line); }
+.instr-table th { color: var(--text-faint); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; position: sticky; top: 0; background: var(--bg); }
+.instr-table td { font-family: var(--mono); }
+.instr-table tbody tr { cursor: pointer; }
+.instr-table tbody tr:hover { background: var(--surface); }
+.instr-table tr.in-slice td { color: var(--accent); }
+.instr-table tr.criterion td { background: rgba(255, 107, 53, 0.14); color: #fff; }
+.instr-table .tick { color: var(--ok); }
+.instr-table .line-cell { color: var(--text-faint); white-space: nowrap; }
+.instr-table .line-link { color: var(--accent); cursor: pointer; text-decoration: underline dotted; }
+.instr-table tr.marked td { background: rgba(137, 180, 250, 0.12); }
+
+.qubit-filter .chip { font-family: var(--mono); }
+
+.group-card {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface); padding: 0.7rem 0.85rem; margin-bottom: 0.6rem;
+}
+.group-card h4 { margin: 0 0 0.35rem; font-size: 0.9rem; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.group-kind {
+  font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.07em;
+  padding: 0.1rem 0.45rem; border-radius: 999px; border: 1px solid currentColor;
+}
+.group-kind.kind-init { color: var(--text-faint); }
+.group-kind.kind-entangled { color: var(--dep-entanglement); }
+.group-kind.kind-measurement { color: var(--ok); }
+.group-kind.kind-classical { color: var(--dep-data-classical); }
+.group-card dl { display: grid; grid-template-columns: auto 1fr; gap: 0.15rem 0.7rem; margin: 0; font-size: 0.8rem; }
+.group-card dt { color: var(--text-faint); }
+.group-card dd { margin: 0; font-family: var(--mono); }
+.group-card .idx-link { color: var(--accent); cursor: pointer; }
+.group-card .idx-link:hover { text-decoration: underline; }
+
+.console-title { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.09em; color: var(--text-faint); margin-top: 1rem; }
+.console-note { font-size: 0.82rem; color: var(--text-dim); }
+.console {
+  background: var(--bg-sunken); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 0.7rem 0.8rem; overflow: auto; max-height: 18rem;
+  font-size: 0.78rem; color: var(--text-dim); white-space: pre-wrap; word-break: break-word;
+}
+
+/* ----------------------------------------------------------- math ------- */
+/* Rendered by static/js/mathfmt.js. Everything here scales with the font size
+   of whatever it sits in, so the same markup works in a tooltip and in prose. */
+
+.math {
+  font-family: "Cambria Math", "Latin Modern Math", "STIX Two Math", Georgia, serif;
+  white-space: nowrap;
+}
+
+.math-frac {
+  display: inline-flex;
+  flex-direction: column;
+  vertical-align: middle;
+  text-align: center;
+  margin: 0 0.15em;
+  line-height: 1.15;
+}
+.math-num { border-bottom: 1px solid currentColor; padding: 0 0.28em 0.05em; }
+.math-den { padding: 0.05em 0.28em 0; }
+
+.math-sqrt { white-space: nowrap; }
+.math-sqrt .math-radicand {
+  border-top: 1px solid currentColor;
+  padding: 0.08em 0.15em 0 0.08em;
+  margin-left: -0.08em;
+}
+
+.math sup, .math sub { font-size: 0.72em; line-height: 0; }
+
+.math-ket { white-space: nowrap; letter-spacing: 0.01em; }
+
+.math-matrix {
+  display: inline-flex;
+  align-items: stretch;
+  vertical-align: middle;
+  margin: 0 0.1em;
+}
+.math-bracket { width: 0.28em; border: 1px solid currentColor; flex: none; }
+.math-bracket-left { border-right: 0; }
+.math-bracket-right { border-left: 0; }
+.math-grid {
+  display: grid;
+  gap: 0.1em 0.7em;
+  padding: 0.22em 0.35em;
+  justify-items: center;
+}
+.math-cell { line-height: 1.25; }
+
+.math-text { font-family: var(--sans); font-style: normal; }
+
+/* Matrices in the glossary table and in a hover card want a little more room
+   than the line they sit on. */
+.matrix-cell { font-size: 0.92em; color: var(--text); }
+.matrix-cell .math-matrix { margin: 0.2em 0; }
+.tooltip .tip-matrix { padding: 0.15em 0; }
+.tooltip dl { align-items: center; }
+
+/* Prose that carries inline math reads better with a touch more leading. */
+.doc p .math, .tooltip .math { font-size: 1.02em; }
+
+/* ---------------------------------------------------------- doc layout -- */
+
+.doc-layout {
+  display: grid; grid-template-columns: 220px minmax(0, 1fr);
+  gap: 3rem; max-width: 1120px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem;
+  align-items: start;
+}
+.doc-toc { position: sticky; top: calc(var(--header-h) + 1.5rem); font-size: 0.85rem; }
+.toc-title { text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.7rem; color: var(--text-faint); margin: 0 0 0.5rem; }
+.doc-toc ol { margin: 0; padding-left: 1.1rem; color: var(--text-faint); }
+.doc-toc li { margin-bottom: 0.3rem; }
+.doc-toc a { color: var(--text-dim); }
+
+.doc-header { margin-bottom: 2.5rem; }
+.doc section { margin-bottom: 3rem; scroll-margin-top: calc(var(--header-h) + 1rem); }
+.doc h2 { border-bottom: 1px solid var(--line); padding-bottom: 0.4rem; margin-bottom: 1rem; }
+.doc p { color: var(--text-dim); max-width: 68ch; }
+
+.callout {
+  border-left: 3px solid var(--accent); background: var(--surface);
+  padding: 0.8rem 1rem; border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: 0.9rem; color: var(--text-dim); margin: 1.2rem 0;
+}
+.callout-note { border-left-color: var(--warn); }
+
+.two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.5rem; }
+.two-col h3 { color: var(--accent-2); }
+.two-col h4 { color: var(--accent-2); margin: 0 0 0.4rem; font-size: 0.95rem; }
+.two-col p { font-size: 0.92rem; }
+
+/* dependency type cards on the info page */
+.dep-cards {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem; margin: 1.25rem 0 2rem;
+}
+.dep-card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 1.1rem 1.25rem;
+}
+.dep-card h3 { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.6rem; }
+.dep-card h3 .swatch { width: 12px; height: 12px; margin: 0; }
+.dep-card p { font-size: 0.9rem; margin-bottom: 0.6rem; }
+.dep-status {
+  font-size: 0.8rem; margin: 0.7rem 0 0; padding-top: 0.6rem;
+  border-top: 1px solid var(--line);
+}
+.dep-status.on { color: var(--ok); }
+.dep-status.off { color: var(--text-faint); }
+
+.rule-list { padding-left: 1.1rem; color: var(--text-dim); }
+.rule-list li { margin-bottom: 0.5rem; font-size: 0.92rem; }
+.rule-list strong { color: var(--text); }
+
+.circuit-figure { margin: 1.5rem 0; }
+.mini-circuit {
+  width: 100%; max-width: 480px; height: auto;
+  background: var(--bg-sunken); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.5rem;
+}
+.mini-circuit .wire line, .mini-circuit .wire { stroke: var(--surface-3); }
+.mini-circuit .wire-label { fill: var(--text-faint); font-size: 11px; font-family: var(--mono); }
+.mini-circuit .gate-box { fill: #9aa6cf; stroke: #11111b; }
+.mini-circuit .gate-box.measure { fill: #a6e3a1; }
+.mini-circuit .gate-text { fill: #11111b; font-size: 13px; font-weight: 700; text-anchor: middle; font-family: var(--mono); }
+.mini-circuit .ctrl-line { stroke: var(--text); stroke-width: 1.5; }
+.mini-circuit .ctrl-dot { fill: var(--text); }
+.mini-circuit .target-ring { fill: none; stroke: var(--text); stroke-width: 1.5; }
+figcaption { font-size: 0.85rem; color: var(--text-faint); margin-top: 0.6rem; max-width: 62ch; }
+
+.steps { counter-reset: step; list-style: none; padding: 0; }
+.steps > li { position: relative; padding-left: 2.6rem; margin-bottom: 1.8rem; }
+.steps > li::before {
+  counter-increment: step; content: counter(step);
+  position: absolute; left: 0; top: 0;
+  width: 1.9rem; height: 1.9rem; border-radius: 50%;
+  background: var(--surface-3); color: var(--accent-2);
+  display: grid; place-items: center; font-weight: 700; font-size: 0.85rem;
+}
+.steps h3 { margin-bottom: 0.3rem; }
+
+.walkthrough { padding-left: 1.2rem; }
+.walkthrough li { margin-bottom: 0.8rem; color: var(--text-dim); }
+.walkthrough strong { color: var(--text); }
+
+.table-wrap { overflow-x: auto; margin: 1rem 0; }
+.ref-table { width: 100%; border-collapse: collapse; font-size: 0.87rem; }
+.ref-table th, .ref-table td { text-align: left; padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+.ref-table th { color: var(--text-faint); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; }
+.ref-table td { color: var(--text-dim); }
+.ref-table .on { color: var(--ok); white-space: nowrap; }
+.ref-table .off { color: var(--text-faint); white-space: nowrap; }
+.glossary-table td:first-child { white-space: nowrap; }
+.flags { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+.flags-cell { width: 1%; }
+.flags-cell .flag { white-space: nowrap; }
+
+.tool-list dt { font-weight: 600; color: var(--accent-2); margin-top: 0.9rem; }
+.tool-list dd { margin: 0.15rem 0 0; color: var(--text-dim); max-width: 68ch; }
+
+/* --------------------------------------------------------------- team --- */
+
+.team-hero { max-width: 1120px; margin: 0 auto; padding: 3.5rem 1.5rem 1.5rem; }
+.team-grid {
+  max-width: 1120px; margin: 0 auto; padding: 0 1.5rem 4rem;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem;
+}
+.member-card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 1.25rem;
+}
+.avatar {
+  width: 2.75rem; height: 2.75rem; border-radius: 50%;
+  background: var(--surface-3); color: var(--accent-2);
+  display: grid; place-items: center; font-weight: 700; font-size: 1.2rem;
+  margin-bottom: 0.8rem;
+}
+.member-card h2 { font-size: 1.1rem; margin-bottom: 0.15rem; }
+.member-meta { font-size: 0.8rem; color: var(--accent-2); margin: 0 0 0.6rem; }
+.member-bio { font-size: 0.9rem; color: var(--text-dim); margin: 0; }
+.member-handle { font-family: var(--mono); font-size: 0.78rem; color: var(--text-faint); margin: 0.6rem 0 0; }
+.member-links { list-style: none; display: flex; gap: 0.75rem; padding: 0; margin: 0.6rem 0 0; font-size: 0.85rem; }
+
+.member-focus { font-size: 0.8rem; color: var(--text-faint); margin: 0 0 0.6rem; }
+
+.vision-block { max-width: 1120px; margin: 0 auto; padding: 1.5rem 1.5rem 0.5rem; }
+.vision-card {
+  margin: 0; padding: 1.25rem 1.4rem;
+  background: var(--surface); border: 1px solid var(--line);
+  border-left: 3px solid var(--accent); border-radius: 0 var(--radius) var(--radius) 0;
+}
+.vision-card h2 {
+  font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--accent-2); margin-bottom: 0.5rem;
+}
+.vision-card p { margin: 0; color: var(--text-dim); font-size: 0.95rem; }
+
+/* --------------------------------------------------------------- error -- */
+
+.error-page { max-width: 640px; margin: 0 auto; padding: 5rem 1.5rem; text-align: center; }
+.error-code { font-size: 4rem; font-weight: 700; color: var(--surface-3); margin: 0; line-height: 1; }
+.error-page .hero-actions { justify-content: center; }
+
+/* ---------------------------------------------------------- responsive -- */
+
+@media (max-width: 1000px) {
+  .hero { grid-template-columns: 1fr; padding-top: 2.5rem; }
+  .doc-layout { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
+  .doc-toc { position: static; }
+  .workbench { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .splitter { display: none; }
+  body.page-slicer main { overflow: visible; }
+  .pane-source { min-height: 70vh; }
+  .pane-output { min-height: 80vh; }
+}
+
+@media (max-width: 620px) {
+  .site-header { flex-direction: column; height: auto; gap: 0.5rem; padding: 0.7rem; position: static; }
+  :root { --header-h: 0px; }
+  h1 { font-size: 1.8rem; }
+  .pane-head { flex-wrap: wrap; gap: 0.4rem 1rem; }
+  .tabs { flex-wrap: wrap; }
+  .hero h1 { font-size: 2rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

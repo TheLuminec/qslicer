@@ -1,0 +1,6 @@
+flask>=3.0
+
+# Only needed to serve the site behind nginx; see deploy/README.md.
+# gunicorn is Linux-only -- on Windows use waitress instead.
+# gunicorn>=21.2 ; sys_platform != "win32"
+# waitress>=3.0  ; sys_platform == "win32"

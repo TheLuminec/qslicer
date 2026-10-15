@@ -1,0 +1,100 @@
+# ==========================================================================
+# systemd unit for the quantum slicer web app.
+#
+#   sudo cp deploy/quantum-slicer.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now quantum-slicer
+#   systemctl status quantum-slicer
+#   journalctl -u quantum-slicer -f
+#
+# Assumes the checkout is at /home/ubuntu/slicing-for-quantum-programs with a
+# virtualenv in .venv inside it. The files only need to be world-readable
+# (the default after a git clone); no service account has to be created,
+# because DynamicUser= allocates a throwaway one each time the service starts.
+#
+# The hardening below is not decoration. Analysing a Python circuit executes it
+# in a child of this service, so these limits are what bound what that code can
+# reach. See deploy/README.md.
+#
+# Note: systemd does not allow comments at the end of a setting line. Keep
+# every comment on its own line or the setting is rejected.
+# ==========================================================================
+
+[Unit]
+Description=Quantum Program Slicer (Flask behind gunicorn)
+Documentation=file:/home/ubuntu/slicing-for-quantum-programs/webapp/README.md
+After=network.target
+
+[Service]
+Type=simple
+# A fresh unprivileged UID per start. It owns nothing on disk, so submitted
+# code cannot modify the checkout, and it has no sudo, keys or shell history.
+DynamicUser=yes
+WorkingDirectory=/home/ubuntu/slicing-for-quantum-programs/webapp
+
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+# The dynamic user has no home. Point HOME and the matplotlib cache at the
+# private /tmp so Qiskit and matplotlib have somewhere writable.
+Environment=HOME=/tmp
+Environment=MPLCONFIGDIR=/tmp/matplotlib
+# Seconds a submitted circuit may run before its worker is killed.
+Environment=QSLICER_PARSE_TIMEOUT=20
+
+# One worker process, several threads. The analysis cache is per-process: a
+# second worker would answer /api/slice without the token the first one issued.
+ExecStart=/home/ubuntu/slicing-for-quantum-programs/.venv/bin/gunicorn \
+    --chdir /home/ubuntu/slicing-for-quantum-programs/webapp \
+    --bind 127.0.0.1:8000 \
+    --workers 1 \
+    --threads 4 \
+    --timeout 90 \
+    --graceful-timeout 30 \
+    --access-logfile - \
+    --error-logfile - \
+    wsgi:application
+
+Restart=on-failure
+RestartSec=3
+
+# ---------------------------------------------------------------- limits --
+# A submitted circuit that allocates forever, or forks, stops at these.
+MemoryMax=1500M
+TasksMax=64
+LimitNOFILE=4096
+
+# ------------------------------------------------------------- hardening --
+NoNewPrivileges=yes
+# Also where submitted files are written.
+PrivateTmp=yes
+PrivateDevices=yes
+# The whole filesystem is read-only to the service.
+ProtectSystem=strict
+# /home is replaced by an empty tmpfs and only the checkout is mounted back,
+# read-only. The rest of /home/ubuntu (SSH keys, history) stays invisible.
+ProtectHome=tmpfs
+BindReadOnlyPaths=/home/ubuntu/slicing-for-quantum-programs
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+UMask=0077
+
+# Submitted code runs here, so do not let it reach the network. Loopback stays
+# open because that is how nginx talks to gunicorn.
+IPAddressDeny=any
+IPAddressAllow=localhost
+
+# Uncomment if the machine has no other use for these:
+# SystemCallFilter=@system-service
+# SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target
