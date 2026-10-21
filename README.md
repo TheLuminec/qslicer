@@ -46,6 +46,17 @@ python webapp/app.py
 Open <http://127.0.0.1:5000/>, go to **Slicer**, pick an example, choose a
 static interpreter, press **Analyze**, then click any node in the graph.
 
+### Supported Qiskit version
+
+The project is frozen at **Qiskit 2.6.0** (with qiskit-aer 0.17.2 and
+qiskit-qasm3-import 0.6.0), pinned in `requirements.txt`. The static parsers,
+the quick checks' list of removed APIs (QS011) and the LintQ port are
+maintained against that version only; `tests/core/test_qiskit_version.py`
+fails if a different one is installed. Programs written for older Qiskit still
+analyse statically, and QS011 points out the APIs they use that 2.6.0 no
+longer has. Moving to a new version is a deliberate change: bump the three pins
+together, run the full suite, and update this section.
+
 ## Front ends: static first
 
 The Interpreter dropdown offers four front ends. Which one runs is always your
