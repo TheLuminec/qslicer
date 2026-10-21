@@ -132,9 +132,17 @@ all of its rules); `lint_rules` omitted means the default selection.
 |---|---|---|---|
 | Quick checks | `quick` | the Python syntax tree (`webapp/lint.py`) | on |
 | Dependence checks | `dependence` | the static IR and its QDG: dead gates, overwritten and constant measurements | off |
+| LintQ | `lintq` | LintQ's ten queries, reimplemented on the syntax tree (`scripts/Linters/lintq_port.py`) | off |
+| LintQ (original, CodeQL) | `lintq-codeql` | LintQ's own CodeQL queries, where `QSLICER_CODEQL` and `QSLICER_LINTQ` are set | off |
 
-A new linter is a module in `webapp/linter_plugins/` that defines `LINTER`
-(see `dependence_checks.py`), or any importable module named in
+The LintQ port gives exactly the original's warnings, line for line, on all
+239 programs of `tests/lintq/` (LintQ's own tests, edge-case probes, the
+examples and Bugs4Q); [scripts/Linters/README.md](scripts/Linters/README.md)
+says how, and how to run the original.
+
+A new linter is a module in `webapp/linter_plugins/` that defines `LINTER` or
+`LINTERS` (see `dependence_checks.py`, or `lintq.py` for one that wraps an
+external tool), or any importable module named in
 `QSLICER_LINTER_PLUGINS`. It then appears in the Lint menu, the benchmark and
 the command line with no other change.
 
@@ -142,11 +150,12 @@ The **Benchmark** page grades the current selection on the 62 Qiskit bugs of
 [Bugs4Q](https://github.com/Z-928/Bugs4Q-NA), vendored under
 `benchmarks/bugs4q/`. A rule *detects* a bug when it warns on a line the fix
 changed and the fix makes it fire less. Each selected linter is reported alone
-and combined, beside any recorded run of another tool (for example LintQ,
-imported from SARIF). The same from the command line:
+and combined, beside every recorded run of another tool: the original LintQ's
+is included (`benchmarks/bugs4q/external/lintq-codeql.json`), and others can be
+imported from SARIF. The same from the command line:
 
 ```bash
-python benchmarks/run_bugs4q.py --rules quick,dependence
+python benchmarks/run_bugs4q.py --rules quick,dependence,lintq
 ```
 
 See [benchmarks/bugs4q/README.md](benchmarks/bugs4q/README.md) for the dataset,
@@ -347,6 +356,7 @@ and it is why parse errors and warnings land on a line.
 │   ├── parser.py                Abstract parser base class
 │   ├── qdg.py                   QDG construction and rule profiles
 │   ├── slicer.py                Backward and forward slicing
+│   ├── Linters/                 LintQ: the port and the CodeQL adapter
 │   ├── entanglement.py          Approximate entanglement analysis
 │   └── visualizer.py, entangle_viewer.py, combined_visualizer.py
 ├── webapp/                      Flask web app (see webapp/README.md)
@@ -360,7 +370,7 @@ and it is why parse errors and warnings land on a line.
 │   └── templates/, static/      Pages, CSS, JavaScript (no build step, no CDN)
 ├── benchmarks/                  run_bugs4q.py and the vendored Bugs4Q dataset
 ├── deploy/                      nginx config and systemd unit
-├── tests/                       core/, webapp/, benchmark/ and js/ suites
+├── tests/                       core/, webapp/, benchmark/, lintq/ and js/ suites
 ├── Attachments/                 Sample circuits and images
 └── wiki/                        Research notes (separate repo)
 ```
@@ -375,8 +385,10 @@ pytest -m "not slow"         # skip tests that start the Qiskit worker subproces
 The suites are `tests/core` (parsers, QDG, rules, slicer, entanglement,
 including both static parsers), `tests/webapp` (API, pages, routes, source
 locations, lint, worker, benchmark pages), `tests/benchmark` (the Bugs4Q
-dataset, grading, the linter registry and dependence checks) and `tests/js` (run through Node's built-in test
-runner, so Node.js is required).
+dataset, grading, the linter registry and dependence checks), `tests/lintq`
+(the LintQ port against the original's recorded warnings; with CodeQL
+configured, `-m slow` also re-runs the original) and `tests/js` (run through
+Node's built-in test runner, so Node.js is required).
 
 Known gaps are recorded as strict `xfail`s in
 `tests/webapp/test_webapp_requirement_gaps.py`; one that starts passing fails the

@@ -51,14 +51,16 @@ Terra #7032, whose "Fixed" link repeats the buggy file.
 
 ## Comparing another tool
 
-Run the tool over `programs/`, then record its SARIF output:
+The original LintQ's results are already recorded, in `external/lintq-codeql.json`
+(written by `tests/lintq/record_reference.py`; see `scripts/Linters/README.md`).
+For any other tool, run it over `programs/`, then record its SARIF output:
 
 ```bash
-python benchmarks/run_bugs4q.py --import-sarif results.sarif --tool lintq \
-    --label "LintQ (CodeQL)" --notes "LintQ-all.qls, CodeQL 2.11.2"
+python benchmarks/run_bugs4q.py --import-sarif results.sarif --tool mytool \
+    --label "My tool" --notes "how it was run"
 ```
 
-This writes `external/lintq.json`; every later run, from the command line or
+This writes `external/mytool.json`; every later run, from the command line or
 the Benchmark page, adds the tool as a row of the comparison. Results are
 matched to programs by path suffix, so a run over a Bugs4Q checkout works too.
 A tool without SARIF output can write the file directly:

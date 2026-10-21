@@ -5,12 +5,12 @@
     python benchmarks/run_bugs4q.py --rules quick/QS005,dependence/QD01
     python benchmarks/run_bugs4q.py --json report.json       # the full report
     python benchmarks/run_bugs4q.py --list-rules
-    python benchmarks/run_bugs4q.py --import-sarif lintq.sarif --tool lintq --label "LintQ"
+    python benchmarks/run_bugs4q.py --import-sarif results.sarif --tool mytool --label "My tool"
 
 ``--rules`` takes the same rule ids the web app's rule picker stores, so a
 command-line run and a run from the Benchmark page grade the same thing.
 ``--import-sarif`` records another tool's results (any SARIF log, for example
-from CodeQL running LintQ's queries over ``benchmarks/bugs4q/programs``) in
+from a tool run over ``benchmarks/bugs4q/programs``) in
 ``benchmarks/bugs4q/external/``, after which every run compares against it.
 Exit status is 0 unless the arguments are wrong.
 """

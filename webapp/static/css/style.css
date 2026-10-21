@@ -552,6 +552,10 @@ body.page-slicer main { overflow: hidden; }
 .diagnostics-list li.sev-info { border-left-color: var(--info); }
 .diag-head { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; }
 .diag-code { font-family: var(--mono); font-size: 0.74rem; color: var(--text-faint); }
+.diag-tool {
+  font-size: 0.68rem; padding: 0 0.4rem; border-radius: 999px;
+  border: 1px solid var(--surface-3); color: var(--text-dim); white-space: nowrap;
+}
 .diag-loc { font-family: var(--mono); font-size: 0.74rem; color: var(--accent); }
 .diag-message { font-weight: 500; }
 .diag-hint { display: block; margin-top: 0.2rem; font-size: 0.8rem; color: var(--text-dim); }

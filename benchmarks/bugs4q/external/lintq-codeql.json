@@ -1,0 +1,281 @@
+{
+ "tool": "lintq-codeql",
+ "label": "LintQ (original, recorded)",
+ "version": "CodeQL 2.11.2, LintQ 481ca24",
+ "notes": "LintQ-all.qls, recorded by tests/lintq/record_reference.py",
+ "results": {
+  "StackExchange/14/buggy.py": [
+   {
+    "line": 30,
+    "code": "LQ07",
+    "message": "Circuit 'meas_z' measures qubit '0' but never uses it."
+   }
+  ],
+  "StackExchange/14/fix.py": [
+   {
+    "line": 29,
+    "code": "LQ07",
+    "message": "Circuit 'meas_z' measures qubit '0' but never uses it."
+   }
+  ],
+  "StackExchange/17/buggy.py": [
+   {
+    "line": 17,
+    "code": "LQ08",
+    "message": "Circuit 'qr' never manipulates some of its 8qubits."
+   },
+   {
+    "line": 17,
+    "code": "LQ09",
+    "message": "Circuit 'qr' has more qubits (8) than classical bits (0)"
+   }
+  ],
+  "StackExchange/3/buggy.py": [
+   {
+    "line": 9,
+    "code": "LQ09",
+    "message": "Circuit 'circuit' has more qubits (1) than classical bits (0)"
+   }
+  ],
+  "StackExchange/3/fix.py": [
+   {
+    "line": 9,
+    "code": "LQ09",
+    "message": "Circuit 'circuit' has more qubits (1) than classical bits (0)"
+   }
+  ],
+  "StackExchange/4/buggy.py": [
+   {
+    "line": 8,
+    "code": "LQ09",
+    "message": "Circuit 'circuit' has more qubits (8) than classical bits (4)"
+   }
+  ],
+  "StackExchange/4/fix.py": [
+   {
+    "line": 8,
+    "code": "LQ09",
+    "message": "Circuit 'circuit' has more qubits (8) than classical bits (4)"
+   }
+  ],
+  "StackExchange/9/buggy.py": [
+   {
+    "line": 11,
+    "code": "LQ07",
+    "message": "Circuit 'circuit' measures qubit '2' but never uses it."
+   }
+  ],
+  "StackExchange/9/fix.py": [
+   {
+    "line": 11,
+    "code": "LQ07",
+    "message": "Circuit 'circuit' measures qubit '2' but never uses it."
+   }
+  ],
+  "Terra-0-4000/22/buggy.py": [
+   {
+    "line": 13,
+    "code": "LQ09",
+    "message": "Circuit 'circuit' has more qubits (4) than classical bits (0)"
+   }
+  ],
+  "Terra-0-4000/22/fix.py": [
+   {
+    "line": 13,
+    "code": "LQ09",
+    "message": "Circuit 'circuit' has more qubits (4) than classical bits (0)"
+   }
+  ],
+  "Terra-0-4000/3/Fixed.py": [
+   {
+    "line": 3,
+    "code": "LQ09",
+    "message": "Circuit 'qc' has more qubits (3) than classical bits (0)"
+   }
+  ],
+  "Terra-0-4000/3/buggy.py": [
+   {
+    "line": 3,
+    "code": "LQ09",
+    "message": "Circuit 'qc' has more qubits (3) than classical bits (0)"
+   }
+  ],
+  "Terra-11000-15000/12801_Bug/bug_version.py": [
+   {
+    "line": 6,
+    "code": "LQ09",
+    "message": "Circuit 'qc' has more qubits (5) than classical bits (0)"
+   }
+  ],
+  "Terra-11000-15000/12801_Fixed/fixed_version.py": [
+   {
+    "line": 6,
+    "code": "LQ09",
+    "message": "Circuit 'qc' has more qubits (5) than classical bits (0)"
+   }
+  ],
+  "Terra-6000-7100/6255_Bug/bug_version.py": [
+   {
+    "line": 6,
+    "code": "LQ09",
+    "message": "Circuit 'state' has more qubits (2) than classical bits (0)"
+   }
+  ],
+  "Terra-6000-7100/6255_Fixed/fixed_version.py": [
+   {
+    "line": 6,
+    "code": "LQ09",
+    "message": "Circuit 'state' has more qubits (2) than classical bits (0)"
+   }
+  ],
+  "Terra-6000-7100/6540_Bug/bug_version.py": [
+   {
+    "line": 2,
+    "code": "LQ09",
+    "message": "Circuit 'qc' has more qubits (3) than classical bits (0)"
+   },
+   {
+    "line": 4,
+    "code": "LQ09",
+    "message": "Circuit 'outer_level' has more qubits (2) than classical bits (0)"
+   }
+  ],
+  "Terra-6000-7100/6540_Fixed/fixed_version.py": [
+   {
+    "line": 2,
+    "code": "LQ09",
+    "message": "Circuit 'qc' has more qubits (3) than classical bits (0)"
+   },
+   {
+    "line": 4,
+    "code": "LQ09",
+    "message": "Circuit 'outer_level' has more qubits (2) than classical bits (0)"
+   }
+  ],
+  "Terra-6000-7100/6892_Bug/bug_version.py": [
+   {
+    "line": 3,
+    "code": "LQ09",
+    "message": "Circuit 'circuit' has more qubits (1) than classical bits (0)"
+   }
+  ],
+  "Terra-6000-7100/6892_Fixed/fixed_version.py": [
+   {
+    "line": 4,
+    "code": "LQ09",
+    "message": "Circuit 'circuit' has more qubits (1) than classical bits (0)"
+   }
+  ],
+  "Terra-7100-9100/bug_7317/bug.py": [
+   {
+    "line": 17,
+    "code": "LQ09",
+    "message": "Circuit 'circ_t' has more qubits (4) than classical bits (0)"
+   }
+  ],
+  "Terra-7100-9100/bug_7317/fixed.py": [
+   {
+    "line": 17,
+    "code": "LQ09",
+    "message": "Circuit 'circ_t' has more qubits (4) than classical bits (0)"
+   }
+  ],
+  "Terra-7100-9100/bug_7366/bug.py": [
+   {
+    "line": 11,
+    "code": "LQ09",
+    "message": "Circuit 'state_prep' has more qubits (3) than classical bits (0)"
+   }
+  ],
+  "Terra-7100-9100/bug_7366/fixed.py": [
+   {
+    "line": 11,
+    "code": "LQ09",
+    "message": "Circuit 'state_prep' has more qubits (3) than classical bits (0)"
+   },
+   {
+    "line": 17,
+    "code": "LQ09",
+    "message": "Circuit 'oracle' has more qubits (3) than classical bits (0)"
+   }
+  ],
+  "Terra-7100-9100/bug_7631/bug.py": [
+   {
+    "line": 8,
+    "code": "LQ09",
+    "message": "Circuit 'circ' has more qubits (3) than classical bits (0)"
+   }
+  ],
+  "Terra-7100-9100/bug_7631/fixed.py": [
+   {
+    "line": 6,
+    "code": "LQ09",
+    "message": "Circuit 'circ' has more qubits (3) than classical bits (0)"
+   }
+  ],
+  "Terra-7100-9100/bug_8402/bug.py": [
+   {
+    "line": 12,
+    "code": "LQ09",
+    "message": "Circuit 'qc' has more qubits (4) than classical bits (0)"
+   }
+  ],
+  "Terra-7100-9100/bug_8402/fixed.py": [
+   {
+    "line": 4,
+    "code": "LQ09",
+    "message": "Circuit 'qc' has more qubits (4) than classical bits (0)"
+   }
+  ],
+  "Terra-7100-9100/bug_8918/bug.py": [
+   {
+    "line": 5,
+    "code": "LQ09",
+    "message": "Circuit 'qc' has more qubits (3) than classical bits (0)"
+   }
+  ],
+  "Terra-7100-9100/bug_8918/fixed.py": [
+   {
+    "line": 4,
+    "code": "LQ09",
+    "message": "Circuit 'qc' has more qubits (3) than classical bits (0)"
+   },
+   {
+    "line": 7,
+    "code": "LQ09",
+    "message": "Circuit 'tqc' has more qubits (3) than classical bits (0)"
+   }
+  ],
+  "Terra-9100-12000/10283_Bug/bug_version.py": [
+   {
+    "line": 8,
+    "code": "LQ08",
+    "message": "Circuit 'custom' never manipulates some of its 1qubits."
+   },
+   {
+    "line": 9,
+    "code": "LQ09",
+    "message": "Circuit 'base' has more qubits (1) than classical bits (0)"
+   }
+  ],
+  "Terra-9100-12000/10283_Fixed/fixed_version.py": [
+   {
+    "line": 7,
+    "code": "LQ08",
+    "message": "Circuit 'custom' never manipulates some of its 1qubits."
+   },
+   {
+    "line": 8,
+    "code": "LQ09",
+    "message": "Circuit 'base' has more qubits (1) than classical bits (0)"
+   }
+  ],
+  "Terra-9100-12000/9514_Bug/bug_version.py": [
+   {
+    "line": 6,
+    "code": "LQ09",
+    "message": "Circuit 'circ' has more qubits (3) than classical bits (0)"
+   }
+  ]
+ }
+}

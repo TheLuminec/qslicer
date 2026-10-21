@@ -313,6 +313,17 @@ def run(selection: Optional[Iterable[str]] = None, profile: str = "baseline",
 def _run(chosen: List[str], profile: str, include_external: bool) -> Dict[str, Any]:
     started = time.monotonic()
     by_linter = linters.selection_by_linter(chosen)
+    # Linters with a batch mode (an external tool) lint every program in one run.
+    batched: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+    programs = [(bug[v], bug["sources"][v]) for bug in bugs() for v in VERSIONS]
+    for linter_id in by_linter:
+        linter = linters.get(linter_id)
+        if linter is not None and linter.batch is not None and linter.available()[0]:
+            try:
+                batched[linter_id] = linter.batch(programs)
+            except Exception as exc:
+                crash = linters.crash_finding(linter, exc)
+                batched[linter_id] = {path: [crash] for path, _ in programs}
     raw: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
     front_end: Dict[str, Dict[str, Any]] = {}
     for bug in bugs():
@@ -320,8 +331,9 @@ def _run(chosen: List[str], profile: str, include_external: bool) -> Dict[str, A
         for version in VERSIONS:
             context = linters.LintContext(bug["sources"][version], os.path.basename(bug[version]),
                                           "python-static", profile)
+            pre = {lid: found.get(bug[version], []) for lid, found in batched.items()}
             raw[bug["key"]][version] = linters.run(context.source, context.filename,
-                                                   context.kind, chosen, profile, context)
+                                                   context.kind, chosen, profile, context, pre)
             if context._parsed is not None:
                 program, error = context._parsed
                 front_end.setdefault(bug["key"], {})[version] = {

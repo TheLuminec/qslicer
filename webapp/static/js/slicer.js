@@ -30,6 +30,7 @@
   var graph = null;
   var tooltip = null;
   var lintPicker = null;   // the Lint dropdown, once /api/linters has answered
+  var linterLabels = {};   // linter id -> label, for the badge on each diagnostic
 
   document.addEventListener('DOMContentLoaded', function () {
     tooltip = $('tooltip');
@@ -547,6 +548,7 @@
     if (!window.LintRules) return;
     window.LintRules.load()
       .then(function (catalog) {
+        catalog.linters.forEach(function (linter) { linterLabels[linter.id] = linter.label; });
         lintPicker = window.LintRules.mountPicker($('lint-picker'), catalog, function () {
           $('lint-summary').textContent = lintPicker.summary();
         });
@@ -721,6 +723,8 @@
       var head = document.createElement('div');
       head.className = 'diag-head';
       head.innerHTML =
+        (item.tool ? '<span class="diag-tool">' + escapeHtml(linterLabels[item.tool] || item.tool) +
+          '</span>' : '') +
         '<span class="diag-code">' + escapeHtml(item.code) + '</span>' +
         (item.line ? '<span class="diag-loc">line ' + item.line +
           (item.column ? ':' + item.column : '') + '</span>' : '') +
