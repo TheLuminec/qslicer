@@ -21,16 +21,17 @@ without running it, so you can analyse code you did not write.
 1. [Quick start: the web app](#quick-start-the-web-app)
 2. [Front ends: static first](#front-ends-static-first)
 3. [Using the web app](#using-the-web-app)
-4. [Quick start: the library](#quick-start-the-library)
-5. [How it works](#how-it-works)
-6. [Dependency types](#dependency-types)
-7. [Static parsing in detail](#static-parsing-in-detail)
-8. [Source locations](#source-locations)
-9. [Repository layout](#repository-layout)
-10. [Testing](#testing)
-11. [Deployment](#deployment)
-12. [Documentation](#documentation)
-13. [Status and limitations](#status-and-limitations)
+4. [Linters and the Bugs4Q benchmark](#linters-and-the-bugs4q-benchmark)
+5. [Quick start: the library](#quick-start-the-library)
+6. [How it works](#how-it-works)
+7. [Dependency types](#dependency-types)
+8. [Static parsing in detail](#static-parsing-in-detail)
+9. [Source locations](#source-locations)
+10. [Repository layout](#repository-layout)
+11. [Testing](#testing)
+12. [Deployment](#deployment)
+13. [Documentation](#documentation)
+14. [Status and limitations](#status-and-limitations)
 
 ## Quick start: the web app
 
@@ -76,6 +77,7 @@ Switch it to a static option for the behaviour described in this README.
 |---|---|
 | `/` | Landing page |
 | `/slicer` | The application: source on the left, graph and analysis on the right |
+| `/benchmark` | Grade the selected lint rules on the Bugs4Q bugs |
 | `/quantum` | Background on quantum programs, the QDG and the tools used |
 
 On the slicer page:
@@ -90,6 +92,8 @@ On the slicer page:
 - **Source links, both directions.** Hover a node or table row to highlight its
   line. A slice highlights every source line it covers and scrolls to the
   criterion. Click a gutter line number to see which nodes that line produced.
+- **Lint** picks the linters and individual rules that run on Analyze. The
+  choice is remembered in the browser and shared with the Benchmark page.
 - **Instructions tab** lists every instruction with its line; **Console** shows
   the program's output (executing route only); **diagnostics** list lint
   findings and parser warnings, each jumping to its line.
@@ -103,8 +107,12 @@ The JSON API behind it:
 |---|---|---|
 | `/api/examples` | GET | none |
 | `/api/examples/<key>` | GET | none |
-| `/api/analyze` | POST | `{source, filename, profile, language}` |
+| `/api/analyze` | POST | `{source, filename, profile, language, lint_rules}` |
 | `/api/slice` | POST | `{token, node_idx, direction, dep_types}` |
+| `/api/linters` | GET | none |
+| `/api/benchmark` | GET | none (the Bugs4Q bug list) |
+| `/api/benchmark/bugs/<key>` | GET | none |
+| `/api/benchmark` | POST | `{lint_rules, profile}` |
 
 `language` is one of `qiskit`, `qiskit-static`, `qasm`, `qasm-static`.
 `/api/analyze` returns nodes (each with `line` and `source`), edges,
@@ -113,6 +121,36 @@ slicing never re-parses. The cache holds the 24 most recent analyses in memory.
 
 The full front-end reference (editor, graph view, math notation, the mocked and
 partial features) is in [webapp/README.md](webapp/README.md).
+
+## Linters and the Bugs4Q benchmark
+
+Linters register in `webapp/linters.py`, each with its own rules. A request
+selects rules by id (`quick/QS002`, `dependence/QD01`, or a bare linter id for
+all of its rules); `lint_rules` omitted means the default selection.
+
+| Linter | Id | Reads | Default |
+|---|---|---|---|
+| Quick checks | `quick` | the Python syntax tree (`webapp/lint.py`) | on |
+| Dependence checks | `dependence` | the static IR and its QDG: dead gates, overwritten and constant measurements | off |
+
+A new linter is a module in `webapp/linter_plugins/` that defines `LINTER`
+(see `dependence_checks.py`), or any importable module named in
+`QSLICER_LINTER_PLUGINS`. It then appears in the Lint menu, the benchmark and
+the command line with no other change.
+
+The **Benchmark** page grades the current selection on the 62 Qiskit bugs of
+[Bugs4Q](https://github.com/Z-928/Bugs4Q-NA), vendored under
+`benchmarks/bugs4q/`. A rule *detects* a bug when it warns on a line the fix
+changed and the fix makes it fire less. Each selected linter is reported alone
+and combined, beside any recorded run of another tool (for example LintQ,
+imported from SARIF). The same from the command line:
+
+```bash
+python benchmarks/run_bugs4q.py --rules quick,dependence
+```
+
+See [benchmarks/bugs4q/README.md](benchmarks/bugs4q/README.md) for the dataset,
+its license, and how to compare another tool.
 
 ## Quick start: the library
 
@@ -315,10 +353,14 @@ and it is why parse errors and warnings land on a line.
 │   ├── app.py, analysis.py      Routes and the bridge to scripts/
 │   ├── parse_worker.py          Child process for the executing Qiskit route
 │   ├── lint.py, gates.py        Static checks and the gate reference
+│   ├── linters.py               Linter registry and rule selection
+│   ├── linter_plugins/          Linter add-ons (dependence checks)
+│   ├── benchmark.py             Bugs4Q grading and comparison
 │   ├── examples/                Bundled circuits and manifest.json
 │   └── templates/, static/      Pages, CSS, JavaScript (no build step, no CDN)
+├── benchmarks/                  run_bugs4q.py and the vendored Bugs4Q dataset
 ├── deploy/                      nginx config and systemd unit
-├── tests/                       core/, webapp/ and js/ suites
+├── tests/                       core/, webapp/, benchmark/ and js/ suites
 ├── Attachments/                 Sample circuits and images
 └── wiki/                        Research notes (separate repo)
 ```
@@ -332,7 +374,8 @@ pytest -m "not slow"         # skip tests that start the Qiskit worker subproces
 
 The suites are `tests/core` (parsers, QDG, rules, slicer, entanglement,
 including both static parsers), `tests/webapp` (API, pages, routes, source
-locations, lint, worker) and `tests/js` (run through Node's built-in test
+locations, lint, worker, benchmark pages), `tests/benchmark` (the Bugs4Q
+dataset, grading, the linter registry and dependence checks) and `tests/js` (run through Node's built-in test
 runner, so Node.js is required).
 
 Known gaps are recorded as strict `xfail`s in

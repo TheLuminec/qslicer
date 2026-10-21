@@ -28,6 +28,26 @@ _PARAM_GATES = {
 }
 _MEASURE_METHODS = {"measure", "measure_all", "measure_active"}
 
+# Every code check_source can report: (title, severity, description). The
+# linter registry (linters.py) offers these as individually selectable rules.
+RULES = {
+    "QS000": ("Python syntax error", "error", "The file does not parse as Python."),
+    "QS001": ("No circuit", "error", "No QuantumCircuit is constructed anywhere in the file."),
+    "QS002": ("Qubit index out of range", "error",
+              "A literal qubit index falls outside the circuit's declared qubits."),
+    "QS003": ("Repeated qubit", "error", "A multi-qubit gate names the same qubit twice."),
+    "QS004": ("Classical bit out of range", "error",
+              "measure() writes a classical bit the circuit does not declare."),
+    "QS005": ("No measurement", "warning", "The circuit never measures anything."),
+    "QS006": ("Idle qubit", "info", "A declared qubit no literal gate call touches."),
+    "QS007": ("Classical bit written twice", "warning",
+              "Two measurements write the same classical bit; the first result is lost."),
+    "QS008": ("c_if() removed", "error", "c_if() was removed in Qiskit 2.0."),
+    "QS009": ("execute() removed", "warning", "execute() was removed from qiskit."),
+    "QS010": ("Cancelling pair", "info",
+              "Two identical self-inverse gates in a row on the same wires cancel."),
+}
+
 
 class _Finding(dict):
     """Small helper so findings read nicely at the call sites."""
@@ -118,19 +138,28 @@ def _callee_name(func: ast.AST) -> str:
     return ""
 
 
-def check_source(source: str) -> List[Dict[str, Any]]:
-    """Run every check over ``source`` and return the findings, ordered by line."""
+def syntax_error(source: str) -> Optional[Dict[str, Any]]:
+    """The QS000 finding for a file Python cannot parse, else None."""
     try:
-        tree = ast.parse(source)
+        ast.parse(source)
     except SyntaxError as exc:
-        return [{
+        return {
             "code": "QS000",
             "severity": "error",
             "line": exc.lineno or 0,
             "column": exc.offset or 0,
             "message": f"Python could not parse this file: {exc.msg}.",
             "hint": "Fix the syntax error before the circuit can be analyzed.",
-        }]
+        }
+    return None
+
+
+def check_source(source: str) -> List[Dict[str, Any]]:
+    """Run every check over ``source`` and return the findings, ordered by line."""
+    syntax = syntax_error(source)
+    if syntax is not None:
+        return [syntax]
+    tree = ast.parse(source)
 
     collector = _CircuitCollector()
     collector.visit(tree)

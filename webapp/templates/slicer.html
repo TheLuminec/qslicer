@@ -49,6 +49,14 @@
           {% endfor %}
         </select>
       </label>
+      <div class="field lint-field">
+        <span>Lint</span>
+        <details class="lint-dropdown" id="lint-dropdown">
+          <summary id="lint-summary"
+                   title="Which linters and rules run on Analyze. The Benchmark page grades the same selection.">Default rules</summary>
+          <div class="lint-panel" id="lint-picker"><p class="placeholder">Loading the linters&hellip;</p></div>
+        </details>
+      </div>
       <button class="btn btn-primary" id="btn-analyze" type="button">Analyze</button>
     </div>
 
@@ -79,10 +87,11 @@
         <span class="diagnostics-summary" id="diagnostics-summary">not run yet</span>
       </div>
       <ul class="diagnostics-list" id="diagnostics-list">
-        <li class="placeholder">Static checks run on every Python analysis, before your file is
-          executed. They catch out-of-range qubits, missing measurements, classical bits
-          written twice, and APIs that Qiskit has removed. OpenQASM is parsed rather than
-          executed, so the checks are skipped for <code>.qasm</code> input.</li>
+        <li class="placeholder">The linters picked under <strong>Lint</strong> run on every
+          analysis, before your file is executed. The quick checks catch out-of-range qubits,
+          missing measurements, classical bits written twice, and APIs that Qiskit has removed;
+          they read Python only. Add-ons such as the dependence checks read the circuit itself.
+          The <a href="/benchmark">Benchmark</a> page grades the same selection on real bugs.</li>
       </ul>
     </div>
   </section>
@@ -236,5 +245,6 @@
 <script src="{{ url_for('static', filename='js/highlight.js') }}"></script>
 <script src="{{ url_for('static', filename='js/mathfmt.js') }}"></script>
 <script src="{{ url_for('static', filename='js/graph.js') }}"></script>
+<script src="{{ url_for('static', filename='js/lintrules.js') }}"></script>
 <script src="{{ url_for('static', filename='js/slicer.js') }}"></script>
 {% endblock %}

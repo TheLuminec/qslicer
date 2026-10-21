@@ -13,10 +13,12 @@ from team import COURSE, MEMBERS, MISSION, PROJECT_BLURB, VISION
 PAGES = {
     "/": "index",
     "/slicer": "slicer",
+    "/benchmark": "benchmark",
     "/quantum": "quantum",
     "/team": "team",
 }
-NAV = [("/", "Home"), ("/slicer", "Slicer"), ("/quantum", "Quantum Info"), ("/team", "Team")]
+NAV = [("/", "Home"), ("/slicer", "Slicer"), ("/benchmark", "Benchmark"),
+       ("/quantum", "Quantum Info"), ("/team", "Team")]
 
 
 def _text(response):

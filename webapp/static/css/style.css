@@ -940,6 +940,146 @@ figcaption { font-size: 0.85rem; color: var(--text-faint); margin-top: 0.6rem; m
 }
 .vision-card p { margin: 0; color: var(--text-dim); font-size: 0.95rem; }
 
+/* ---------------------------------------------------------- lint rules -- */
+
+/* The rule picker: a dropdown on the slicer page, inline on the Benchmark page. */
+.lint-field { position: relative; }
+.lint-dropdown > summary {
+  list-style: none; cursor: pointer;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--surface-3); border-radius: var(--radius-sm);
+  padding: 0.4rem 1.6rem 0.4rem 0.5rem; font-size: 0.85rem;
+  max-width: 15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  position: relative;
+}
+.lint-dropdown > summary::-webkit-details-marker { display: none; }
+.lint-dropdown > summary::after {
+  content: "▾"; position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%);
+  color: var(--text-faint);
+}
+.lint-dropdown[open] > summary { border-color: var(--accent); }
+.lint-dropdown .lint-panel {
+  position: absolute; z-index: 30; top: calc(100% + 4px); left: 0;
+  width: min(26rem, 90vw); max-height: 60vh; overflow-y: auto;
+  background: var(--bg-sunken); border: 1px solid var(--surface-3);
+  border-radius: var(--radius-sm); padding: 0.6rem 0.7rem;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  text-transform: none; letter-spacing: normal;
+}
+.lint-panel { color: var(--text); font-size: 0.85rem; }
+/* .field uppercases its label span; the panel's spans are not labels. */
+.lint-field .lint-panel span { text-transform: none; letter-spacing: normal; }
+.lint-panel-inline {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.8rem;
+}
+.lint-linter {
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  margin: 0 0 0.6rem; padding: 0.5rem 0.7rem 0.6rem; min-width: 0;
+}
+.lint-panel-inline .lint-linter { margin: 0; background: var(--surface); }
+.lint-linter.is-disabled { opacity: 0.55; }
+.lint-linter legend {
+  display: flex; gap: 0.5rem; align-items: center; padding: 0 0.3rem; font-weight: 600;
+}
+.lint-linter legend label { display: flex; gap: 0.35rem; align-items: center; cursor: pointer; }
+.lint-count { font-family: var(--mono); font-size: 0.72rem; color: var(--text-faint); font-weight: 400; }
+.lint-desc { margin: 0 0 0.4rem; font-size: 0.78rem; color: var(--text-faint); }
+.lint-rules { list-style: none; margin: 0; padding: 0; }
+.lint-rules label {
+  display: flex; gap: 0.4rem; align-items: baseline; padding: 0.1rem 0; cursor: pointer;
+  color: var(--text-dim);
+}
+.lint-rules label:hover { color: var(--text); }
+.lint-code { font-family: var(--mono); font-size: 0.74rem; color: var(--text-faint); min-width: 3.2rem; }
+.lint-code.sev-error { color: var(--err); }
+.lint-code.sev-warning { color: var(--warn); }
+.lint-code.sev-info { color: var(--info); }
+.lint-actions { display: flex; gap: 0.35rem; grid-column: 1 / -1; }
+
+/* ----------------------------------------------------------- benchmark -- */
+
+.bench { max-width: 1120px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+.bench h2 { margin-top: 2.2rem; }
+.bench-header .lede { max-width: 72ch; }
+.bench-meta { font-size: 0.85rem; color: var(--text-faint); max-width: 80ch; }
+.bench-controls {
+  background: var(--bg-sunken); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 1.1rem 1.2rem; margin-top: 1.5rem;
+}
+.bench-controls-head h2 { margin: 0 0 0.3rem; font-size: 1.1rem; }
+.bench-controls-head p { margin: 0 0 0.9rem; color: var(--text-dim); font-size: 0.88rem; }
+.bench-run { display: flex; gap: 0.8rem; align-items: flex-end; flex-wrap: wrap; margin-top: 1rem; }
+.bench-status { font-size: 0.85rem; color: var(--text-dim); padding-bottom: 0.5rem; }
+.bench-note { color: var(--text-dim); font-size: 0.88rem; max-width: 80ch; }
+
+.stat-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.8rem; margin-top: 1.5rem;
+}
+.stat {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 0.9rem 1rem; display: flex; flex-direction: column; gap: 0.15rem;
+}
+.stat-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); }
+.stat-value { font-size: 1.6rem; font-variant-numeric: tabular-nums; color: var(--text); }
+.stat-sub { font-size: 0.8rem; color: var(--text-dim); }
+
+.bench-table td { color: var(--text-dim); }
+.bench-table .num-cell { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bench-table .nowrap { white-space: nowrap; }
+.bench-table tr.cfg-selection td { color: var(--text); background: var(--surface); }
+.bench-table tr.is-quiet td { color: var(--text-faint); }
+.cell-sub { display: block; font-size: 0.76rem; color: var(--text-faint); }
+.tag {
+  display: inline-block; font-size: 0.7rem; padding: 0.05rem 0.45rem; border-radius: 999px;
+  border: 1px solid var(--surface-3); color: var(--text-dim); white-space: nowrap;
+}
+.tag-rewrite { border-color: var(--warn); color: var(--warn); }
+.tag-omission { border-color: var(--info); color: var(--info); }
+.tag-none { border-style: dashed; }
+.verdict {
+  display: inline-block; font-size: 0.74rem; padding: 0.08rem 0.5rem; border-radius: 999px;
+  white-space: nowrap; background: var(--surface-2); color: var(--text-faint);
+}
+.verdict-detected { background: rgba(166, 227, 161, 0.16); color: var(--ok); }
+.verdict-hit { background: rgba(249, 226, 175, 0.14); color: var(--warn); }
+.verdict-warned { color: var(--text-dim); }
+.verdicts { white-space: nowrap; }
+.bench-filter { display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap; }
+.bench-filter-count { margin-left: auto; font-size: 0.8rem; color: var(--text-faint); }
+
+.row-toggle {
+  background: none; border: 0; padding: 0; font: inherit; font-family: var(--mono);
+  font-size: 0.84rem; color: var(--accent); cursor: pointer; text-align: left;
+  white-space: nowrap;
+}
+.row-toggle::before { content: "▸ "; color: var(--text-faint); }
+.row-toggle[aria-expanded="true"]::before { content: "▾ "; }
+.bug-detail > td { background: var(--bg-sunken); }
+.bug-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; }
+.bug-source h4 { margin: 0 0 0.4rem; color: var(--accent-2); font-size: 0.9rem; }
+.source-view {
+  margin: 0; max-height: 26rem; overflow: auto; background: var(--bg);
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 0.5rem 0; font-size: 0.78rem; line-height: 1.5;
+}
+.src-line { display: block; white-space: pre; padding: 0 0.7rem 0 0; }
+.src-no {
+  display: inline-block; width: 3rem; padding-right: 0.8rem; text-align: right;
+  color: var(--text-faint); user-select: none;
+}
+.src-line.is-fault { background: rgba(243, 139, 168, 0.14); box-shadow: inset 3px 0 0 var(--err); }
+.src-warning {
+  display: block; white-space: pre-wrap; margin: 0.1rem 0.7rem 0.25rem 3.8rem;
+  padding: 0.15rem 0.5rem; border-radius: 4px; font-family: var(--sans); font-size: 0.76rem;
+  background: var(--surface-2); color: var(--warn);
+}
+.src-warning.sev-error { color: var(--err); }
+.src-warning.sev-info { color: var(--info); }
+.unplaced { font-size: 0.8rem; color: var(--text-dim); margin: 0.4rem 0 0; padding-left: 1.1rem; }
+
+.bench-explain { margin-top: 3rem; border-top: 1px solid var(--line); }
+
 /* --------------------------------------------------------------- error -- */
 
 .error-page { max-width: 640px; margin: 0 auto; padding: 5rem 1.5rem; text-align: center; }

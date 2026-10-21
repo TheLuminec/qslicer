@@ -37,6 +37,7 @@ from hashlib import sha256
 from typing import Any, Dict, List, Optional, Tuple
 
 import gates
+import linters
 import lint
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -288,11 +289,14 @@ def analyze_source(
     filename: str = "",
     profile: str = "baseline",
     language: Optional[str] = None,
+    lint_rules: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Lint, parse, build the QPDG, and describe everything as JSON-safe data.
 
     ``language`` names the front end: ``"qiskit"`` or ``"qasm"``. The page
     always passes one; without it the filename extension decides.
+    ``lint_rules`` are the rule ids to lint with (see ``linters.py``); None
+    means the default selection.
 
     Always returns a dict with an ``ok`` flag. Lint findings are returned even
     when the run fails, because they are usually what explains the failure.
@@ -304,10 +308,15 @@ def analyze_source(
     kind = source_kind(filename, language)
     filename = filename or default_filename(kind)
 
-    # The static checks read a Python AST, so they have nothing to say about
+    selection = linters.normalize_selection(lint_rules)
+    diagnostics = linters.run(source, filename, kind, selection, profile)
+    # With QS000 deselected, a syntax error goes on to the parser, which
+    # reports it in its own words.
+    syntax = next((d for d in diagnostics if d.get("code") == "QS000"), None)
+    # The quick checks read a Python AST, so they have nothing to say about
     # OpenQASM. Rather than report a syntax error on a perfectly good .qasm
-    # file, say plainly that the checks did not run.
-    if kind in QASM_KINDS:
+    # file, say plainly that they did not run.
+    if kind in QASM_KINDS and any(rule.startswith("quick/") for rule in selection):
         diagnostics = [{
             "code": "QS100",
             "severity": "info",
@@ -317,15 +326,14 @@ def analyze_source(
             "hint": "OpenQASM is parsed rather than executed, so the checks that exist to catch "
                     "mistakes before execution have nothing to guard here. Errors in the QASM "
                     "itself are reported by the parser.",
-        }]
-    else:
-        diagnostics = lint.check_source(source)
+        }] + diagnostics
 
     result: Dict[str, Any] = {
         "ok": False,
         "filename": filename,
         "profile": profile,
         "language": kind,
+        "lint_rules": selection,
         "diagnostics": diagnostics,
         "stdout": "",
     }
@@ -339,8 +347,7 @@ def analyze_source(
         }
         return result
 
-    if any(d["severity"] == "error" and d["code"] == "QS000" for d in diagnostics):
-        syntax = next(d for d in diagnostics if d["code"] == "QS000")
+    if syntax is not None:
         result["error"] = {
             "kind": "syntax_error",
             "message": syntax["message"],

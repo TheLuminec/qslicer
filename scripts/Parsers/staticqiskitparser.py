@@ -64,6 +64,7 @@ import operator
 import random as _random
 import re
 import string
+import time
 
 try:
     import numpy as _np
@@ -939,8 +940,10 @@ def _is_generator(function_node):
 class _Interpreter:
     """Walks a module's AST, building circuits instead of running code."""
 
-    def __init__(self, filename="<source>", run_name="<run_path>"):
+    def __init__(self, filename="<source>", run_name="<run_path>", time_limit=None):
         self.filename = filename
+        # Wall-clock seconds the run may take, on top of MAX_STEPS; None for no limit.
+        self.deadline = None if time_limit is None else time.monotonic() + time_limit
         self.globals = {"__name__": run_name, "__file__": filename}
         self.module_frame = _Frame(self.globals, None)
         self.warnings = []
@@ -980,6 +983,9 @@ class _Interpreter:
         if self.steps > MAX_STEPS:
             raise self.error("the program runs too long to analyse statically "
                              f"(more than {MAX_STEPS} steps)", getattr(node, "lineno", None))
+        if self.deadline is not None and not self.steps % 1024 and time.monotonic() > self.deadline:
+            raise self.error("the program runs too long to analyse statically "
+                             "(time limit reached)", getattr(node, "lineno", None))
         self.lineno = getattr(node, "lineno", self.lineno)
         if isinstance(node, ast.stmt):
             self._stmt_node = node
@@ -3168,17 +3174,21 @@ class StaticQiskitParser(AbstractParser):
     """
 
     def __init__(self, source: str = None, filename: str = "<source>",
-                 circuit_name: str = None, run_name: str = "<run_path>") -> None:
+                 circuit_name: str = None, run_name: str = "<run_path>",
+                 time_limit: float = None) -> None:
         """Initialize the parser, optionally parsing the source immediately.
 
         ``circuit_name`` picks a module-level variable instead of the largest
         circuit; ``run_name`` is the ``__name__`` the file sees (pass
         ``"__main__"`` to follow ``if __name__ == "__main__":`` blocks).
+        ``time_limit`` caps the wall-clock seconds a parse may take, for
+        callers that read many files and cannot wait out MAX_STEPS on each.
         """
         super().__init__(source)
         self.filename = filename
         self.circuit_name = circuit_name
         self.run_name = run_name
+        self.time_limit = time_limit
         self.circuit = None
         self.warnings = []
         self.notes = []
@@ -3195,7 +3205,7 @@ class StaticQiskitParser(AbstractParser):
         except SyntaxError as exc:
             raise StaticParseError(f"syntax error: {exc.msg}", exc.lineno) from None
 
-        interpreter = _Interpreter(self.filename, self.run_name)
+        interpreter = _Interpreter(self.filename, self.run_name, self.time_limit)
         try:
             interpreter.run(tree)
         finally:

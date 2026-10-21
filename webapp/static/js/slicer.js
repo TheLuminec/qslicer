@@ -29,6 +29,7 @@
 
   var graph = null;
   var tooltip = null;
+  var lintPicker = null;   // the Lint dropdown, once /api/linters has answered
 
   document.addEventListener('DOMContentLoaded', function () {
     tooltip = $('tooltip');
@@ -50,7 +51,9 @@
     wireSplitter();
     wireToolbar();
     wireTabs();
+    wireLintPicker();
     updateGutter();
+    loadFromQuery();
 
     window.addEventListener('resize', debounce(function () {
       if (state.payload) graph.fit(window.QGraph.READABLE_SCALE);
@@ -181,6 +184,37 @@
       .catch(function (error) {
         setStatus(error.message);
       });
+  }
+
+  /* A Bugs4Q program, when the Benchmark page linked here with
+     ?bugs4q=<key>&version=buggy|fixed. */
+  function loadFromQuery() {
+    var params = new URLSearchParams(window.location.search);
+    var key = params.get('bugs4q');
+    if (!key) return;
+    var version = params.get('version') === 'fixed' ? 'fixed' : 'buggy';
+    fetch('/api/benchmark/bugs/' + encodeURIComponent(key))
+      .then(function (response) {
+        if (!response.ok) throw new Error('No Bugs4Q bug named ' + key + '.');
+        return response.json();
+      })
+      .then(function (bug) {
+        $('code').value = bug.sources[version];
+        state.filename = bug[version].split('/').pop();
+        // Bugs4Q programs target old Qiskit versions: read them, never run them.
+        setInterpreter('qiskit-static');
+        var other = version === 'buggy' ? 'fixed' : 'buggy';
+        var faults = bug.truth.lines.length
+          ? ' Fault lines (from the fix): ' + bug.truth.lines.join(', ') + '.' : '';
+        $('example-blurb').innerHTML = 'Bugs4Q ' + escapeHtml(bug.source) + ' ' +
+          escapeHtml(bug.reference) + ', ' + version + ' program' +
+          (version === 'buggy' ? escapeHtml(faults) : '') + ' <a href="?bugs4q=' +
+          encodeURIComponent(key) + '&version=' + other + '">Open the ' + other + ' program</a> · ' +
+          '<a href="/benchmark#bug-' + encodeURIComponent(key) + '">Back to the benchmark</a>';
+        updateGutter();
+        analyze();
+      })
+      .catch(function (error) { setStatus(error.message); });
   }
 
   /* The Interpreter dropdown is the single source of truth for the front end.
@@ -507,6 +541,28 @@
     });
   }
 
+  /* ------------------------------------------------------ lint rules --- */
+
+  function wireLintPicker() {
+    if (!window.LintRules) return;
+    window.LintRules.load()
+      .then(function (catalog) {
+        lintPicker = window.LintRules.mountPicker($('lint-picker'), catalog, function () {
+          $('lint-summary').textContent = lintPicker.summary();
+        });
+        $('lint-summary').textContent = lintPicker.summary();
+      })
+      .catch(function () {
+        $('lint-picker').innerHTML = '<p class="placeholder">The linter list did not load; ' +
+          'the default rules run.</p>';
+      });
+    // Close the dropdown on an outside click, as a select would.
+    document.addEventListener('click', function (event) {
+      var dropdown = $('lint-dropdown');
+      if (dropdown.open && !dropdown.contains(event.target)) dropdown.open = false;
+    });
+  }
+
   /* -------------------------------------------------------- analysis ---- */
 
   function analyze() {
@@ -530,7 +586,9 @@
         source: source,
         filename: state.filename || defaultFilename(),
         profile: $('profile-select').value || 'baseline',
-        language: interpreter()
+        language: interpreter(),
+        lint_rules: lintPicker ? lintPicker.selection()
+          : (window.LintRules ? window.LintRules.stored() : null)
       })
     })
       .then(function (response) { return response.json(); })
@@ -639,7 +697,7 @@
     if (!items.length) {
       var clean = document.createElement('li');
       clean.className = 'placeholder';
-      clean.textContent = 'No problems found by the static checks.';
+      clean.textContent = 'No problems found by the selected lint rules.';
       list.appendChild(clean);
       summary.textContent = 'clean';
       summary.className = 'diagnostics-summary clean';
