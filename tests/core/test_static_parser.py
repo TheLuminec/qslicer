@@ -276,3 +276,43 @@ def test_parse_is_deterministic_and_reparse_does_not_duplicate():
     first = shape(parser.program)
     assert shape(parser.parse()) == first
     assert shape(parse(source).program) == first
+
+
+# --------------------------------------------------------------------------
+# from qiskit import *
+# --------------------------------------------------------------------------
+
+STAR_PROGRAM = """\
+from qiskit import *
+qr = QuantumRegister(2)
+cr = ClassicalRegister(2)
+qc = QuantumCircuit(qr, cr)
+qc.h(qr[0])
+qc.cx(qr[0], qr[1])
+qc.measure(qr, cr)
+backend = Aer.get_backend('qasm_simulator')
+compiled = transpile(qc, backend)
+counts = execute(qc, backend).result().get_counts()
+"""
+
+
+def test_star_import_resolves_modelled_names_and_tolerates_the_rest():
+    parser = StaticQiskitParser()
+    parser.source = STAR_PROGRAM
+    program = parser.parse()
+    assert shape(program) == [("h", [0], []), ("cx", [0, 1], []),
+                              ("measure", [0], [0]), ("measure", [1], [1])]
+    noted = " ".join(parser.warnings)
+    for name in ("Aer", "transpile", "execute"):
+        assert f"`{name}` is taken to come from `from qiskit import *`" in noted
+
+
+def test_star_import_name_a_circuit_depends_on_still_stops_the_parse():
+    source = "from qiskit import *\nqc = QuantumCircuit(mystery_size)\nqc.h(0)\n"
+    with pytest.raises(StaticParseError):
+        parse(source)
+
+
+def test_without_a_star_import_an_undefined_name_is_still_an_error():
+    with pytest.raises(StaticParseError, match="NameError"):
+        parse("from qiskit import QuantumCircuit\nqc = QuantumCircuit(2)\nqc.h(0)\nAer.x\n")

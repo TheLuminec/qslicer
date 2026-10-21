@@ -46,6 +46,9 @@ RULES = {
     "QS009": ("execute() removed", "warning", "execute() was removed from qiskit."),
     "QS010": ("Cancelling pair", "info",
               "Two identical self-inverse gates in a row on the same wires cancel."),
+    "QS011": ("Removed Qiskit API", "error",
+              "A method, name or module that older Qiskit had and current Qiskit does not "
+              "(u1, cu1, cnot, iden, bind_parameters, Aer, qiskit.extensions, ...)."),
 }
 
 
@@ -171,6 +174,7 @@ def check_source(source: str) -> List[Dict[str, Any]]:
     findings += _check_idle_qubits(collector)
     findings += _check_duplicate_clbits(collector)
     findings += _check_removed_api(tree)
+    findings += _check_removed_qiskit(tree, collector)
     findings += _check_self_inverse_pairs(collector)
 
     findings.sort(key=lambda f: (f["line"], f["column"], f["code"]))
@@ -370,6 +374,94 @@ def _check_removed_api(tree: ast.AST) -> List[Dict[str, Any]]:
     visitor = _RemovedApiVisitor()
     visitor.visit(tree)
     return visitor.findings
+
+
+# QS011: Qiskit APIs that no longer exist (checked against Qiskit 2.6.0), with what
+# replaces them. c_if and execute keep their own codes, QS008 and QS009.
+_REMOVED_METHODS = {
+    "u1": "p(theta, qubit)", "u2": "u(pi/2, phi, lam, qubit)", "u3": "u(theta, phi, lam, qubit)",
+    "cu1": "cp(theta, control, target)", "cu3": "cu(theta, phi, lam, 0, control, target)",
+    "mcu1": "mcp(lam, controls, target)", "cnot": "cx()", "toffoli": "ccx()",
+    "fredkin": "cswap()", "mct": "mcx()", "mcmt": "append(MCMTGate(...), qubits)",
+    "iden": "id()", "i": "id()", "bind_parameters": "assign_parameters()",
+    "squ": "append(UnitaryGate(...), [qubit])", "isometry": "append(Isometry(...), qubits)",
+    "iso": "append(Isometry(...), qubits)", "diagonal": "append(DiagonalGate(...), qubits)",
+    "snapshot": "AerSimulator's save_statevector()", "qasm": "qiskit.qasm2.dumps(qc)",
+    "combine": "compose()", "extend": "compose(..., inplace=True)",
+}
+# Names common enough elsewhere (list.extend, an index i) that only a call on a
+# known QuantumCircuit counts.
+_GENERIC_METHODS = {"i", "snapshot", "qasm", "diagonal", "iso", "combine", "extend"}
+_REMOVED_NAMES = {
+    "Aer": "from qiskit_aer import Aer (or AerSimulator)",
+    "BasicAer": "from qiskit.providers.basic_provider import BasicProvider",
+    "IBMQ": "QiskitRuntimeService from qiskit_ibm_runtime",
+    "compile": "transpile() and then backend.run()",
+    "assemble": "transpile() and then backend.run()",
+    "schedule": "nothing: Qiskit Pulse was removed in Qiskit 2.0",
+}
+_REMOVED_MODULES = {
+    "qiskit.extensions": "qiskit.circuit.library",
+    "qiskit.tools.visualization": "qiskit.visualization",
+    "qiskit.tools": "nothing (job_monitor and friends were removed)",
+    "qiskit.opflow": "qiskit.quantum_info (SparsePauliOp, Statevector)",
+    "qiskit.algorithms": "the separate qiskit_algorithms package",
+    "qiskit.providers.aer": "qiskit_aer",
+    "qiskit.providers.ibmq": "qiskit_ibm_runtime",
+    "qiskit.test": "nothing",
+    "qiskit.ignis": "nothing: Ignis was retired",
+    "qiskit.aqua": "nothing: Aqua was retired",
+}
+
+
+def _removed_module(name: str) -> Optional[str]:
+    for module in sorted(_REMOVED_MODULES, key=len, reverse=True):
+        if name == module or name.startswith(module + "."):
+            return module
+    return None
+
+
+def _check_removed_qiskit(tree: ast.AST, collector: _CircuitCollector) -> List[Dict[str, Any]]:
+    """Calls, imports and attributes of Qiskit APIs that no longer exist."""
+    findings: List[Dict[str, Any]] = []
+
+    def report(node, what, replacement):
+        findings.append(_Finding(
+            "QS011", "error", node,
+            f"{what} no longer exists in Qiskit.",
+            f"Use {replacement} instead. Code written for older Qiskit versions fails here.",
+        ))
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            method = node.func.attr
+            receiver = node.func.value
+            if method in _REMOVED_METHODS and (
+                    method not in _GENERIC_METHODS
+                    or (isinstance(receiver, ast.Name) and receiver.id in collector.circuits)):
+                report(node, f"QuantumCircuit.{method}()", _REMOVED_METHODS[method])
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            module = _removed_module(node.module)
+            if module:
+                report(node, f"The module {module}", _REMOVED_MODULES[module])
+            elif node.module == "qiskit":
+                for alias in node.names:
+                    if alias.name in _REMOVED_NAMES:
+                        report(node, f"qiskit.{alias.name}", _REMOVED_NAMES[alias.name])
+            elif node.module == "qiskit.utils":
+                for alias in node.names:
+                    if alias.name == "QuantumInstance":
+                        report(node, "qiskit.utils.QuantumInstance",
+                               "the primitives (Sampler, Estimator)")
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                module = _removed_module(alias.name)
+                if module:
+                    report(node, f"The module {module}", _REMOVED_MODULES[module])
+        elif (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+              and node.value.id == "qiskit" and node.attr in _REMOVED_NAMES):
+            report(node, f"qiskit.{node.attr}", _REMOVED_NAMES[node.attr])
+    return findings
 
 
 def _check_self_inverse_pairs(collector: _CircuitCollector) -> List[Dict[str, Any]]:

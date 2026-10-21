@@ -327,3 +327,54 @@ def test_linter_showcase_example_trips_the_advertised_checks():
 
     found = set(codes(lint.check_source(examples.load("linter_showcase")["source"])))
     assert {"QS005", "QS006", "QS010"} <= found
+
+
+# QS011 removed Qiskit API -------------------------------------------------------
+
+@pytest.mark.parametrize("line, what", [
+    ("qc.u1(0.5, 0)", "QuantumCircuit.u1()"),
+    ("qc.cu1(0.5, 0, 1)", "QuantumCircuit.cu1()"),
+    ("qc.cnot(0, 1)", "QuantumCircuit.cnot()"),
+    ("qc.iden(0)", "QuantumCircuit.iden()"),
+    ("helper_circuit.toffoli(0, 1, 2)", "QuantumCircuit.toffoli()"),   # any receiver
+    ("qc.bind_parameters({})", "QuantumCircuit.bind_parameters()"),
+    ("qc.extend(other)", "QuantumCircuit.extend()"),                  # a known circuit
+    ("from qiskit import Aer", "qiskit.Aer"),
+    ("from qiskit import IBMQ, transpile", "qiskit.IBMQ"),
+    ("backend = qiskit.BasicAer.get_backend('qasm_simulator')", "qiskit.BasicAer"),
+    ("from qiskit.extensions import UnitaryGate", "qiskit.extensions"),
+    ("from qiskit.tools.monitor import job_monitor", "qiskit.tools"),
+    ("import qiskit.providers.aer", "qiskit.providers.aer"),
+    ("from qiskit.utils import QuantumInstance", "qiskit.utils.QuantumInstance"),
+])
+def test_qs011_positive(line, what):
+    findings = check(f"qc = QuantumCircuit(3, 3)\n{line}\nqc.measure_all()\n")
+    qs = only(findings, "QS011")
+    assert len(qs) == 1 and qs[0]["line"] == 3 and qs[0]["severity"] == "error"
+    assert what in qs[0]["message"] and qs[0]["hint"].startswith("Use ")
+
+
+@pytest.mark.parametrize("line", [
+    "qc.p(0.5, 0)",
+    "qc.cp(0.5, 0, 1)",
+    "qc.id(0)",
+    "qc.assign_parameters({})",
+    "values = []\nvalues.extend([1, 2])",        # list.extend, not a circuit
+    "from qiskit import transpile, QuantumRegister",
+    "from qiskit_aer import Aer",
+    "from qiskit.visualization import plot_histogram",
+    "from qiskit import *",
+])
+def test_qs011_negative(line):
+    assert "QS011" not in codes(check(f"qc = QuantumCircuit(3, 3)\n{line}\nqc.measure_all()\n"))
+
+
+def test_qs011_leaves_c_if_and_execute_to_their_own_codes():
+    findings = check("""
+        from qiskit import execute
+        qc = QuantumCircuit(1, 1)
+        qc.x(0).c_if(0, 1)
+        job = execute(qc, backend)
+        """)
+    assert {"QS008", "QS009"} <= set(codes(findings))
+    assert "QS011" not in codes(findings)

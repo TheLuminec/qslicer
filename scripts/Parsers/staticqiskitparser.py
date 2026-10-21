@@ -1069,6 +1069,15 @@ class _Interpreter:
         if hasattr(_builtins, name):
             self.warn(f"built-in `{name}` is not modelled; its result is unknown")
             return Unknown(name)
+        # `from qiskit import *` is how many programs start. A name it may have
+        # supplied that the parser does not model (transpile, or Aer in older
+        # Qiskit) is treated like `from qiskit import transpile`: an opaque value
+        # that is harmless until a circuit depends on it.
+        for path in self.star_imports:
+            if path.split(".")[0] == "qiskit":
+                self.warn(f"`{name}` is taken to come from `from {path} import *`; the parser "
+                          "does not model it")
+                return _ModuleRef(f"{path}.{name}")
         raise NameError(f"name '{name}' is not defined")
 
     def peek(self, name, frame):
