@@ -8,7 +8,8 @@ import pytest
 
 import benchmark
 
-SYNC = os.path.join(benchmark.DATASET_DIR, "sync_upstream.py")
+BUGS4Q = benchmark.load("bugs4q")
+SYNC = os.path.join(BUGS4Q.dir, "sync_upstream.py")
 
 
 def _sync_module():
@@ -19,7 +20,7 @@ def _sync_module():
 
 
 def test_manifest_lists_every_qiskit_bug_once():
-    bugs = benchmark.bugs()
+    bugs = benchmark.bugs("bugs4q")
     assert len(bugs) == 62
     keys = [bug["key"] for bug in bugs]
     assert len(set(keys)) == len(keys)
@@ -30,22 +31,22 @@ def test_manifest_lists_every_qiskit_bug_once():
 
 
 def test_every_program_is_vendored():
-    with open(benchmark.MANIFEST_PATH, encoding="utf-8") as handle:
+    with open(BUGS4Q.manifest_path, encoding="utf-8") as handle:
         manifest = json.load(handle)
     assert len(manifest["commit"]) == 40
     assert manifest["license"] == "Apache-2.0"
-    assert os.path.isfile(os.path.join(benchmark.PROGRAMS_DIR, "LICENSE"))
+    assert os.path.isfile(os.path.join(BUGS4Q.programs_dir, "LICENSE"))
     for bug in manifest["bugs"]:
         for column in ("buggy", "fixed", "mod"):
             if bug[column]:
-                assert os.path.isfile(os.path.join(benchmark.PROGRAMS_DIR, bug[column])), \
+                assert os.path.isfile(os.path.join(BUGS4Q.programs_dir, bug[column])), \
                     (bug["key"], column)
         assert bug["buggy"] != bug["fixed"], bug["key"]
 
 
 def test_every_fix_changes_code():
     """Every bug can be graded: no fix is a comment-only or whitespace-only change."""
-    for bug in benchmark.bugs():
+    for bug in benchmark.bugs("bugs4q"):
         assert bug["truth"]["kind"] in ("edit", "rewrite", "omission"), bug["key"]
         assert bug["truth"]["lines"], bug["key"]
         assert max(bug["truth"]["lines"]) <= len(bug["sources"]["buggy"].splitlines())
@@ -53,7 +54,7 @@ def test_every_fix_changes_code():
 
 def test_readme_link_fix_for_terra_7032():
     """Upstream's "Fixed" link for #7032 names the buggy file; the manifest does not."""
-    bug = next(b for b in benchmark.bugs() if b["reference"] == "#7032")
+    bug = next(b for b in benchmark.bugs("bugs4q") if b["reference"] == "#7032")
     assert bug["fixed"] == "Terra-6000-7100/7032_Fixed/fixed_version.py"
 
 
@@ -109,7 +110,7 @@ def test_sync_reports_links_it_cannot_resolve(tmp_path):
 @pytest.mark.parametrize("key", ["github-12", "stackexchange-2"])
 def test_known_fault_lines(key):
     """Spot checks against the bugs as their reports describe them."""
-    bug = benchmark.get_bug(key)
+    bug = benchmark.get_bug(key, "bugs4q")
     lines = bug["sources"]["buggy"].splitlines()
     faulty = [lines[n - 1].strip() for n in sorted(bug["truth"]["lines"])]
     if key == "github-12":      # Terra #6571: measure_all() on a circuit with registers

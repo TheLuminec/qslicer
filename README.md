@@ -21,7 +21,7 @@ without running it, so you can analyse code you did not write.
 1. [Quick start: the web app](#quick-start-the-web-app)
 2. [Front ends: static first](#front-ends-static-first)
 3. [Using the web app](#using-the-web-app)
-4. [Linters and the Bugs4Q benchmark](#linters-and-the-bugs4q-benchmark)
+4. [Linters and benchmarks](#linters-and-benchmarks)
 5. [Quick start: the library](#quick-start-the-library)
 6. [How it works](#how-it-works)
 7. [Dependency types](#dependency-types)
@@ -88,7 +88,7 @@ Switch it to a static option for the behaviour described in this README.
 |---|---|
 | `/` | Landing page |
 | `/slicer` | The application: source on the left, graph and analysis on the right |
-| `/benchmark` | Grade the selected lint rules on the Bugs4Q bugs |
+| `/benchmark` | Grade the selected lint rules on a benchmark's bugs (Bugs4Q by default) |
 | `/quantum` | Background on quantum programs, the QDG and the tools used |
 
 On the slicer page:
@@ -121,9 +121,9 @@ The JSON API behind it:
 | `/api/analyze` | POST | `{source, filename, profile, language, lint_rules}` |
 | `/api/slice` | POST | `{token, node_idx, direction, dep_types}` |
 | `/api/linters` | GET | none |
-| `/api/benchmark` | GET | none (the Bugs4Q bug list) |
-| `/api/benchmark/bugs/<key>` | GET | none |
-| `/api/benchmark` | POST | `{lint_rules, profile}` |
+| `/api/benchmark` | GET | `?dataset=<id>` (optional; the dataset's bug list) |
+| `/api/benchmark/bugs/<key>` | GET | `?dataset=<id>` (optional) |
+| `/api/benchmark` | POST | `{lint_rules, profile, dataset}` |
 
 `language` is one of `qiskit`, `qiskit-static`, `qasm`, `qasm-static`.
 `/api/analyze` returns nodes (each with `line` and `source`), edges,
@@ -133,7 +133,7 @@ slicing never re-parses. The cache holds the 24 most recent analyses in memory.
 The full front-end reference (editor, graph view, math notation, the mocked and
 partial features) is in [webapp/README.md](webapp/README.md).
 
-## Linters and the Bugs4Q benchmark
+## Linters and benchmarks
 
 Linters register in `webapp/linters.py`, each with its own rules. A request
 selects rules by id (`quick/QS002`, `dependence/QD01`, or a bare linter id for
@@ -157,20 +157,23 @@ external tool), or any importable module named in
 `QSLICER_LINTER_PLUGINS`. It then appears in the Lint menu, the benchmark and
 the command line with no other change.
 
-The **Benchmark** page grades the current selection on the 62 Qiskit bugs of
-[Bugs4Q](https://github.com/Z-928/Bugs4Q-NA), vendored under
-`benchmarks/bugs4q/`. A rule *detects* a bug when it warns on a line the fix
-changed and the fix makes it fire less. Each selected linter is reported alone
-and combined, beside every recorded run of another tool: the original LintQ's
-is included (`benchmarks/bugs4q/external/lintq-codeql.json`), and others can be
-imported from SARIF. The same from the command line:
+The **Benchmark** page grades the current selection on a dataset of buggy and
+fixed programs: any folder under `benchmarks/` with a `manifest.json`. The
+first is the 62 Qiskit bugs of [Bugs4Q](https://github.com/Z-928/Bugs4Q-NA),
+vendored under `benchmarks/bugs4q/`. A rule *detects* a bug when it warns on a
+line the fix changed and the fix makes it fire less. Each selected linter is
+reported alone and combined, beside every recorded run of another tool: the
+original LintQ's is included (`benchmarks/bugs4q/external/lintq-codeql.json`),
+and others can be imported from SARIF. The same from the command line:
 
 ```bash
-python benchmarks/run_bugs4q.py --rules quick,dependence,lintq
+python benchmarks/run_benchmark.py --rules quick,dependence,lintq
+python benchmarks/run_benchmark.py --manifest path/to/manifest.json
 ```
 
-See [benchmarks/bugs4q/README.md](benchmarks/bugs4q/README.md) for the dataset,
-its license, and how to compare another tool.
+See [benchmarks/README.md](benchmarks/README.md) for the manifest format and
+how to add a dataset, and [benchmarks/bugs4q/README.md](benchmarks/bugs4q/README.md)
+for Bugs4Q, its license, and how to compare another tool.
 
 ## Quick start: the library
 
@@ -376,10 +379,10 @@ and it is why parse errors and warnings land on a line.
 │   ├── lint.py, gates.py        Static checks and the gate reference
 │   ├── linters.py               Linter registry and rule selection
 │   ├── linter_plugins/          Linter add-ons (dependence checks)
-│   ├── benchmark.py             Bugs4Q grading and comparison
+│   ├── benchmark.py             Benchmark datasets, grading and comparison
 │   ├── examples/                Bundled circuits and manifest.json
 │   └── templates/, static/      Pages, CSS, JavaScript (no build step, no CDN)
-├── benchmarks/                  run_bugs4q.py and the vendored Bugs4Q dataset
+├── benchmarks/                  run_benchmark.py and the datasets (Bugs4Q, vendored)
 ├── deploy/                      nginx config and systemd unit
 ├── tests/                       core/, webapp/, benchmark/, lintq/ and js/ suites
 ├── Attachments/                 Sample circuits and images
@@ -395,8 +398,8 @@ pytest -m "not slow"         # skip tests that start the Qiskit worker subproces
 
 The suites are `tests/core` (parsers, QDG, rules, slicer, entanglement,
 including both static parsers), `tests/webapp` (API, pages, routes, source
-locations, lint, worker, benchmark pages), `tests/benchmark` (the Bugs4Q
-dataset, grading, the linter registry and dependence checks), `tests/lintq`
+locations, lint, worker, benchmark pages), `tests/benchmark` (datasets and
+the Bugs4Q dataset, grading, the linter registry and dependence checks), `tests/lintq`
 (the LintQ port against the original's recorded warnings; with CodeQL
 configured, `-m slow` also re-runs the original) and `tests/js` (run through
 Node's built-in test runner, so Node.js is required).

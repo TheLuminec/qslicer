@@ -11,12 +11,12 @@ it; the fix is the ground truth for where the fault was.
 | `external/` | Recorded results of other tools, compared on every run (see below) |
 | `sync_upstream.py` | Rebuilds `manifest.json` and `programs/` from a Bugs4Q checkout |
 
-Run it from the web app's **Benchmark** page, or:
+Bugs4Q is the default dataset (see [../README.md](../README.md) for the others and the\nmanifest format). Run it from the web app's **Benchmark** page, or:
 
 ```bash
-python benchmarks/run_bugs4q.py                           # the default rules
-python benchmarks/run_bugs4q.py --rules quick,dependence  # whole linters, compared
-python benchmarks/run_bugs4q.py --list-rules
+python benchmarks/run_benchmark.py                           # the default rules
+python benchmarks/run_benchmark.py --rules quick,dependence  # whole linters, compared
+python benchmarks/run_benchmark.py --list-rules
 ```
 
 Nothing in `programs/` is ever executed. Linters read them as text or through
@@ -56,7 +56,7 @@ The original LintQ's results are already recorded, in `external/lintq-codeql.jso
 For any other tool, run it over `programs/`, then record its SARIF output:
 
 ```bash
-python benchmarks/run_bugs4q.py --import-sarif results.sarif --tool mytool \
+python benchmarks/run_benchmark.py --manifest bugs4q --import-sarif results.sarif --tool mytool \
     --label "My tool" --notes "how it was run"
 ```
 

@@ -1,7 +1,7 @@
 """The linters the site can run, and which of their rules a request selected.
 
 Every linter registers itself here with the rules it can report. The slicer
-page and the Bugs4Q benchmark both go through ``run`` with the same
+page and the benchmarks both go through ``run`` with the same
 *selection* -- a list of rule ids such as ``"quick/QS002"`` -- so a benchmark
 grades exactly the rules a user has switched on, across every linter at once.
 

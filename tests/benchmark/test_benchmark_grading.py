@@ -1,4 +1,4 @@
-"""Ground truth, grading, comparison and external results of the Bugs4Q benchmark."""
+"""Ground truth, grading, comparison and external results of the benchmarks (run on Bugs4Q)."""
 
 import json
 
@@ -104,7 +104,7 @@ def fake_linters(monkeypatch):
                  default=False)
     monkeypatch.setitem(linters._LINTERS, "fake1", one)
     monkeypatch.setitem(linters._LINTERS, "fake2", two)
-    monkeypatch.setattr(benchmark, "EXTERNAL_DIR", "/nonexistent")
+    monkeypatch.setattr(benchmark.load(), "external_dir", "/nonexistent")
     return one, two
 
 
@@ -139,7 +139,7 @@ def test_external_results_join_the_comparison(fake_linters, tmp_path, monkeypatc
         "results": {bug["buggy"]: [{"line": line, "code": "X1", "message": "m"}]},
     }), encoding="utf-8")
     (tmp_path / "broken.json").write_text("{not json", encoding="utf-8")
-    monkeypatch.setattr(benchmark, "EXTERNAL_DIR", str(tmp_path))
+    monkeypatch.setattr(benchmark.load(), "external_dir", str(tmp_path))
     report = benchmark.run(["fake2"], use_cache=False)
     assert [c["id"] for c in report["configs"]] == ["selection", "external:other"]
     assert report["totals"]["external:other"]["detected"] == 1
@@ -182,3 +182,53 @@ def test_default_selection_report_is_consistent():
     assert t["detected"] <= t["hit"] <= t["warned"] <= t["bugs"]
     assert t["detected_no_rewrites"] <= t["detected"]
     assert report["selection"] == linters.default_selection()
+
+
+# --------------------------------------------------------------------------
+# Other datasets
+# --------------------------------------------------------------------------
+
+def _tiny_dataset(tmp_path):
+    """A one-bug dataset outside benchmarks/, with only the required fields."""
+    programs = tmp_path / "tiny" / "programs"
+    programs.mkdir(parents=True)
+    (programs / "buggy.py").write_text("a = 1\nb = 2\n", encoding="utf-8")
+    (programs / "fixed.py").write_text("a = 1\nb = 3\n", encoding="utf-8")
+    manifest = tmp_path / "tiny" / "manifest.json"
+    manifest.write_text(json.dumps({"bugs": [
+        {"key": "one", "buggy": "buggy.py", "fixed": "fixed.py"}]}), encoding="utf-8")
+    return str(manifest)
+
+
+def test_a_manifest_path_is_its_own_dataset(tmp_path, fake_linters):
+    path = _tiny_dataset(tmp_path)
+    data = benchmark.load(path)
+    assert data.id == data.name == "tiny"
+    assert benchmark.get_bug("one", path)["truth"]["lines"] == {2}
+    assert benchmark.get_bug("one") is None                  # not in the default dataset
+    report = benchmark.run(["fake1"], use_cache=False, dataset=path)
+    assert report["dataset"]["bugs"] == 1 and report["dataset"]["commit"] == ""
+    assert [b["key"] for b in report["bugs"]] == ["one"]
+
+
+def test_unknown_dataset_is_a_key_error():
+    with pytest.raises(KeyError):
+        benchmark.load("no-such-dataset")
+
+
+def test_dataset_ids_put_the_default_first():
+    assert benchmark.dataset_ids()[0] == benchmark.DEFAULT_DATASET
+
+
+def test_runner_takes_a_manifest(tmp_path, capsys):
+    import importlib.util
+    import os
+    spec = importlib.util.spec_from_file_location(
+        "run_benchmark", os.path.join(benchmark.BENCHMARKS_DIR, "run_benchmark.py"))
+    runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner)
+    assert runner.main(["--manifest", _tiny_dataset(tmp_path), "--rules", "quick",
+                        "--quiet"]) == 0
+    assert capsys.readouterr().out.startswith("tiny: 1 bugs (1 edit)")
+    with pytest.raises(SystemExit):
+        runner.main(["--manifest", "no-such-dataset"])

@@ -12,7 +12,7 @@ programs and writes ``tests/lintq/reference.json``:
 * ``webapp/examples/`` and ``benchmarks/bugs4q/programs/``.
 
 It also writes ``benchmarks/bugs4q/external/lintq-codeql.json``, so every
-Bugs4Q benchmark run compares against the original even where CodeQL is not
+run on Bugs4Q compares against the original even where CodeQL is not
 installed. Paths are repository-relative. Takes about a minute (two the first
 time, while CodeQL compiles the queries).
 """

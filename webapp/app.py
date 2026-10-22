@@ -10,7 +10,7 @@ Pages
     /          landing
     /slicer    upload or paste a circuit, then explore its graph
     /quantum   background on quantum programs and on how the slicer works
-    /benchmark grade the selected lint rules on the Bugs4Q bugs
+    /benchmark grade the selected lint rules on a benchmark's bugs (?dataset=<id>)
     /team      who built it
 
 JSON API
@@ -19,9 +19,9 @@ JSON API
     POST /api/analyze           {source, filename, profile, language} -> graph payload
     POST /api/slice             {token, node_idx, direction, dep_types} -> slice
     GET  /api/linters           every linter, its rules, and the default selection
-    GET  /api/benchmark         the Bugs4Q dataset: summary and bug list
-    GET  /api/benchmark/bugs/<key>  one bug with both programs' sources
-    POST /api/benchmark         {lint_rules, profile} -> graded report
+    GET  /api/benchmark         a dataset (?dataset=<id>, default Bugs4Q): summary and bug list
+    GET  /api/benchmark/bugs/<key>  one bug with both programs' sources (?dataset=<id>)
+    POST /api/benchmark         {lint_rules, profile, dataset} -> graded report
 """
 
 import os
@@ -90,12 +90,26 @@ def slicer():
 # shadow the benchmark module.
 @app.route("/benchmark", endpoint="benchmark")
 def benchmark_page():
+    dataset = _benchmark_dataset(request.args.get("dataset"))
+    if dataset is None:
+        abort(404, description=f"No benchmark named {request.args.get('dataset')!r}.")
     return render_template(
         "benchmark.html",
         page="benchmark",
-        dataset=benchmark.summary(),
+        dataset=benchmark.summary(dataset),
+        datasets=[benchmark.summary(name) for name in benchmark.dataset_ids()],
         profiles=analysis.rule_profiles(),
     )
+
+
+def _benchmark_dataset(name):
+    """The dataset a request names (the default when it names none), or None.
+
+    Only folder names under benchmarks/ are accepted, never a path.
+    """
+    if not name:
+        return benchmark.load()
+    return benchmark.load(name) if name in benchmark.dataset_ids() else None
 
 
 @app.route("/quantum")
@@ -247,18 +261,22 @@ def api_linters():
 
 @app.get("/api/benchmark")
 def api_benchmark_dataset():
-    return jsonify({"dataset": benchmark.summary(),
-                    "bugs": [benchmark.describe_bug(bug) for bug in benchmark.bugs()],
+    dataset = _benchmark_dataset(request.args.get("dataset"))
+    if dataset is None:
+        abort(404, description=f"No benchmark named {request.args.get('dataset')!r}.")
+    return jsonify({"dataset": benchmark.summary(dataset),
+                    "bugs": [benchmark.describe_bug(bug) for bug in dataset.bugs],
                     "external": [{"tool": e["tool"], "label": e["label"],
                                   "version": e.get("version", "")}
-                                 for e in benchmark.external_results()]})
+                                 for e in benchmark.external_results(dataset)]})
 
 
 @app.get("/api/benchmark/bugs/<key>")
 def api_benchmark_bug(key):
-    bug = benchmark.get_bug(key)
+    dataset = _benchmark_dataset(request.args.get("dataset"))
+    bug = dataset.get_bug(key) if dataset is not None else None
     if bug is None:
-        abort(404, description=f"No Bugs4Q bug named {key!r}.")
+        abort(404, description=f"No benchmark bug named {key!r}.")
     return jsonify(benchmark.describe_bug(bug, with_sources=True))
 
 
@@ -279,7 +297,11 @@ def api_benchmark_run():
     chosen = linters.normalize_selection(lint_rules)
     if not chosen:
         return _bad_request("Select at least one rule to benchmark.", stage="benchmark")
-    report = benchmark.run(chosen, profile=profile)
+    name = payload.get("dataset")
+    dataset = _benchmark_dataset(name) if name is None or isinstance(name, str) else None
+    if dataset is None:
+        return _bad_request(f"Unknown benchmark {name!r}.", stage="benchmark")
+    report = benchmark.run(chosen, profile=profile, dataset=dataset)
     return jsonify(dict(report, ok=True))
 
 

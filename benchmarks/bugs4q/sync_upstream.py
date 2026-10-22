@@ -176,6 +176,7 @@ def main(argv=None):
 
     manifest = {
         "name": "Bugs4Q",
+        "description": "real Qiskit bugs",
         "upstream": UPSTREAM_URL,
         "commit": upstream_commit(root),
         "license": "Apache-2.0",

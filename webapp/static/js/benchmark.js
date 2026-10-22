@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Benchmark page: pick lint rules, run Bugs4Q, show the graded report.
+   Benchmark page: pick lint rules, run a dataset, show the graded report.
    ========================================================================== */
 
 (function () {
@@ -8,6 +8,7 @@
   var $ = function (id) { return document.getElementById(id); };
 
   var state = {
+    dataset: '',       // the dataset id the page was rendered for
     picker: null,
     report: null,
     filter: 'all',
@@ -16,6 +17,7 @@
   };
 
   document.addEventListener('DOMContentLoaded', function () {
+    state.dataset = document.querySelector('[data-dataset]').dataset.dataset;
     $('btn-run').addEventListener('click', run);
     document.querySelectorAll('[data-filter]').forEach(function (chip) {
       chip.addEventListener('click', function () {
@@ -58,7 +60,8 @@
     fetch('/api/benchmark', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lint_rules: selection, profile: $('profile-select').value })
+      body: JSON.stringify({ lint_rules: selection, profile: $('profile-select').value,
+        dataset: state.dataset })
     })
       .then(function (response) {
         return response.json().then(function (body) {
@@ -204,8 +207,8 @@
         (grade.detected_by.length ? '<span class="cell-sub">' + grade.detected_by.map(escapeHtml).join(', ') + '</span>' : '') +
         '</td>' + (others.length ? '<td class="verdicts">' + byTool + '</td>' : '') +
         '<td class="num-cell">' + grade.warnings.buggy + ' / ' + grade.warnings.fixed + '</td>' +
-        '<td class="nowrap"><a href="/slicer?bugs4q=' + encodeURIComponent(bug.key) + '&version=buggy">buggy</a> · ' +
-        '<a href="/slicer?bugs4q=' + encodeURIComponent(bug.key) + '&version=fixed">fixed</a></td></tr>';
+        '<td class="nowrap"><a href="' + slicerLink(bug.key, 'buggy') + '">buggy</a> · ' +
+        '<a href="' + slicerLink(bug.key, 'fixed') + '">fixed</a></td></tr>';
     });
     if (!shown) {
       html += '<tr><td colspan="7" class="placeholder">No bug matches this filter.</td></tr>';
@@ -215,6 +218,11 @@
     $('bug-table').querySelectorAll('.row-toggle').forEach(function (button) {
       button.addEventListener('click', function () { toggleBug(button.dataset.key); });
     });
+  }
+
+  function slicerLink(key, version) {
+    return '/slicer?dataset=' + encodeURIComponent(state.dataset) + '&bug=' +
+      encodeURIComponent(key) + '&version=' + version;
   }
 
   function shortLabel(label) {
@@ -252,7 +260,8 @@
 
   function loadSources(key) {
     if (state.sources[key]) return Promise.resolve(state.sources[key]);
-    return fetch('/api/benchmark/bugs/' + encodeURIComponent(key)).then(function (response) {
+    return fetch('/api/benchmark/bugs/' + encodeURIComponent(key) + '?dataset=' +
+      encodeURIComponent(state.dataset)).then(function (response) {
       if (!response.ok) throw new Error('Could not load ' + key + '.');
       return response.json();
     }).then(function (bug) {

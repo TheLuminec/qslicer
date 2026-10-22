@@ -94,3 +94,19 @@ def test_benchmark_page_links_the_picker_and_dataset(client):
 def test_slicer_page_has_the_lint_menu(client):
     body = client.get("/slicer").get_data(as_text=True)
     assert 'id="lint-dropdown"' in body and "lintrules.js" in body
+
+
+def test_benchmark_endpoints_reject_unknown_datasets(client):
+    assert client.get("/benchmark?dataset=nope").status_code == 404
+    assert client.get("/api/benchmark?dataset=nope").status_code == 404
+    assert client.get("/api/benchmark/bugs/github-12?dataset=nope").status_code == 404
+    # A path is never a dataset name, even one that exists.
+    assert client.get("/api/benchmark?dataset=benchmarks/bugs4q/manifest.json").status_code == 404
+    response = client.post("/api/benchmark", json={"dataset": "nope"})
+    assert response.status_code == 400 and "Unknown benchmark" in response.get_json()["error"]["message"]
+
+
+def test_benchmark_endpoints_take_a_dataset_name(client):
+    body = client.get("/api/benchmark?dataset=bugs4q").get_json()
+    assert body["dataset"]["id"] == "bugs4q" and len(body["bugs"]) == 62
+    assert client.get("/api/benchmark/bugs/github-12?dataset=bugs4q").status_code == 200

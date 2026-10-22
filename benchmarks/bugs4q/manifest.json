@@ -1,5 +1,6 @@
 {
   "name": "Bugs4Q",
+  "description": "real Qiskit bugs",
   "upstream": "https://github.com/Z-928/Bugs4Q-NA",
   "commit": "bb853b888c752f90f2a6515c6776e020e2e59d01",
   "license": "Apache-2.0",

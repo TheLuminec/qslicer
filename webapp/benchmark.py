@@ -1,9 +1,18 @@
-"""Bugs4Q benchmark: grade the selected lint rules on real Qiskit bugs.
+"""Benchmarks: grade the selected lint rules on datasets of buggy and fixed programs.
 
-Bugs4Q (https://github.com/Z-928/Bugs4Q-NA) collects real Qiskit bugs, each
-as a buggy program and the program that fixed it. Its Qiskit bugs live in
-``benchmarks/bugs4q/programs/`` at their upstream paths, listed by
-``benchmarks/bugs4q/manifest.json`` (``sync_upstream.py`` rebuilds both).
+A dataset is a folder with a ``manifest.json``, the programs it lists under
+``programs/``, and recorded runs of other tools under ``external/``. Folders
+under ``benchmarks/`` that have a manifest are found automatically; the first
+is Bugs4Q (``benchmarks/bugs4q/``, real Qiskit bugs). A manifest looks like::
+
+    {"name": "Bugs4Q", "description": "real Qiskit bugs",
+     "upstream": "https://...", "commit": "...", "license": "Apache-2.0",
+     "bugs": [{"key": "github-1", "buggy": "path/buggy.py", "fixed": "path/fixed.py",
+               "source": "GitHub issue", "reference": "#5098", "url": "https://...",
+               "type": "parameter"}, ...]}
+
+Only ``bugs`` and each bug's ``key``, ``buggy`` and ``fixed`` (paths under
+``programs/``) are required; anything else is shown when present.
 
 Ground truth is the fix itself. The *fault lines* of a bug are the buggy
 program's code lines the fix deletes or rewrites; comments, blank lines and
@@ -38,46 +47,85 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 import linters
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATASET_DIR = os.path.join(REPO_ROOT, "benchmarks", "bugs4q")
-PROGRAMS_DIR = os.path.join(DATASET_DIR, "programs")
-MANIFEST_PATH = os.path.join(DATASET_DIR, "manifest.json")
-EXTERNAL_DIR = os.path.join(DATASET_DIR, "external")
+BENCHMARKS_DIR = os.path.join(REPO_ROOT, "benchmarks")
+DEFAULT_DATASET = "bugs4q"
 
 VERSIONS = ("buggy", "fixed")
 REWRITE_SHARE = 0.5
 
 
 # --------------------------------------------------------------------------
-# Dataset
+# Datasets
 # --------------------------------------------------------------------------
 
-_DATASET: Optional[Dict[str, Any]] = None
+class Dataset:
+    """One manifest, with each bug's sources and ground truth attached."""
 
-
-def _read(rel: str) -> str:
-    with open(os.path.join(PROGRAMS_DIR, rel), encoding="utf-8", errors="replace") as handle:
-        return handle.read()
-
-
-def dataset() -> Dict[str, Any]:
-    """The manifest, with each bug's sources and ground truth attached (cached)."""
-    global _DATASET
-    if _DATASET is None:
-        with open(MANIFEST_PATH, encoding="utf-8") as handle:
-            manifest = json.load(handle)
-        for bug in manifest["bugs"]:
-            bug["sources"] = {version: _read(bug[version]) for version in VERSIONS}
+    def __init__(self, manifest_path: str):
+        self.manifest_path = os.path.abspath(manifest_path)
+        self.dir = os.path.dirname(self.manifest_path)
+        self.id = os.path.basename(self.dir)
+        self.programs_dir = os.path.join(self.dir, "programs")
+        self.external_dir = os.path.join(self.dir, "external")
+        with open(self.manifest_path, encoding="utf-8") as handle:
+            self.manifest = json.load(handle)
+        for bug in self.manifest["bugs"]:
+            bug["sources"] = {version: self._read(bug[version]) for version in VERSIONS}
             bug["truth"] = ground_truth(bug["sources"]["buggy"], bug["sources"]["fixed"])
-        _DATASET = manifest
-    return _DATASET
+
+    def _read(self, rel: str) -> str:
+        with open(os.path.join(self.programs_dir, rel), encoding="utf-8",
+                  errors="replace") as handle:
+            return handle.read()
+
+    @property
+    def name(self) -> str:
+        return self.manifest.get("name") or self.id
+
+    @property
+    def bugs(self) -> List[Dict[str, Any]]:
+        return self.manifest["bugs"]
+
+    def get_bug(self, key: str) -> Optional[Dict[str, Any]]:
+        return next((bug for bug in self.bugs if bug["key"] == key), None)
 
 
-def bugs() -> List[Dict[str, Any]]:
-    return dataset()["bugs"]
+_DATASETS: Dict[str, Dataset] = {}
 
 
-def get_bug(key: str) -> Optional[Dict[str, Any]]:
-    return next((bug for bug in bugs() if bug["key"] == key), None)
+def dataset_ids() -> List[str]:
+    """The folders under ``benchmarks/`` that hold a manifest, default first."""
+    found = sorted(name for name in os.listdir(BENCHMARKS_DIR)
+                   if os.path.isfile(os.path.join(BENCHMARKS_DIR, name, "manifest.json")))
+    return sorted(found, key=lambda name: name != DEFAULT_DATASET)
+
+
+def load(which: "Dataset | str | None" = None) -> Dataset:
+    """A dataset by folder name under ``benchmarks/`` or by manifest path (cached).
+
+    ``None`` is the default dataset. Raises ``KeyError`` for a name with no
+    manifest. Only pass a path that came from the command line, never one from
+    a web request: the web app checks names against ``dataset_ids()``.
+    """
+    if isinstance(which, Dataset):
+        return which
+    which = which or DEFAULT_DATASET
+    path = which if which.endswith(".json") or os.sep in which or "/" in which \
+        else os.path.join(BENCHMARKS_DIR, which, "manifest.json")
+    if not os.path.isfile(path):
+        raise KeyError(f"no benchmark manifest at {path}")
+    path = os.path.abspath(path)
+    if path not in _DATASETS:
+        _DATASETS[path] = Dataset(path)
+    return _DATASETS[path]
+
+
+def bugs(dataset: "Dataset | str | None" = None) -> List[Dict[str, Any]]:
+    return load(dataset).bugs
+
+
+def get_bug(key: str, dataset: "Dataset | str | None" = None) -> Optional[Dict[str, Any]]:
+    return load(dataset).get_bug(key)
 
 
 def describe_bug(bug: Dict[str, Any], with_sources: bool = False) -> Dict[str, Any]:
@@ -89,14 +137,17 @@ def describe_bug(bug: Dict[str, Any], with_sources: bool = False) -> Dict[str, A
     return entry
 
 
-def summary() -> Dict[str, Any]:
-    data = dataset()
+def summary(dataset: "Dataset | str | None" = None) -> Dict[str, Any]:
+    data = load(dataset)
     kinds: Dict[str, int] = {}
-    for bug in data["bugs"]:
+    for bug in data.bugs:
         kinds[bug["truth"]["kind"]] = kinds.get(bug["truth"]["kind"], 0) + 1
-    return {"name": data["name"], "upstream": data["upstream"], "commit": data["commit"],
-            "license": data["license"], "bugs": len(data["bugs"]), "kinds": kinds,
-            "sources": sorted({bug["source"] for bug in data["bugs"]})}
+    manifest = data.manifest
+    return {"id": data.id, "name": data.name,
+            "description": manifest.get("description", ""),
+            "upstream": manifest.get("upstream", ""), "commit": manifest.get("commit", ""),
+            "license": manifest.get("license", ""), "bugs": len(data.bugs), "kinds": kinds,
+            "sources": sorted({bug.get("source", "") for bug in data.bugs} - {""})}
 
 
 # --------------------------------------------------------------------------
@@ -152,8 +203,8 @@ def ground_truth(buggy: str, fixed: str) -> Dict[str, Any]:
 # External tools
 # --------------------------------------------------------------------------
 
-def external_results() -> List[Dict[str, Any]]:
-    """Recorded runs of other tools, from ``benchmarks/bugs4q/external/*.json``.
+def external_results(dataset: "Dataset | str | None" = None) -> List[Dict[str, Any]]:
+    """Recorded runs of other tools, from the dataset's ``external/*.json``.
 
     Each file is ``{"tool", "label", "version", "notes", "results"}`` where
     ``results`` maps a program's path (as in the manifest) to its warnings,
@@ -161,7 +212,7 @@ def external_results() -> List[Dict[str, Any]]:
     warnings. ``import_sarif`` writes these from a SARIF log.
     """
     found = []
-    for path in sorted(glob.glob(os.path.join(EXTERNAL_DIR, "*.json"))):
+    for path in sorted(glob.glob(os.path.join(load(dataset).external_dir, "*.json"))):
         try:
             with open(path, encoding="utf-8") as handle:
                 data = json.load(handle)
@@ -175,16 +226,17 @@ def external_results() -> List[Dict[str, Any]]:
 
 
 def import_sarif(sarif_path: str, tool: str, label: str = "", version: str = "",
-                 notes: str = "") -> Dict[str, Any]:
+                 notes: str = "", dataset: "Dataset | str | None" = None) -> Dict[str, Any]:
     """Turn a SARIF log (CodeQL, LintQ, ...) into an external-results record.
 
-    Each result's file is matched to a Bugs4Q program by path suffix, so the
-    tool can have been run over this repository's ``programs/`` folder or over
-    a checkout of Bugs4Q itself. Results in other files are counted and dropped.
+    Each result's file is matched to a program of the dataset by path suffix,
+    so the tool can have been run over this repository's ``programs/`` folder
+    or over a checkout of the upstream dataset. Results in other files are
+    counted and dropped.
     """
     with open(sarif_path, encoding="utf-8") as handle:
         log = json.load(handle)
-    paths = [bug[version_] for bug in bugs() for version_ in VERSIONS]
+    paths = [bug[version_] for bug in bugs(dataset) for version_ in VERSIONS]
     results: Dict[str, List[Dict[str, Any]]] = {}
     unmatched = 0
     tool_version = version
@@ -290,32 +342,35 @@ _RUN_LOCK = threading.Lock()
 
 
 def run(selection: Optional[Iterable[str]] = None, profile: str = "baseline",
-        include_external: bool = True, use_cache: bool = True) -> Dict[str, Any]:
-    """Grade ``selection`` (rule ids, as on the slicer page) on every Bugs4Q bug.
+        include_external: bool = True, use_cache: bool = True,
+        dataset: "Dataset | str | None" = None) -> Dict[str, Any]:
+    """Grade ``selection`` (rule ids, as on the slicer page) on every bug of a dataset.
 
     The report compares, side by side: the whole selection, each selected
     linter on its own (when more than one is selected), and every recorded
-    external tool. Results are cached per (selection, profile).
+    external tool. Results are cached per (dataset, selection, profile).
     """
+    data = load(dataset)
     chosen = linters.normalize_selection(selection)
-    key = (tuple(chosen), profile, include_external)
+    key = (data.manifest_path, tuple(chosen), profile, include_external)
     with _RUN_LOCK:
         if use_cache and key in _RESULTS:
             _RESULTS.move_to_end(key)
             return _RESULTS[key]
-        report = _run(chosen, profile, include_external)
+        report = _run(data, chosen, profile, include_external)
         _RESULTS[key] = report
         while len(_RESULTS) > _RESULTS_LIMIT:
             _RESULTS.popitem(last=False)
         return report
 
 
-def _run(chosen: List[str], profile: str, include_external: bool) -> Dict[str, Any]:
+def _run(data: Dataset, chosen: List[str], profile: str,
+         include_external: bool) -> Dict[str, Any]:
     started = time.monotonic()
     by_linter = linters.selection_by_linter(chosen)
     # Linters with a batch mode (an external tool) lint every program in one run.
     batched: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
-    programs = [(bug[v], bug["sources"][v]) for bug in bugs() for v in VERSIONS]
+    programs = [(bug[v], bug["sources"][v]) for bug in data.bugs for v in VERSIONS]
     for linter_id in by_linter:
         linter = linters.get(linter_id)
         if linter is not None and linter.batch is not None and linter.available()[0]:
@@ -326,7 +381,7 @@ def _run(chosen: List[str], profile: str, include_external: bool) -> Dict[str, A
                 batched[linter_id] = {path: [crash] for path, _ in programs}
     raw: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
     front_end: Dict[str, Dict[str, Any]] = {}
-    for bug in bugs():
+    for bug in data.bugs:
         raw[bug["key"]] = {}
         for version in VERSIONS:
             context = linters.LintContext(bug["sources"][version], os.path.basename(bug[version]),
@@ -350,7 +405,7 @@ def _run(chosen: List[str], profile: str, include_external: bool) -> Dict[str, A
             configs.append({"id": linter_id, "label": linter.label if linter else linter_id,
                             "kind": "linter", "rules": [f"{linter_id}/{c}" for c in codes],
                             "filter": linter_id})
-    externals = external_results() if include_external else []
+    externals = external_results(data) if include_external else []
     for ext in externals:
         configs.append({"id": f"external:{ext['tool']}", "label": ext["label"],
                         "kind": "external", "version": ext.get("version", ""),
@@ -359,9 +414,10 @@ def _run(chosen: List[str], profile: str, include_external: bool) -> Dict[str, A
     per_bug = []
     totals = {config["id"]: _empty_totals() for config in configs}
     per_rule: Dict[str, Dict[str, Any]] = {}
-    for bug in bugs():
-        row = {"key": bug["key"], "source": bug["source"], "reference": bug["reference"],
-               "url": bug["url"], "type": bug["type"], "paths": {v: bug[v] for v in VERSIONS},
+    for bug in data.bugs:
+        row = {"key": bug["key"], "source": bug.get("source", ""),
+               "reference": bug.get("reference", ""), "url": bug.get("url", ""),
+               "type": bug.get("type", ""), "paths": {v: bug[v] for v in VERSIONS},
                "truth": {"kind": bug["truth"]["kind"], "lines": sorted(bug["truth"]["lines"])},
                "front_end": front_end.get(bug["key"], {}), "grades": {},
                "warnings": {v: [_compact(w) for w in raw[bug["key"]][v]] for v in VERSIONS}}
@@ -396,7 +452,7 @@ def _run(chosen: List[str], profile: str, include_external: bool) -> Dict[str, A
 
     read = [state for states in front_end.values() for state in states.values()]
     report = {
-        "dataset": summary(),
+        "dataset": summary(data),
         "profile": profile,
         "selection": chosen,
         "linters": [{"id": lid, "label": (linters.get(lid).label if linters.get(lid) else lid),

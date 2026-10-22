@@ -187,31 +187,34 @@
       });
   }
 
-  /* A Bugs4Q program, when the Benchmark page linked here with
-     ?bugs4q=<key>&version=buggy|fixed. */
+  /* A benchmark program, when the Benchmark page linked here with
+     ?dataset=<id>&bug=<key>&version=buggy|fixed. */
   function loadFromQuery() {
     var params = new URLSearchParams(window.location.search);
-    var key = params.get('bugs4q');
+    var key = params.get('bug');
     if (!key) return;
+    var dataset = params.get('dataset') || '';
     var version = params.get('version') === 'fixed' ? 'fixed' : 'buggy';
-    fetch('/api/benchmark/bugs/' + encodeURIComponent(key))
+    fetch('/api/benchmark/bugs/' + encodeURIComponent(key) + '?dataset=' + encodeURIComponent(dataset))
       .then(function (response) {
-        if (!response.ok) throw new Error('No Bugs4Q bug named ' + key + '.');
+        if (!response.ok) throw new Error('No benchmark bug named ' + key + '.');
         return response.json();
       })
       .then(function (bug) {
         $('code').value = bug.sources[version];
         state.filename = bug[version].split('/').pop();
-        // Bugs4Q programs target old Qiskit versions: read them, never run them.
+        // Benchmark programs may target old Qiskit versions: read them, never run them.
         setInterpreter('qiskit-static');
         var other = version === 'buggy' ? 'fixed' : 'buggy';
         var faults = bug.truth.lines.length
           ? ' Fault lines (from the fix): ' + bug.truth.lines.join(', ') + '.' : '';
-        $('example-blurb').innerHTML = 'Bugs4Q ' + escapeHtml(bug.source) + ' ' +
-          escapeHtml(bug.reference) + ', ' + version + ' program' +
-          (version === 'buggy' ? escapeHtml(faults) : '') + ' <a href="?bugs4q=' +
+        var query = '?dataset=' + encodeURIComponent(dataset);
+        $('example-blurb').innerHTML = escapeHtml(bug.key) +
+          (bug.source || bug.reference ? ' (' + escapeHtml([bug.source, bug.reference].filter(Boolean).join(' ')) + ')' : '') +
+          ', ' + version + ' program' +
+          (version === 'buggy' ? escapeHtml(faults) : '') + ' <a href="' + query + '&bug=' +
           encodeURIComponent(key) + '&version=' + other + '">Open the ' + other + ' program</a> · ' +
-          '<a href="/benchmark#bug-' + encodeURIComponent(key) + '">Back to the benchmark</a>';
+          '<a href="/benchmark' + query + '#bug-' + encodeURIComponent(key) + '">Back to the benchmark</a>';
         updateGutter();
         analyze();
       })

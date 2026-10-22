@@ -2,18 +2,27 @@
 {% block title %}Benchmark &middot; Quantum Program Slicer{% endblock %}
 
 {% block content %}
-<div class="bench">
+<div class="bench" data-dataset="{{ dataset.id }}">
   <header class="bench-header">
     <p class="eyebrow">Benchmark</p>
-    <h1>Bugs4Q</h1>
+    <h1>{{ dataset.name }}</h1>
+    {% if datasets|length > 1 %}
+    <nav class="bench-filter" aria-label="Datasets">
+      {% for other in datasets %}
+        <a class="chip{% if other.id == dataset.id %} active{% endif %}"
+           href="/benchmark?dataset={{ other.id }}">{{ other.name }} ({{ other.bugs }})</a>
+      {% endfor %}
+    </nav>
+    {% endif %}
     <p class="lede">
-      Grade the lint rules you have selected on {{ dataset.bugs }} real Qiskit bugs, each a
+      Grade the lint rules you have selected on {{ dataset.bugs }} {{ dataset.description or 'bugs' }}, each a
       buggy program and the program that fixed it. The fix tells us where the fault was, so a
       rule <em>detects</em> a bug when it warns on a line the fix changed and the fix silences it.
     </p>
     <p class="bench-meta">
-      <a href="{{ dataset.upstream }}" target="_blank" rel="noopener">Bugs4Q</a>
-      at <code>{{ dataset.commit[:7] }}</code> ({{ dataset.license }}) &middot;
+      {% if dataset.upstream %}<a href="{{ dataset.upstream }}" target="_blank" rel="noopener">{{ dataset.name }}</a>{% else %}{{ dataset.name }}{% endif %}
+      {% if dataset.commit %}at <code>{{ dataset.commit[:7] }}</code>{% endif %}
+      {% if dataset.license %}({{ dataset.license }}){% endif %} &middot;
       {% for kind, count in dataset.kinds|dictsort %}{{ count }} {{ kind }}{% if not loop.last %}, {% endif %}{% endfor %}
       &middot; nothing is executed: every linter reads the programs as text or through the
       static front ends.
@@ -49,7 +58,7 @@
 
     <h2>Comparison</h2>
     <p class="bench-note">One row per linter in the selection, the selection as a whole, and any
-      recorded run of another tool (<code>benchmarks/bugs4q/external/</code>). Rewrites are fixes
+      recorded run of another tool (<code>benchmarks/{{ dataset.id }}/external/</code>). Rewrites are fixes
       that replace most of the program, where any warning lands on a changed line.</p>
     <div class="table-wrap">
       <table class="ref-table bench-table" id="compare-table"></table>
@@ -93,8 +102,8 @@
       <dd>The share of the warnings on buggy programs that land on a fault line, a rough
         precision.</dd>
       <dt>Comparing another tool</dt>
-      <dd>Run it over <code>benchmarks/bugs4q/programs/</code>, then
-        <code>python benchmarks/run_bugs4q.py --import-sarif results.sarif --tool mytool</code>.
+      <dd>Run it over <code>benchmarks/{{ dataset.id }}/programs/</code>, then
+        <code>python benchmarks/run_benchmark.py --manifest {{ dataset.id }} --import-sarif results.sarif --tool mytool</code>.
         Its results then appear in the comparison table of every run.</dd>
     </dl>
   </section>
