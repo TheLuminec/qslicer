@@ -912,6 +912,45 @@ def _stored_names(nodes):
     return names
 
 
+# Methods of lists, dicts, sets and arrays that change the object in place.
+_MUTATING_METHODS = {
+    "append", "extend", "insert", "remove", "pop", "popitem", "clear", "update", "add",
+    "discard", "setdefault", "sort", "reverse", "difference_update", "intersection_update",
+    "symmetric_difference_update", "fill", "resize", "put", "itemset",
+}
+
+
+def _root_name(node):
+    while isinstance(node, (ast.Attribute, ast.Subscript)):
+        node = node.value
+    return node.id if isinstance(node, ast.Name) else None
+
+
+def _mutated_names(nodes):
+    """Names whose objects a block may change in place (``x.append(..)``, ``x[i] = ..``).
+
+    Nested function bodies are not counted, as in ``_stored_names``.
+    """
+    names = []
+    stack = list(nodes)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            continue
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr in _MUTATING_METHODS):
+            root = _root_name(node.func.value)
+            if root:
+                names.append(root)
+        elif (isinstance(node, (ast.Attribute, ast.Subscript))
+              and isinstance(node.ctx, (ast.Store, ast.Del))):
+            root = _root_name(node.value)
+            if root:
+                names.append(root)
+        stack.extend(ast.iter_child_nodes(node))
+    return names
+
+
 def _find_unknown(value, depth=2):
     """An Unknown inside ``value`` (looking a couple of container levels deep), or None."""
     if isinstance(value, Unknown):
@@ -1115,6 +1154,16 @@ class _Interpreter:
                 f"cannot analyse a {what}: only running the program could tell, and the "
                 "code it controls works on a circuit", getattr(node, "lineno", None))
         for name in _stored_names([node]):
+            self.store(name, Unknown(name), frame)
+        # The skipped code may also have changed objects in place. Forgetting
+        # them is what ends a polling loop such as
+        #     while jobs:
+        #         if job.status() in DONE: jobs.remove(job)
+        # instead of spinning on a list that never shrinks.
+        for name in _mutated_names([node]):
+            value = self.peek(name, frame)
+            if value is _MISSING or isinstance(value, (Unknown, _ModuleRef, _UserFunction)):
+                continue
             self.store(name, Unknown(name), frame)
         self.warn(f"skipped a {what} (it does not touch any circuit)",
                   getattr(node, "lineno", None))
@@ -1331,6 +1380,11 @@ class _Interpreter:
             if truth is None:
                 if first:
                     self.skip(node, frame, "`while` loop with an unknown condition")
+                    return
+                # The iterations already run stand; the rest are skipped like any
+                # unknown code, as long as no circuit depends on them.
+                if not self.touches_circuits(node, frame):
+                    self.skip(node, frame, "`while` loop whose condition stops being known")
                     return
                 raise self.error("the condition of this `while` loop stops being known "
                                  "part-way through", node.lineno)

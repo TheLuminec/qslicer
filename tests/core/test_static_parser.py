@@ -4,6 +4,7 @@ import glob
 import io
 import math
 import os
+import time
 from contextlib import redirect_stdout
 
 import pytest
@@ -46,6 +47,7 @@ def test_the_file_is_never_executed(tmp_path):
     marker = tmp_path / "ran.txt"
     source = f"""
 import os
+import time
 from qiskit import QuantumCircuit
 open({str(marker)!r}, "w").write("ran")
 os.system("echo ran > {marker.as_posix()}")
@@ -223,6 +225,58 @@ for key in counts:
 """)
     assert len(parser.program) == 2
     assert any("skipped" in w for w in parser.warnings)
+
+
+def test_polling_loop_ends_once_skipped_code_may_have_emptied_its_list():
+    # Bugs4Q StackExchange/6: the skipped `if` would remove finished jobs, so
+    # `while job_list` must not keep seeing the full list until the time limit.
+    started = time.monotonic()
+    parser = parse("""
+from qiskit import QuantumCircuit
+from lib import run, DONE
+qc = QuantumCircuit(1, 1)
+qc.h(0)
+qc.measure(0, 0)
+job_list = [run(qc), run(qc)]
+while job_list:
+    for job in job_list:
+        if job.status() in DONE:
+            job_list.remove(job)
+            print(job.result())
+""", time_limit=5)
+    assert time.monotonic() - started < 1
+    assert len(parser.program) == 2
+    assert any("stops being known" in w for w in parser.warnings)
+
+
+def test_skipped_code_forgets_what_it_may_have_changed_in_place():
+    source = """
+from qiskit import QuantumCircuit
+from lib import some_unknown_call
+qc = QuantumCircuit(2)
+targets = [0]
+if some_unknown_call():
+    targets.append(1)
+for t in targets:
+    qc.h(t)
+"""
+    with pytest.raises(StaticParseError, match="works on a circuit"):
+        parse(source)
+
+
+def test_while_condition_turning_unknown_over_circuit_code_is_refused():
+    source = """
+from qiskit import QuantumCircuit
+from lib import some_unknown_call
+qc = QuantumCircuit(1)
+pending = [1]
+while pending:
+    qc.h(0)
+    if some_unknown_call():
+        pending.pop()
+"""
+    with pytest.raises(StaticParseError, match="part-way"):
+        parse(source)
 
 
 @pytest.mark.parametrize("body, message", [
