@@ -279,7 +279,9 @@ of the real thing:
   hooks are already here.
 * **Static checks.** Ten heuristics over the Python AST, not LintQ. They see
   only literal arguments — anything built in a loop or passed through a helper
-  is invisible to them. Codes are `QS000`–`QS010`; the rules live in `lint.py`.
+  is invisible to them. Codes are `QS000`–`QS012`; the rules live in `lint.py`.
+  QS012 looks imported names up in the installed Qiskit (importing the
+  library's modules, never the checked file).
 * **Rule profiles.** The dropdown lists whatever `qdg.list_rule_profiles()`
   returns, which today is just `baseline`. Entanglement and phase rules exist in
   `scripts/Dependencies/rules.py` but ship disabled, so a profile that enables

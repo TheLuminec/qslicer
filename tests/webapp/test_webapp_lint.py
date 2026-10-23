@@ -378,3 +378,53 @@ def test_qs011_leaves_c_if_and_execute_to_their_own_codes():
         """)
     assert {"QS008", "QS009"} <= set(codes(findings))
     assert "QS011" not in codes(findings)
+
+
+# QS012 unknown Qiskit name ------------------------------------------------------
+
+@pytest.mark.parametrize("line, message, hint", [
+    ("from qiskit.circuit.library import CNOT", "qiskit.circuit.library has no name CNOT",
+     "Did you mean CXGate?"),
+    ("from qiskit.circuit.library import X, HGate", "qiskit.circuit.library has no name X",
+     "XGate"),
+    ("from qiskit.circuit.library import MCX", "has no name MCX", "MCXGate"),
+    ("from qiskit import AerSimulator", "qiskit has no name AerSimulator",
+     "from qiskit_aer import AerSimulator"),
+    ("from qiskit.quantum_info.operators import PauliY", "has no name PauliY",
+     "Did you mean Pauli?"),
+    ("from qiskit import execute", "qiskit has no name execute", "backend's run()"),
+    ("from qiskit import pulse", "qiskit has no name pulse", "no replacement"),
+    ("from qiskit.made_up import thing", "There is no module qiskit.made_up", ""),
+    ("import qiskit.not_a_module", "There is no module qiskit.not_a_module", ""),
+])
+def test_qs012_positive(line, message, hint):
+    findings = check(f"qc = QuantumCircuit(3, 3)\n{line}\nqc.measure_all()\n")
+    qs = only(findings, "QS012")
+    assert len(qs) == 1 and qs[0]["line"] == 3 and qs[0]["severity"] == "error"
+    assert message in qs[0]["message"] and "2.6.0" in qs[0]["message"]
+    assert hint in qs[0]["hint"]
+
+
+@pytest.mark.parametrize("line", [
+    "from qiskit import QuantumCircuit, transpile, QuantumRegister, qasm2",
+    "from qiskit.circuit.library import CXGate, QFT, MCXGate",
+    "from qiskit.quantum_info import Statevector, Operator, Pauli",
+    "from qiskit_aer import AerSimulator, Aer",
+    "import qiskit.qasm3",
+    "from qiskit import *",
+    "from qiskit_not_installed_here import Anything",        # cannot tell: no finding
+    "from numpy import CNOT",                                # not Qiskit
+])
+def test_qs012_negative(line):
+    assert "QS012" not in codes(check(f"qc = QuantumCircuit(3, 3)\n{line}\nqc.measure_all()\n"))
+
+
+@pytest.mark.parametrize("line", [
+    "from qiskit import Aer",
+    "from qiskit.extensions import UnitaryGate",
+    "import qiskit.providers.aer",
+    "from qiskit.utils import QuantumInstance",
+])
+def test_qs012_leaves_removed_apis_to_qs011(line):
+    findings = check(f"qc = QuantumCircuit(3, 3)\n{line}\nqc.measure_all()\n")
+    assert "QS011" in codes(findings) and "QS012" not in codes(findings)

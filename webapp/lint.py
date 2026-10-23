@@ -2,6 +2,8 @@
 
 This is a stand-in for LintQ: it works on the Python AST only, so it never runs
 the submitted file and it only sees what is written literally in the source.
+(QS012 also imports the installed Qiskit modules a file imports from, to see
+whether the names exist; the file itself is still never run.)
 Anything computed in a loop, passed through a helper, or built from a variable
 is invisible to it -- those cases are left to the real analysis pass.
 
@@ -10,6 +12,7 @@ message and hint.
 """
 
 import ast
+import re
 from typing import Any, Dict, List, Optional
 
 # Gate methods that take qubit indices as positional arguments.
@@ -49,6 +52,9 @@ RULES = {
     "QS011": ("Removed Qiskit API", "error",
               "A method, name or module that older Qiskit had and current Qiskit does not "
               "(u1, cu1, cnot, iden, bind_parameters, Aer, qiskit.extensions, ...)."),
+    "QS012": ("Unknown Qiskit name", "error",
+              "An import of a name or module the installed Qiskit does not have, such as "
+              "CNOT from qiskit.circuit.library (the gate class is CXGate)."),
 }
 
 
@@ -175,6 +181,7 @@ def check_source(source: str) -> List[Dict[str, Any]]:
     findings += _check_duplicate_clbits(collector)
     findings += _check_removed_api(tree)
     findings += _check_removed_qiskit(tree, collector)
+    findings += _check_unknown_qiskit_names(tree)
     findings += _check_self_inverse_pairs(collector)
 
     findings.sort(key=lambda f: (f["line"], f["column"], f["code"]))
@@ -461,6 +468,114 @@ def _check_removed_qiskit(tree: ast.AST, collector: _CircuitCollector) -> List[D
         elif (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
               and node.value.id == "qiskit" and node.attr in _REMOVED_NAMES):
             report(node, f"qiskit.{node.attr}", _REMOVED_NAMES[node.attr])
+    return findings
+
+
+# QS012: imports checked against the Qiskit actually installed. Only modules of
+# the qiskit packages are imported (the library, never the checked file), and a
+# package that is not installed is skipped, since then nothing can be said.
+_QISKIT_MODULE = re.compile(r"^qiskit(_[a-z0-9_]+)?(\.[A-Za-z_]\w*)*$")
+# Invented names that have an obvious real one; otherwise "<Name>Gate" or a
+# close match in the module is suggested.
+_LIKELY_MEANT = {"CNOT": "CXGate", "CCNOT": "CCXGate", "Toffoli": "CCXGate",
+                 "Fredkin": "CSwapGate", "MCT": "MCXGate"}
+# Removed names QS011 does not cover as imports, with what replaces them.
+_REMOVED_ELSEWHERE = dict(_REMOVED_NAMES, **{
+    "execute": "a backend's run(), e.g. AerSimulator().run(transpile(qc, sim))",
+    "pulse": "nothing: Qiskit Pulse was removed in Qiskit 2.0",
+})
+# Where a name imported from the wrong module usually lives.
+_HOMES = ("qiskit", "qiskit.circuit.library", "qiskit.quantum_info", "qiskit_aer",
+          "qiskit.primitives", "qiskit.visualization")
+_MODULE_CACHE: Dict[str, Any] = {}
+
+
+def _qiskit_module(name: str) -> Any:
+    """The installed module ``name``; None if it does not exist; False if that
+    cannot be told (its package is not installed, or importing it failed)."""
+    if name not in _MODULE_CACHE:
+        import importlib
+        import importlib.util
+        try:
+            if importlib.util.find_spec(name.split(".")[0]) is None:
+                _MODULE_CACHE[name] = False
+            elif importlib.util.find_spec(name) is None:
+                _MODULE_CACHE[name] = None
+            else:
+                _MODULE_CACHE[name] = importlib.import_module(name)
+        except ModuleNotFoundError:
+            _MODULE_CACHE[name] = None          # a parent package is missing
+        except Exception:                        # noqa: BLE001 -- an optional dependency, say
+            _MODULE_CACHE[name] = False
+    return _MODULE_CACHE[name]
+
+
+def _has_name(module_name: str, name: str) -> Optional[bool]:
+    module = _qiskit_module(module_name)
+    if not module:
+        return None if module is False else False
+    if hasattr(module, name):
+        return True
+    sub = _qiskit_module(f"{module_name}.{name}")      # `from qiskit import qasm2`
+    return None if sub is False else bool(sub)
+
+
+def _suggest(module_name: str, name: str) -> str:
+    import difflib
+    module = _qiskit_module(module_name)
+    if name in _REMOVED_ELSEWHERE:
+        replacement = _REMOVED_ELSEWHERE[name]
+        if replacement.startswith("nothing"):
+            return f"It was removed from Qiskit, with no replacement ({replacement[9:]})."
+        return f"It was removed from Qiskit: use {replacement} instead."
+    if name in _LIKELY_MEANT and module and hasattr(module, _LIKELY_MEANT[name]):
+        return f"Did you mean {_LIKELY_MEANT[name]}? Or call the circuit method, e.g. qc.cx()."
+    if module and hasattr(module, name + "Gate"):
+        return (f"Gate classes end in Gate: {name}Gate. Or call the circuit method, "
+                f"e.g. qc.{name.lower()}().")
+    for home in _HOMES:
+        if home != module_name and _has_name(home, name):
+            return f"It lives elsewhere: from {home} import {name}."
+    close = difflib.get_close_matches(name, [n for n in dir(module) if not n.startswith("_")],
+                                      n=1) if module else []
+    return f"Did you mean {close[0]}?" if close else "Check the name against the Qiskit docs."
+
+
+def _check_unknown_qiskit_names(tree: ast.AST) -> List[Dict[str, Any]]:
+    """Imports of names or modules the installed Qiskit lacks (QS011's removed
+    APIs excepted, which it reports with their replacements)."""
+    findings: List[Dict[str, Any]] = []
+    try:
+        import qiskit
+        version = qiskit.__version__
+    except Exception:                            # noqa: BLE001 -- no Qiskit: nothing to check
+        return findings
+
+    def report(node, message, hint):
+        findings.append(_Finding("QS012", "error", node, message, hint))
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            module = node.module
+            if not _QISKIT_MODULE.match(module) or _removed_module(module):
+                continue
+            if _qiskit_module(module) is None:
+                report(node, f"There is no module {module} in Qiskit {version}.",
+                       "Check the module path against the Qiskit docs.")
+                continue
+            for alias in node.names:
+                if alias.name == "*" or (module == "qiskit" and alias.name in _REMOVED_NAMES) \
+                        or (module == "qiskit.utils" and alias.name == "QuantumInstance"):
+                    continue
+                if _has_name(module, alias.name) is False:
+                    report(node, f"{module} has no name {alias.name} in Qiskit {version}.",
+                           _suggest(module, alias.name))
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if _QISKIT_MODULE.match(alias.name) and not _removed_module(alias.name) \
+                        and _qiskit_module(alias.name) is None:
+                    report(node, f"There is no module {alias.name} in Qiskit {version}.",
+                           "Check the module path against the Qiskit docs.")
     return findings
 
 

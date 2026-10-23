@@ -54,8 +54,11 @@ the quick checks' list of removed APIs (QS011) and the LintQ port are
 maintained against that version only; `tests/core/test_qiskit_version.py`
 fails if a different one is installed. Programs written for older Qiskit still
 analyse statically, and QS011 points out the APIs they use that 2.6.0 no
-longer has. Moving to a new version is a deliberate change: bump the three pins
-together, run the full suite, and update this section.
+longer has. QS012 checks every `from qiskit... import` against the installed
+Qiskit, so it catches names that never existed (`CNOT` from
+`qiskit.circuit.library`) and follows the pin by itself. Moving to a new
+version is a deliberate change: bump the three pins together, run the full
+suite, and update this section.
 
 ## Front ends: static first
 
@@ -450,8 +453,9 @@ approximations are accepted. Specifically:
 - **Qubit-wise (horizontal) slices** are computed in the browser;
   `SlicingCriterion.qubits` is not consumed by the slicer yet. The X/Y/Z
   measurement-basis toggle is a placeholder pending research.
-- **Static checks** (`QS000`–`QS010`) read only Python source, are not LintQ,
-  and see only literal arguments. OpenQASM input gets none.
+- **Static checks** (`QS000`–`QS012`) read only Python source, are not LintQ,
+  and see only literal arguments (QS012 also imports the installed Qiskit
+  modules a file imports from, to look its names up). OpenQASM input gets none.
 - **Large circuits** (several hundred instructions and up) draw slowly, since
   each node is a DOM element; use Range. Chunking is the planned fix.
 - **Static interpreter limits:** unmodelled code (user-defined classes,
