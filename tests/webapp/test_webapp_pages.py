@@ -97,7 +97,10 @@ def test_slicer_page_offers_both_interpreters_and_profiles(client):
     body = _text(client.get("/slicer"))
     for option in analysis.interpreters():
         assert f'<option value="{option["id"]}"' in body
-    assert re.search(r'<option value="qiskit"\s+selected', body), "Qiskit should be the default"
+    assert re.search(r'<option value="qiskit-static"\s+selected', body), \
+        "the static Qiskit interpreter should be the default"
+    # The executing and qiskit.qasm3 routes are no longer offered.
+    assert '<option value="qiskit"' not in body and '<option value="qasm"' not in body
     for profile in analysis.rule_profiles():
         assert f'<option value="{profile}">' in body
 

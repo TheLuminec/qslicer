@@ -35,7 +35,7 @@
       <label class="field field-narrow">
         <span>Interpreter</span>
         <select id="interpreter-select"
-                title="Qiskit (Python) executes the file to reach the circuit it builds. Qiskit (Python, static) rebuilds the circuit by reading the file without running it. OpenQASM 3 is parsed as text through Qiskit; OpenQASM 2/3 (static) is interpreted without Qiskit. The two static options link every instruction back to its source line.">
+                title="Both read your file without running it. Qiskit (Python) rebuilds the circuit by interpreting the Python itself; OpenQASM 2/3 interprets the program without Qiskit. Every instruction links back to its source line.">
           {% for option in interpreters %}
             <option value="{{ option.id }}" {{ 'selected' if option.default else '' }}>{{ option.label }}</option>
           {% endfor %}
@@ -81,6 +81,10 @@
       </div>
     </div>
 
+    <div class="row-splitter" id="diag-splitter" role="separator" aria-orientation="horizontal"
+         tabindex="0" aria-label="Resize the diagnostics panel" aria-controls="diagnostics"
+         title="Drag to resize. Double-click to reset."></div>
+
     <div class="diagnostics" id="diagnostics">
       <div class="diagnostics-head">
         <h3>Diagnostics</h3>
@@ -88,7 +92,7 @@
       </div>
       <ul class="diagnostics-list" id="diagnostics-list">
         <li class="placeholder">The linters picked under <strong>Lint</strong> run on every
-          analysis, before your file is executed. The quick checks catch out-of-range qubits,
+          analysis. The quick checks catch out-of-range qubits,
           missing measurements, classical bits written twice, and APIs that Qiskit has removed;
           they read Python only. Add-ons such as the dependence checks read the circuit itself.
           The <a href="/benchmark">Benchmark</a> page grades the same selection on real bugs.</li>
@@ -221,8 +225,8 @@
       <div class="table-scroll">
         <h3 class="console-title">Program output</h3>
         <p class="console-note">
-          Anything your file printed while the parser executed it. A circuit that calls
-          <code>print(qc.draw())</code> or runs a simulator shows up here.
+          Your file is read, never run, so a <code>print()</code> in it prints nothing here.
+          What the parser had to skip or approximate is listed under Diagnostics.
         </p>
         <pre class="console" id="console-out">(nothing yet)</pre>
         <h3 class="console-title">Last error</h3>

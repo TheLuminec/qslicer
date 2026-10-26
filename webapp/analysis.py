@@ -5,30 +5,27 @@ import *``), so that directory has to be on ``sys.path`` rather than imported as
 a package. Everything the web layer needs is converted to plain JSON-safe dicts
 here, so the templates and the JavaScript never touch the analysis objects.
 
-Four front ends:
+Nothing a user submits is ever executed. The front ends:
 
-* **OpenQASM** (``.qasm``) is parsed as text and never executed. This is the
-  route to prefer for anything that did not come from you.
-* **Python** (``.py``) has to be executed, because that is how the Qiskit
-  parser reaches the ``QuantumCircuit`` a file builds. It runs in a child
-  process under a timeout (``parse_worker.py``), which bounds accidents -- an
-  endless loop kills a worker rather than the server -- but is not a sandbox.
-  See webapp/README.md before exposing this app to anyone but yourself.
-* **Python, static** (``language="qiskit-static"``) reads the same ``.py``
-  files without executing them: StaticQiskitParser interprets the source
-  itself and refuses, with a line number, anything it cannot work out. It runs
-  alongside the executing route for now so the two can be compared.
+* **Python, static** (``language="qiskit-static"``) reads ``.py`` files
+  without executing them: StaticQiskitParser interprets the source itself and
+  refuses, with a line number, anything it cannot work out.
 * **OpenQASM, static** (``language="qasm-static"``) interprets the reference
   parser's syntax tree itself instead of going through ``qiskit.qasm3``. Like
   the static Python route, it records where in the source every instruction
-  came from (FR-07); the two routes without that knowledge send no location.
+  came from (FR-07).
+* **OpenQASM** (``language="qasm"``, not offered on the page) goes through
+  ``qiskit.qasm3.load``, which parses the text and sends no location.
+
+The route that executed a submitted ``.py`` file to reach its circuit has been
+removed. Asking for it by name (``"qiskit"``, ``"python"``, ``"py"``) is
+refused with ``execution_disabled`` rather than quietly rerouted, so a caller
+relying on it finds out.
 """
 
 import io
-import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 from collections import OrderedDict
@@ -46,7 +43,7 @@ SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
 if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 
-# Seconds a submitted Python file may run before the worker process is killed.
+# Seconds a static parse may take before it is stopped.
 PARSE_TIMEOUT = int(os.environ.get("QSLICER_PARSE_TIMEOUT", "20"))
 
 # Extensions that go to the OpenQASM front end instead of the Python one.
@@ -59,7 +56,6 @@ try:
     from Dependencies.dependency_rules import DependencyType
     from entanglement import EntanglementAnalyzer
     from Parsers.openqasmparser import OpenQASMParser
-    from Parsers.qiskitparser import QiskitParser
     from Parsers.staticopenqasmparser import StaticOpenQASMParser
     from Parsers.staticqiskitparser import StaticParseError, StaticQiskitParser
     from qpdg import QPDG, get_rule_profile, list_rule_profiles
@@ -273,7 +269,7 @@ def _note_interpreter_mismatch(error: Dict[str, Any], source: str, kind: str) ->
     """
     looks_qasm = _looks_like_qasm(source)
     if kind not in QASM_KINDS and looks_qasm:
-        error["hint"] = ("This looks like OpenQASM. Set Interpreter to OpenQASM 3 and "
+        error["hint"] = ("This looks like OpenQASM. Set Interpreter to OpenQASM 2/3 and "
                          "analyze again. " + error.get("hint", ""))
     elif kind in QASM_KINDS and not looks_qasm and source.strip():
         error["hint"] = ("This does not start with an OPENQASM header. If it is a Qiskit "
@@ -424,30 +420,20 @@ class _ParseFailure(Exception):
 
 # The front ends the Interpreter dropdown offers. ``id`` is what the API takes
 # as ``language``; ``suffix`` is what a pasted circuit is called when it has no
-# file of its own.
+# file of its own. Both read the file without running it. The executing Qiskit
+# route ("qiskit") and the qiskit.qasm3 route ("qasm") are no longer offered;
+# API callers can still name them.
 INTERPRETERS = [
     {
-        "id": "qiskit",
-        "label": "Qiskit (Python)",
-        "suffix": ".py",
-        "note": "Executed in a worker process to reach the circuit it builds.",
-    },
-    {
         "id": "qiskit-static",
-        "label": "Qiskit (Python, static)",
+        "label": "Qiskit (Python)",
         "suffix": ".py",
         "note": "Read without executing: the parser interprets the file itself to rebuild "
                 "the circuit.",
     },
     {
-        "id": "qasm",
-        "label": "OpenQASM 3",
-        "suffix": ".qasm",
-        "note": "Parsed as text. Nothing in the file is executed.",
-    },
-    {
         "id": "qasm-static",
-        "label": "OpenQASM 2/3 (static)",
+        "label": "OpenQASM 2/3",
         "suffix": ".qasm",
         "note": "Parsed and interpreted without Qiskit; every instruction keeps its source line.",
     },
@@ -457,11 +443,15 @@ INTERPRETERS = [
 QASM_KINDS = ("qasm", "qasm-static")
 
 _ALIASES = {
-    "qiskit": "python", "python": "python", "py": "python",
     "qiskit-static": "python-static", "static": "python-static",
     "qasm": "qasm", "openqasm": "qasm", "qasm3": "qasm",
     "qasm-static": "qasm-static", "openqasm-static": "qasm-static",
 }
+
+
+# Names of the removed route that executed submitted Python. Refused outright,
+# never mapped to another route.
+_EXECUTING = frozenset({"qiskit", "python", "py"})
 
 
 def unsupported_language(language: Any) -> Optional[Dict[str, Any]]:
@@ -472,6 +462,16 @@ def unsupported_language(language: Any) -> Optional[Dict[str, Any]]:
     """
     if language is None or language == "":
         return None
+    if isinstance(language, str) and language.strip().lower() in _EXECUTING:
+        return {
+            "kind": "execution_disabled",
+            "stage": "validation",
+            "message": "Executing submitted Python is disabled on this server.",
+            "detail": f"The {language.strip()!r} interpreter ran the file to reach its "
+                      "circuit, so it could run any code the file contains.",
+            "hint": "Use language \"qiskit-static\", which reads the file without running it.",
+            "line": 0,
+        }
     if isinstance(language, str) and language.strip().lower() in _ALIASES:
         return None
     supported = ", ".join(option["id"] for option in INTERPRETERS)
@@ -494,19 +494,20 @@ def interpreters() -> List[Dict[str, Any]]:
 
 
 def source_kind(filename: str = "", language: Optional[str] = None) -> str:
-    """Which front end a submission goes to: ``"qasm"``, ``"qasm-static"``, ``"python"``
-    or ``"python-static"``.
+    """Which front end a submission goes to: ``"qasm"``, ``"qasm-static"`` or
+    ``"python-static"``.
 
     ``language`` is the caller's explicit choice and wins outright -- the page
     always sends one, taken from the Interpreter dropdown. The extension is
-    only a fallback for API callers that leave it out; nothing here reads the
-    file contents to guess.
+    only a fallback for API callers that leave it out, and picks a static route;
+    nothing here reads the file contents to guess.
     """
     if language:
         resolved = _ALIASES.get(str(language).strip().lower())
         if resolved:
             return resolved
-    return "qasm" if os.path.splitext(filename)[1].lower() in QASM_SUFFIXES else "python"
+    return ("qasm-static" if os.path.splitext(filename)[1].lower() in QASM_SUFFIXES
+            else "python-static")
 
 
 def default_filename(kind: str) -> str:
@@ -522,14 +523,14 @@ def _parse_source(source: str, filename: str, kind: str) -> Tuple[Any, str]:
         return _parse_qasm_static_source(source)
     if kind == "python-static":
         return _parse_static_source(source, filename)
-    return _parse_python_source(source, filename)
+    # There is deliberately no route that executes the submission.
+    raise ValueError(f"no front end for {kind!r}")
 
 
 # How each front end reached the circuit, as shown on the page.
 _ROUTES = {
     "qasm": "OpenQASM, parsed without executing",
     "qasm-static": "OpenQASM, interpreted statically with source locations",
-    "python": "Python, executed in a worker process (timeout {timeout}s)",
     "python-static": "Python, interpreted statically without executing",
 }
 
@@ -579,12 +580,13 @@ def _parse_qasm_source(source: str, filename: str) -> Tuple[Any, str]:
 def _parse_static_source(source: str, filename: str) -> Tuple[Any, str]:
     """Rebuild the circuit with StaticQiskitParser, which never runs the file.
 
-    Nothing is executed, so there is no worker process and no timeout; the
-    parser bounds its own work. What it had to skip or approximate is attached
+    Nothing is executed, so there is no worker process; the parser bounds its
+    own work, in steps and in PARSE_TIMEOUT seconds. What it had to skip or approximate is attached
     to the program as ``static_notes``, which analyze_source reports as
     warning diagnostics.
     """
-    parser = StaticQiskitParser(filename=os.path.basename(filename) or "pasted_circuit.py")
+    parser = StaticQiskitParser(filename=os.path.basename(filename) or "pasted_circuit.py",
+                                time_limit=PARSE_TIMEOUT)
     parser.source = source
     try:
         program = parser.parse()
@@ -593,9 +595,9 @@ def _parse_static_source(source: str, filename: str) -> Tuple[Any, str]:
             "kind": "static_error",
             "message": "The static parser could not work out the circuit.",
             "detail": exc.message,
-            "hint": "This route reads the file without running it, so it stops at anything "
-                    "only a real run could decide. Switch Interpreter to Qiskit (Python) to "
-                    "execute the file instead.",
+            "hint": "The file is read without running it, so the parser stops at anything "
+                    "only a real run could decide. Make that value a literal, or build the "
+                    "circuit without it.",
             "line": exc.lineno or 0,
         })
     except ValueError as exc:
@@ -625,7 +627,7 @@ def _static_diagnostics(notes: List[Tuple[Any, str]]) -> List[Dict[str, Any]]:
 
 def _parse_qasm_static_source(source: str) -> Tuple[Any, str]:
     """Interpret OpenQASM 2/3 with StaticOpenQASMParser, which keeps source locations."""
-    parser = StaticOpenQASMParser()
+    parser = StaticOpenQASMParser(time_limit=PARSE_TIMEOUT)
     parser.source = source
     try:
         program = parser.parse()
@@ -649,128 +651,11 @@ def _parse_qasm_static_source(source: str) -> Tuple[Any, str]:
     return program, ""
 
 
-# --------------------------------------------------------------------------
-# Python: executed in a child process, under a timeout
-# --------------------------------------------------------------------------
-
-def _parse_python_source(source: str, filename: str) -> Tuple[Any, str]:
-    """Run the submitted file in a worker process and read back its circuit.
-
-    The Qiskit front end has to execute the file to reach the QuantumCircuit it
-    builds. Doing that in a child process means the damage a bad file can do is
-    bounded in time: the parent kills it at PARSE_TIMEOUT seconds instead of
-    hanging the request forever. The circuit comes back as QPY rather than
-    crossing process boundaries as a live object.
-
-    This bounds accidents, not attacks. See webapp/README.md.
-    """
-    safe_name = os.path.basename(filename) or "pasted_circuit.py"
-    if not safe_name.endswith(".py"):
-        safe_name += ".py"
-
-    workdir = tempfile.mkdtemp(prefix="qslice_")
-    path = os.path.join(workdir, safe_name)
-    try:
-        with open(path, "w", encoding="utf-8", newline="") as handle:
-            handle.write(source)
-
-        worker = os.path.join(os.path.dirname(os.path.abspath(__file__)), "parse_worker.py")
-        try:
-            completed = subprocess.run(
-                [sys.executable, worker, path, workdir],
-                # cwd is the scratch directory, so a stray open() in the
-                # submitted file cannot scribble over the repository.
-                cwd=workdir,
-                capture_output=True,
-                text=True,
-                timeout=PARSE_TIMEOUT,
-            )
-        except subprocess.TimeoutExpired:
-            raise _ParseFailure({
-                "kind": "timeout",
-                "message": f"The circuit file was still running after {PARSE_TIMEOUT} seconds.",
-                "detail": "The worker process was killed.",
-                "hint": "The parser has to execute your file, so an endless loop or a very long "
-                        "simulation never finishes. Trim the run, or set QSLICER_PARSE_TIMEOUT "
-                        "to allow longer.",
-            })
-        except OSError as exc:
-            raise _ParseFailure({
-                "kind": "worker_failed",
-                "message": "The parser process could not be started.",
-                "detail": f"{type(exc).__name__}: {exc}",
-                "hint": f"Check that {sys.executable} can run webapp/parse_worker.py.",
-            })
-
-        payload = _read_worker_result(workdir, completed)
-        captured = payload.get("stdout", "") or ""
-
-        if not payload.get("ok"):
-            error = payload.get("error") or {}
-            raise _ParseFailure({
-                "kind": error.get("kind", "execution_error"),
-                "message": error.get("message", "The circuit file could not be parsed."),
-                "detail": error.get("detail", ""),
-                "hint": _HINTS.get(error.get("kind", ""), _HINTS["execution_error"]),
-                "traceback": error.get("traceback"),
-            }, captured)
-
-        circuit = _load_qpy(os.path.join(workdir, "circuit.qpy"))
-        # QiskitParser parses in its constructor; calling parse() again would
-        # append every instruction a second time.
-        program = QiskitParser(circuit).program
-        return program, captured
-    finally:
-        # The submitted file may have left a __pycache__ or written its own
-        # output next to itself, so remove the whole scratch directory.
-        shutil.rmtree(workdir, ignore_errors=True)
-
-
 _HINTS = {
-    "execution_error": "The parser has to run your file to get the circuit object, so any "
-                       "exception on the way there stops the analysis.",
     "no_circuit": "Assign the circuit to a module-level variable. A circuit built inside a "
                   "function and never returned into a global is invisible to the parser.",
     "backend_unavailable": "Install the project requirements: pip install -r requirements.txt",
-    "worker_crashed": "The worker process died without reporting why, which usually means the "
-                      "submitted file exhausted memory or called sys.exit.",
 }
-
-
-def _read_worker_result(workdir: str, completed: Any) -> Dict[str, Any]:
-    """Read result.json, or synthesize a failure if the worker never wrote it."""
-    result_path = os.path.join(workdir, "result.json")
-    try:
-        with open(result_path, "r", encoding="utf-8") as handle:
-            return json.load(handle)
-    except (OSError, ValueError):
-        tail = (completed.stderr or completed.stdout or "").strip().splitlines()[-12:]
-        return {
-            "ok": False,
-            "stdout": "",
-            "error": {
-                "kind": "worker_crashed",
-                "message": f"The parser process exited with code {completed.returncode}.",
-                "detail": "It did not report a reason.",
-                "traceback": tail or None,
-            },
-        }
-
-
-def _load_qpy(path: str) -> Any:
-    """Read the circuit the worker serialized."""
-    import qiskit.qpy
-
-    with open(path, "rb") as handle:
-        circuits = qiskit.qpy.load(handle)
-    if not circuits:
-        raise _ParseFailure({
-            "kind": "worker_crashed",
-            "message": "The worker returned an empty circuit file.",
-            "detail": "",
-            "hint": "This is a bug in the analysis pipeline rather than in your circuit.",
-        })
-    return circuits[0]
 
 
 def _describe_nodes(program: Any) -> List[Dict[str, Any]]:

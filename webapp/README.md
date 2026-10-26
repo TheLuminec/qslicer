@@ -20,74 +20,54 @@ Then open <http://127.0.0.1:5000/>.
 
 ## How submitted circuits are handled
 
-There are four front ends, and they differ in exactly one important way:
-whether your file is executed. Only **Qiskit (Python)** runs it; the other
-three read it.
+The page offers two front ends, one per language, and neither executes what
+you submit: both read the file and interpret it themselves.
 
 Which front end runs is an explicit choice, not a guess. The page has an
 **Interpreter** dropdown next to Example and Rules, and sends it as `language`
 on every request. Loading an example or uploading a file sets the dropdown from
-the file's extension; nothing else moves it, so a circuit is never executed
-because something inferred that it was Python.
+the file's extension; nothing else moves it.
 
 If the text and the choice disagree, the error says so -- analyzing OpenQASM as
 Qiskit reports a Python syntax error with a hint to switch the dropdown -- but
 the switch is yours to make.
 
-### OpenQASM (`.qasm`, `.qasm3`) -- parsed, never executed
+Both parsers bound their own work: a step limit, and a wall-clock limit of
+`QSLICER_PARSE_TIMEOUT` seconds (default 20).
 
-`qiskit.qasm3.load()` reads the text against the OpenQASM grammar and builds a
-circuit. Nothing in the file runs, so there is nothing to time out and nothing
-to contain. **Prefer this route for any circuit that did not come from you.**
-Export one from Qiskit with `qiskit.qasm3.dumps(qc)`.
+### Qiskit (`.py`) -- `language="qiskit-static"`
 
-**OpenQASM 2/3 (static)** (`language="qasm-static"`) interprets the file with
-`StaticOpenQASMParser` instead of going through Qiskit, and keeps the source
-line of every instruction.
+`StaticQiskitParser` walks the syntax tree with a small interpreter of its own
+and never runs the file. It keeps every instruction's source line. Anything
+only a real run could decide stops it with a `StaticParseError` naming the
+line; what it skipped or approximated comes back as `QS200` warnings. Its
+docstring in `scripts/Parsers/staticqiskitparser.py` lists what it models.
 
-### Python, static -- interpreted, never executed
+### OpenQASM 2 and 3 (`.qasm`, `.qasm3`) -- `language="qasm-static"`
 
-**Qiskit (Python, static)** (`language="qiskit-static"`) reads the same `.py`
-files with `StaticQiskitParser`, which walks the syntax tree with a small
-interpreter of its own and never runs the file, so there is no worker and no
-timeout. It keeps every instruction's source line too. Anything only a real run
-could decide stops it with a `StaticParseError` naming the line; what it
-skipped or approximated comes back as `QS200` warnings. Its docstring in
-`scripts/Parsers/staticqiskitparser.py` lists what it models.
+`StaticOpenQASMParser` reads the text with the OpenQASM reference parser and
+interprets the syntax tree without Qiskit, keeping every instruction's source
+line. It covers the language rather than the subset `qiskit.qasm3` can import:
+classical variables and arrays, subroutines, `extern`, physical qubits, and
+`if`/`while`/`switch` on measured values, each of which becomes one
+`if_else`/`while_loop`/`switch_case` node reading the bits it depends on. A copy
+of a measured bit becomes a `store` node, so the dependency survives it. Its
+docstring lists the details. Export a circuit from Qiskit with
+`qiskit.qasm3.dumps(qc)`.
 
-### Python (`.py`) -- executed in a worker, under a timeout
+### Nothing is executed
 
-`QiskitParser.parse_file` **executes** the file it is given; that is how it
-reaches the `QuantumCircuit` a program builds. That work happens in a child
-process (`parse_worker.py`) which:
+The site used to offer a route that ran a submitted `.py` file in a worker
+process to reach its circuit. That bounded accidents but not attacks: any code
+in the file ran on the server. It has been removed. Asking for it by name
+(`language="qiskit"`, `"python"` or `"py"`) gets a 400 with
+`kind: "execution_disabled"`, so a caller relying on it finds out instead of
+being quietly rerouted. `QiskitParser` still exists in `scripts/` for the
+tests and the desktop tools, but nothing in `webapp/` calls it on submitted
+text.
 
-* is killed after `QSLICER_PARSE_TIMEOUT` seconds (default 20), so an endless
-  loop or a very long simulation costs one worker rather than the server;
-* runs with its working directory in a scratch folder, so a stray `open()`
-  cannot write into the repository;
-* returns the circuit as QPY rather than as a live object, and its stdout and
-  traceback as JSON.
-
-This **bounds accidents. It is not a sandbox.** A file that is actively trying
-to do damage still runs with your permissions. Do not put this on a network or
-run it with `host="0.0.0.0"` without adding real isolation.
-
-The cost is latency: every analysis pays for a fresh interpreter importing
-Qiskit, so expect a couple of seconds per run even for a four-gate circuit.
-
-### If you need more than that
-
-1. **Take OpenQASM only.** Removes execution entirely. Also opens the door to
-   importing [QASMBench](https://github.com/pnnl/QASMBench) and
-   [MQT Bench](https://quantum-journal.org/papers/q-2023-07-20-1062/) in bulk,
-   since both publish QASM.
-2. **Harden the worker.** A low-privilege user, no network, and a memory cap
-   would cover most of what is left, without much work.
-3. **Interpret the Python statically.** Now available as the Qiskit (Python,
-   static) interpreter, above. Dropping the executing route would leave only
-   it and OpenQASM.
-4. **A container per request.** The only option that actually contains hostile
-   code, and the heaviest to operate.
+`language="qasm"` (OpenQASM through `qiskit.qasm3.load()`) is still accepted
+from the API. It parses text and runs nothing, but it is not on the page.
 
 ## Pages
 
@@ -112,9 +92,10 @@ Qiskit, so expect a couple of seconds per run even for a four-gate circuit.
 | `/api/benchmark/bugs/<key>`   | GET    | —                                                    |
 | `/api/benchmark`              | POST   | `{lint_rules, profile}`                              |
 
-`language` is `"qiskit"`, `"qiskit-static"`, `"qasm"` or `"qasm-static"`. It
-is optional for API callers -- without it the filename extension decides -- but
-the page always sends it. `lint_rules` is a list of rule ids such as
+`language` is `"qiskit-static"` or `"qasm-static"` (and, off the page,
+`"qasm"`; `"qiskit"` is refused). It is optional for API callers -- without it the
+filename extension picks one of the two static routes -- but the page always
+sends it. `lint_rules` is a list of rule ids such as
 `"quick/QS002"`; leave it out for the default selection, which
 `/api/linters` reports.
 
@@ -130,8 +111,6 @@ webapp/
 ├── app.py          Flask routes and the JSON API
 ├── wsgi.py         entry point for running behind gunicorn
 ├── analysis.py     bridge to scripts/ -- route, parse, build QDG, slice, serialize
-├── parse_worker.py the child process that runs a submitted .py file
-├── capture_io.py   shim that keeps the stdout the Qiskit parser discards
 ├── linters.py      linter registry: runs the selected rules across every linter
 ├── lint.py         the quick checks: AST-based static checks
 ├── linter_plugins/ add-on linters: dependence checks, LintQ (port and CodeQL)
@@ -321,12 +300,8 @@ of the real thing:
   legitimately produce nothing.
 * **No persistence.** Nothing is written to disk and nothing is shared between
   browser sessions.
-* **Console output.** `QiskitParser.parse_file` redirects the submitted
-  program's stdout into a buffer of its own and discards it. To fill the Console
-  tab, `parse_worker.py` swaps the `io` reference inside that module for the
-  shim in `capture_io.py`, and restores it in a `finally` block. It is a small
-  piece of monkey-patching, done so `scripts/` did not have to change; if the
-  parser ever grows a way to hand back captured output, delete `capture_io.py`.
+* **Console output.** Nothing is run, so a submitted program never prints
+  anything; the Console tab shows the last error.
 * **Static checks on OpenQASM.** Only the dependence checks run -- the quick
   checks and LintQ read a Python AST. When quick checks are selected, a `.qasm`
   analysis reports one informational note (`QS100`) saying they were skipped.
@@ -334,12 +309,10 @@ of the real thing:
 
 ## Known limits
 
-* A submitted Python file is killed after `QSLICER_PARSE_TIMEOUT` seconds
-  (default 20). A legitimate but slow circuit needs that raised.
-* Every Python analysis spawns an interpreter that imports Qiskit, which costs
-  a second or two before any work starts. OpenQASM input skips that.
+* A parse stops after `QSLICER_PARSE_TIMEOUT` seconds (default 20). Loops are
+  unrolled, so a program whose unrolled size grows exponentially (deeply nested
+  loops, say) reaches that before anything else.
 * Very large circuits (several hundred instructions) draw slowly, because every
   node and edge is a live DOM element. The Range control is the workaround.
-* Gate names come from the circuit *after* Qiskit has built and transpiled it,
-  so they may not match the source. That is the parser's behavior, not the web
-  layer's.
+* Library circuits the Python interpreter models (`QFT`, `decompose()`) arrive
+  as Qiskit builds them, so gate names may not match the source.

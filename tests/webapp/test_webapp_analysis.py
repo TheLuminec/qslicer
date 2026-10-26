@@ -15,20 +15,20 @@ from webapp_helpers import GHZ_QASM
 # --------------------------------------------------------------- routing --
 
 @pytest.mark.parametrize("filename, language, expected", [
-    ("", None, "python"),
-    ("circuit.py", None, "python"),
-    ("circuit.qasm", None, "qasm"),
-    ("circuit.QASM", None, "qasm"),
-    ("circuit.qasm3", None, "qasm"),
-    ("circuit.txt", None, "python"),
+    ("", None, "python-static"),            # no language: a static route, by extension
+    ("circuit.py", None, "python-static"),
+    ("circuit.qasm", None, "qasm-static"),
+    ("circuit.QASM", None, "qasm-static"),
+    ("circuit.qasm3", None, "qasm-static"),
+    ("circuit.txt", None, "python-static"),
     ("circuit.py", "qasm", "qasm"),
-    ("circuit.qasm", "qiskit", "python"),
+    ("circuit.qasm", "qiskit", "qasm-static"),   # refused by validation, never routed
     ("", "openqasm", "qasm"),
     ("", " QASM3 ", "qasm"),
-    ("", "py", "python"),
-    ("", "Python", "python"),
-    ("circuit.qasm", "unknown-lang", "qasm"),   # unknown language: extension decides
-    ("circuit.py", "", "python"),
+    ("", "py", "python-static"),
+    ("", "Python", "python-static"),
+    ("circuit.qasm", "unknown-lang", "qasm-static"),   # unknown language: extension decides
+    ("circuit.py", "", "python-static"),
     ("circuit.py", "qiskit-static", "python-static"),
     ("", "static", "python-static"),
     ("circuit.qasm", "qasm-static", "qasm-static"),
@@ -85,8 +85,8 @@ def test_note_interpreter_mismatch_silent_when_consistent(source, kind):
 
 def test_interpreters_first_is_default():
     options = analysis.interpreters()
-    assert [o["id"] for o in options] == ["qiskit", "qiskit-static", "qasm", "qasm-static"]
-    assert [o["default"] for o in options] == [True, False, False, False]
+    assert [o["id"] for o in options] == ["qiskit-static", "qasm-static"]
+    assert [o["default"] for o in options] == [True, False]
     for option in options:
         assert set(option) == {"id", "label", "suffix", "note", "default"}
     # Calling it does not mutate the module constant.
@@ -307,8 +307,9 @@ def test_qasm_route_never_starts_a_process(monkeypatch):
     def forbidden(*args, **kwargs):
         raise AssertionError("OpenQASM must not start a subprocess")
 
-    monkeypatch.setattr(analysis.subprocess, "run", forbidden)
-    monkeypatch.setattr(analysis.subprocess, "Popen", forbidden)
+    import subprocess
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    monkeypatch.setattr(subprocess, "Popen", forbidden)
     result = analysis.analyze_source(GHZ_QASM, "ghz.qasm", language="qasm")
     assert result["ok"]
 
@@ -340,107 +341,45 @@ def test_qasm_scratch_directory_is_removed(monkeypatch):
     assert made and not any(os.path.exists(p) for p in made)
 
 
-# ------------------------------------------------------- Python route --
-# The worker is replaced with a stub here; the real worker is exercised in
-# test_webapp_python_route.py (slow).
-
-def _fake_run_writing(payload_json):
-    def fake_run(cmd, cwd, capture_output, text, timeout):
-        _, worker, path, workdir = cmd
-        assert worker.endswith("parse_worker.py")
-        assert cwd == workdir and os.path.dirname(path) == workdir
-        if payload_json is not None:
-            with open(os.path.join(workdir, "result.json"), "w", encoding="utf-8") as h:
-                h.write(payload_json)
-        return SimpleNamespace(returncode=3, stdout="", stderr="line1\nKilled\n")
-    return fake_run
-
+# ------------------------------------------------- no execution, ever --
 
 PY_SOURCE = "from qiskit import QuantumCircuit\nqc = QuantumCircuit(1)\nqc.h(0)\nqc.measure_all()\n"
 
 
-def test_worker_without_result_file_is_worker_crashed(monkeypatch):
-    monkeypatch.setattr(analysis.subprocess, "run", _fake_run_writing(None))
-    result = analysis.analyze_source(PY_SOURCE, "c.py")
+@pytest.mark.requirement("NFR-04")
+@pytest.mark.parametrize("language", ["qiskit", "python", "py", " Qiskit "])
+def test_executing_interpreter_is_refused(language, monkeypatch):
+    monkeypatch.setattr(analysis, "_parse_source", lambda *a: pytest.fail("parsed anyway"))
+    result = analysis.analyze_source(PY_SOURCE, "c.py", language=language)
     assert result["ok"] is False
-    assert result["error"]["kind"] == "worker_crashed"
-    assert "code 3" in result["error"]["message"]
-    assert result["error"]["traceback"] == ["line1", "Killed"]
-    assert result["error"]["hint"] == analysis._HINTS["worker_crashed"]
+    assert result["error"]["kind"] == "execution_disabled"
+    assert "qiskit-static" in result["error"]["hint"]
 
 
-def test_worker_reported_error_is_passed_through(monkeypatch):
-    payload = ('{"ok": false, "stdout": "hello", "error": {"kind": "no_circuit", '
-               '"message": "m", "detail": "d", "traceback": null}}')
-    monkeypatch.setattr(analysis.subprocess, "run", _fake_run_writing(payload))
-    result = analysis.analyze_source(PY_SOURCE, "c.py")
-    assert result["error"]["kind"] == "no_circuit"
-    assert result["error"]["hint"] == analysis._HINTS["no_circuit"]
-    assert result["stdout"] == "hello"
+@pytest.mark.requirement("NFR-04")
+@pytest.mark.parametrize("filename, language", [
+    ("c.py", None), ("c.py", ""), ("c.txt", None), ("c.py", "qiskit-static"),
+    ("c.qasm", "qasm-static"), ("c.qasm", "qasm"),
+])
+def test_no_route_starts_a_process_or_runs_the_file(filename, language, monkeypatch, tmp_path):
+    import subprocess
+    import runpy
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("submitted code must never be run")
+
+    monkeypatch.setattr(subprocess, "run", refuse)
+    monkeypatch.setattr(subprocess, "Popen", refuse)
+    monkeypatch.setattr(runpy, "run_path", refuse)
+    marker = tmp_path / "ran.txt"
+    source = PY_SOURCE + f"open({str(marker)!r}, 'w').write('ran')\n"
+    analysis.analyze_source(source, filename, language=language)
+    assert not marker.exists()
 
 
-def test_worker_timeout_is_reported(monkeypatch):
-    def timeout(*args, **kwargs):
-        raise analysis.subprocess.TimeoutExpired(cmd="x", timeout=kwargs["timeout"])
-
-    monkeypatch.setattr(analysis.subprocess, "run", timeout)
-    monkeypatch.setattr(analysis, "PARSE_TIMEOUT", 7)
-    result = analysis.analyze_source(PY_SOURCE, "c.py")
-    assert result["error"]["kind"] == "timeout"
-    assert "7 seconds" in result["error"]["message"]
-    assert "QSLICER_PARSE_TIMEOUT" in result["error"]["hint"]
-
-
-def test_worker_that_cannot_start_is_reported(monkeypatch):
-    def oserror(*args, **kwargs):
-        raise OSError("no such interpreter")
-
-    monkeypatch.setattr(analysis.subprocess, "run", oserror)
-    result = analysis.analyze_source(PY_SOURCE, "c.py")
-    assert result["error"]["kind"] == "worker_failed"
-    assert "no such interpreter" in result["error"]["detail"]
-
-
-def test_python_filename_is_sanitized(monkeypatch):
-    seen = {}
-
-    def fake_run(cmd, **kwargs):
-        seen["path"] = cmd[2]
-        seen["workdir"] = cmd[3]
-        raise OSError("stop here")
-
-    monkeypatch.setattr(analysis.subprocess, "run", fake_run)
-    analysis.analyze_source(PY_SOURCE, "../../outside/evil", language="qiskit")
-    assert os.path.dirname(seen["path"]) == seen["workdir"]
-    assert os.path.basename(seen["path"]) == "evil.py"
-    assert not os.path.exists(seen["workdir"])      # scratch dir cleaned up
-
-
-def test_read_worker_result_with_corrupt_json(tmp_path):
-    (tmp_path / "result.json").write_text("{not json", encoding="utf-8")
-    completed = SimpleNamespace(returncode=1, stdout="out", stderr="")
-    payload = analysis._read_worker_result(str(tmp_path), completed)
-    assert payload["error"]["kind"] == "worker_crashed"
-    assert payload["error"]["traceback"] == ["out"]
-
-
-@pytest.mark.requirement("NFR-07")
-def test_python_source_reaches_worker_unchanged(monkeypatch):
-    source = "# -*- coding: utf-8 -*-\nname = 'qubit ☃ é'\n\tx = 1  \n\n"
-    seen = {}
-
-    def fake_run(cmd, **kwargs):
-        with open(cmd[2], "r", encoding="utf-8", newline="") as handle:
-            raw = handle.read()
-        with open(cmd[2], "r", encoding="utf-8") as handle:
-            seen["text"] = handle.read()       # what Python's own reader would see
-        seen["raw_len"] = len(raw)
-        raise OSError("stop")
-
-    monkeypatch.setattr(analysis.subprocess, "run", fake_run)
-    monkeypatch.setattr(analysis.lint, "check_source", lambda s: [])
-    analysis.analyze_source(source, "c.py")
-    assert seen["text"] == source
+def test_parse_source_has_no_executing_route():
+    with pytest.raises(ValueError):
+        analysis._parse_source(PY_SOURCE, "c.py", "python")
 
 
 @pytest.mark.requirement("NFR-07")
@@ -478,18 +417,14 @@ STAGE_OF_KIND = {
     "qasm_error": "parsing",
     "empty_program": "parsing",
     "no_circuit": "execution",
-    "execution_error": "execution",
-    "timeout": "execution",
-    "worker_crashed": "execution",
-    "worker_failed": "execution",
     "backend_unavailable": "parsing",
 }
 
 
 @pytest.mark.requirement("NFR-12")
 @pytest.mark.parametrize("source, language", [
-    (GHZ_QASM, "qiskit"),
-    ("from qiskit import QuantumCircuit\nqc = QuantumCircuit(1\n", "qiskit"),
+    (GHZ_QASM, "qiskit-static"),
+    ("from qiskit import QuantumCircuit\nqc = QuantumCircuit(1\n", "qiskit-static"),
     ("OPENQASM 3.0;\nqubit[1] q;\nfoo q[0];\n", "qasm"),
     ("OPENQASM 3.0;\nqubit[1] q;\n", "qasm"),
 ])

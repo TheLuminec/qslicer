@@ -32,9 +32,8 @@ def test_location_records_the_call_path(client):
 
 
 @pytest.mark.requirement("FR-07")
-@pytest.mark.parametrize("language, source", [("qiskit", BELL_PY), ("qasm", GHZ_QASM)])
-def test_routes_without_locations_send_none(client, language, source):
-    _, body = post_analyze(client, source=source, language=language)
+def test_routes_without_locations_send_none(client):
+    _, body = post_analyze(client, source=GHZ_QASM, language="qasm")
     assert body["ok"]
     assert all(node["line"] is None and node["source"] is None for node in body["nodes"])
 

@@ -47,7 +47,8 @@
   ('OPENQASM include qubit qreg bit creg int uint float angle bool duration ' +
    'stretch complex array const let gate def defcal extern if else for in ' +
    'while return break continue measure reset barrier delay box pragma ' +
-   'ctrl negctrl inv pow gphase input output readonly mutable').split(' ')
+   'ctrl negctrl inv pow gphase input output readonly mutable switch case default ' +
+   'end').split(' ')
     .forEach(function (word) { QASM_KEYWORDS[word] = true; });
 
   function escapeHtml(value) {

@@ -12,9 +12,8 @@
 # (the default after a git clone); no service account has to be created,
 # because DynamicUser= allocates a throwaway one each time the service starts.
 #
-# The hardening below is not decoration. Analysing a Python circuit executes it
-# in a child of this service, so these limits are what bound what that code can
-# reach. See deploy/README.md.
+# The site never executes what users submit; the hardening below is defence in
+# depth, and bounds what a pathological parse can cost. See deploy/README.md.
 #
 # Note: systemd does not allow comments at the end of a setting line. Keep
 # every comment on its own line or the setting is rejected.

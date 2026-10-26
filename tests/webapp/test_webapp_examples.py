@@ -49,9 +49,9 @@ def test_manifest_entry_loads_with_matching_language(entry):
     assert loaded["title"] == entry["title"]
     with open(os.path.join(EXAMPLES_DIR, entry["file"]), encoding="utf-8") as handle:
         assert loaded["source"] == handle.read()
-    expected = "qasm" if entry["file"].endswith(".qasm") else "qiskit"
+    expected = "qasm-static" if entry["file"].endswith(".qasm") else "qiskit-static"
     assert loaded["interpreter"] == expected
-    if expected == "qasm":
+    if expected == "qasm-static":
         assert loaded["source"].lstrip().startswith("//") or "OPENQASM" in loaded["source"]
         assert entry["category"] == "openqasm"
 
@@ -63,7 +63,8 @@ def test_every_file_on_disk_is_in_the_manifest():
 
 
 @pytest.mark.parametrize("filename, expected", [
-    ("a.py", "qiskit"), ("a.qasm", "qasm"), ("a.QASM3", "qasm"), ("a.txt", "qiskit"), ("", "qiskit"),
+    ("a.py", "qiskit-static"), ("a.qasm", "qasm-static"), ("a.QASM3", "qasm-static"),
+    ("a.txt", "qiskit-static"), ("", "qiskit-static"),
 ])
 def test_interpreter_for(filename, expected):
     assert examples.interpreter_for(filename) == expected
@@ -129,7 +130,7 @@ def test_corrupt_manifest_still_lists_files(tmp_path, monkeypatch):
     monkeypatch.setattr(examples, "EXAMPLE_DIR", str(tmp_path))
     monkeypatch.setattr(examples, "MANIFEST_PATH", str(tmp_path / "manifest.json"))
     catalog = examples.catalog()
-    assert [(e["key"], e["interpreter"]) for e in catalog] == [("x", "qasm")]
+    assert [(e["key"], e["interpreter"]) for e in catalog] == [("x", "qasm-static")]
 
 
 # ------------------------------------------------- every example (slow) --
@@ -143,7 +144,8 @@ def test_example_analyzes_successfully(example_results, key):
     status, body, entry = example_results[key]
     assert status == 200
     assert body["ok"] is True, body.get("error")
-    assert body["language"] == ("qasm" if entry["interpreter"] == "qasm" else "python")
+    assert body["language"] == ("qasm-static" if entry["interpreter"] == "qasm-static"
+                                else "python-static")
     assert body["filename"] == entry["filename"]
     assert body["program"]["num_instructions"] == len(body["nodes"]) > 0
     assert not any(d["code"] == "QS000" for d in body["diagnostics"])
@@ -225,7 +227,7 @@ def test_claim_qasm_examples_skip_static_checks(example_results):
     for key in ("ghz_openqasm", "grover_openqasm"):
         body = _ok(example_results, key)
         assert [d["code"] for d in body["diagnostics"]] == ["QS100"]
-        assert body["route"] == "OpenQASM, parsed without executing"
+        assert body["route"] == "OpenQASM, interpreted statically with source locations"
 
 
 @pytest.mark.slow

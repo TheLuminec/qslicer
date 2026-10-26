@@ -14,7 +14,7 @@
       <li><a href="#dependencies">The dependency types</a></li>
       <li><a href="#qpdg">How our slicer works</a></li>
       <li><a href="#walkthrough">Walkthrough: teleportation</a></li>
-      <li><a href="#inputs">Four ways in</a></li>
+      <li><a href="#inputs">Two ways in</a></li>
       <li><a href="#tools">Tools we use</a></li>
       <li><a href="#glossary">Gate reference</a></li>
     </ol>
@@ -294,11 +294,10 @@
           <p>
             A parser turns a circuit into a flat list of <code>QuantumInstruction</code>
             objects, each with a gate name, qubit indices, classical bit indices and
-            parameters. The executing Qiskit parser gets there by running your file and pulling
-            the <code>QuantumCircuit</code> out of the resulting namespace, so what you see in
-            the graph is the circuit <em>after</em> Qiskit has built and composed it &mdash;
-            gate names may differ from what you typed. The static interpreters build the same
-            list by reading the file instead (see <a href="#inputs">Four ways in</a>).
+            parameters. Neither parser runs your file: each reads it and works out the
+            circuit itself, so every instruction keeps the line that produced it (see
+            <a href="#inputs">Two ways in</a>). Loops whose length is known are unrolled, so
+            each iteration's gates are their own nodes.
           </p>
         </li>
         <li>
@@ -444,44 +443,38 @@
     </section>
 
     <section id="inputs">
-      <h2>Four ways in</h2>
+      <h2>Two ways in</h2>
       <p>
-        The analysis is the same whichever you pick &mdash; every front end produces the same
-        instruction list, and everything downstream works on that. What differs is what has to
-        happen to your file first, so which one runs is an explicit choice: the
-        <strong>Interpreter</strong> dropdown on the slicer page. Loading an example or
-        uploading a file sets it for you; nothing else moves it.
+        The analysis is the same either way &mdash; both front ends produce the same
+        instruction list, and everything downstream works on that. Which one runs follows the
+        language, and is an explicit choice: the <strong>Interpreter</strong> dropdown on the
+        slicer page. Loading an example or uploading a file sets it for you; nothing else
+        moves it. Neither one executes anything you submit.
       </p>
       <div class="two-col">
         <div>
-          <h4>Python (<code>.py</code>)</h4>
+          <h4>Qiskit (<code>.py</code>)</h4>
           <p>
-            <strong>Qiskit (Python)</strong> has to <strong>execute</strong> your file, because
-            the <code>QuantumCircuit</code> only exists once the code that builds it has run.
-            The circuit you see is therefore the circuit Qiskit actually built, after any
-            composition and transpilation &mdash; which is why gate names sometimes differ
-            from what you typed. On this site that execution happens in a separate worker
-            process under a timeout, so a circuit that loops forever kills a worker rather than
-            the server. That bounds accidents; it is not a sandbox.
+            A small interpreter of our own follows the Python and the Qiskit calls that build
+            the circuit, without running the file, and links every instruction back to its
+            source line. It knows enough Python (loops, functions, comprehensions, seeded
+            random numbers) and enough of Qiskit to rebuild most programs.
           </p>
           <p>
-            <strong>Qiskit (Python, static)</strong> reads the same file without running it: a
-            small interpreter of its own follows the Python and the Qiskit calls that build the
-            circuit, and links every instruction back to its source line. Anything only a real
-            run could decide stops it with the line number, and the executing interpreter is
-            the way past.
+            Anything only a real run could decide &mdash; a qubit index read from a
+            simulator's result, say &mdash; stops it with the line number, rather than a guess.
           </p>
         </div>
         <div>
-          <h4>OpenQASM (<code>.qasm</code>)</h4>
+          <h4>OpenQASM 2 and 3 (<code>.qasm</code>)</h4>
           <p>
-            <strong>OpenQASM 3</strong> is parsed as text against the
+            Parsed against the
             <a href="https://openqasm.com/grammar/index.html" rel="noopener">OpenQASM
-            grammar</a>, through Qiskit. <strong>OpenQASM 2/3 (static)</strong> interprets the
-            file without Qiskit and, like the static Python route, keeps each instruction's
-            source line. Either way nothing in the file is executed, so there is nothing to
-            time out and nothing to contain &mdash; this is the route to prefer for a circuit
-            that did not come from you.
+            grammar</a> by the language's reference parser, then interpreted without Qiskit.
+            Values known at compile time are worked out. An <code>if</code>,
+            <code>while</code> or <code>switch</code> on a measured value becomes one node that
+            reads the bits it depends on, and copying a measured bit into another keeps the
+            dependency through a <code>store</code> node.
           </p>
           <p>
             Export one from any Qiskit circuit with
@@ -497,14 +490,14 @@
       <dl class="tool-list">
         <dt>Qiskit</dt>
         <dd>IBM's quantum SDK. The framework used to implement most of our sample circuits, and
-          the library that provides the <code>QuantumCircuit</code> objects consumed by the parser.
-          How Qiskit builds and decomposes library circuits is also why parsed gate names sometimes
+          the library whose <code>QuantumCircuit</code> API the Python interpreter models. How
+          Qiskit builds and decomposes library circuits is also why parsed gate names sometimes
           differ from the source.</dd>
 
         <dt>OpenQASM</dt>
-        <dd>A textual assembly language for circuits, and the execution-free way into this
-          tool. One parser loads it through <code>qiskit.qasm3.load</code> and another
-          interprets it without Qiskit; either way the file is read rather than run.</dd>
+        <dd>A textual assembly language for circuits. The OpenQASM project's reference parser
+          (the <code>openqasm3</code> package) reads the grammar, and our own interpreter turns
+          its syntax tree into the instruction list.</dd>
 
         <dt>NetworkX</dt>
         <dd>Graph library. The QPDG is a <code>MultiDiGraph</code> &mdash; multi, because two
@@ -518,8 +511,8 @@
         <dd>Serves this site and exposes the analysis over a small JSON API.</dd>
 
         <dt>Static checks</dt>
-        <dd>Linters that read your file without running it, before the Qiskit parser executes
-          anything. The quick checks flag common Qiskit mistakes from the syntax tree and are
+        <dd>Linters that read your file without running it, alongside the parser. The quick
+          checks flag common Qiskit mistakes from the syntax tree and are
           on by default. LintQ (Paltenghi and Pradel, FSE 2024) comes as a port that matches the
           original's warnings and, where CodeQL is installed, as the original queries. The
           dependence checks read the QPDG for gates no measured bit depends on, and are the
