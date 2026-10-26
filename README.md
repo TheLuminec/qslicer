@@ -413,13 +413,13 @@ and it is why parse errors and warnings land on a line.
 
 ```bash
 pytest                       # everything
-pytest -m "not slow"         # skip tests that start the Qiskit worker subprocess
+pytest -m "not slow"         # skip the multi-second tests
 ```
 
 The suites are `tests/core` (parsers, QDG, rules, slicer, entanglement,
 including both static parsers), `tests/webapp` (API, pages, routes, source
-locations, lint, worker, benchmark pages), `tests/benchmark` (datasets and
-the Bugs4Q dataset, grading, the linter registry and dependence checks), `tests/lintq`
+locations, lint, benchmark pages), `tests/benchmark` (the datasets,
+grading, the linter registry and dependence checks), `tests/lintq`
 (the LintQ port against the original's recorded warnings; with CodeQL
 configured, `-m slow` also re-runs the original) and `tests/js` (run through
 Node's built-in test runner, so Node.js is required).

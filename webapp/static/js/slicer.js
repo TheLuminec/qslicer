@@ -204,8 +204,7 @@
       .then(function (bug) {
         $('code').value = bug.sources[version];
         state.filename = bug[version].split('/').pop();
-        // Benchmark programs may target old Qiskit versions: read them, never run them.
-        setInterpreter('qiskit-static');
+        setInterpreter(interpreterForFilename(state.filename));
         var other = version === 'buggy' ? 'fixed' : 'buggy';
         var faults = bug.truth.lines.length
           ? ' Fault lines (from the fix): ' + bug.truth.lines.join(', ') + '.' : '';
