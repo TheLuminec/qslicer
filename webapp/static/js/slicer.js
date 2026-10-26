@@ -19,7 +19,6 @@
     criterion: null,
     selectedQubit: null,
     activeDeps: null,   // Set of dependency names
-    basis: 'z',
     busy: false,
     sliceSeq: 0,       // guards against an older slice response landing last
     // FR-07: which source lines are linked to the graph right now. Cleared
@@ -404,20 +403,6 @@
     $('dir-backward').addEventListener('click', function () { setDirection('backward'); });
     $('dir-forward').addEventListener('click', function () { setDirection('forward'); });
 
-    document.querySelectorAll('[data-basis]').forEach(function (button) {
-      button.addEventListener('click', function () {
-        document.querySelectorAll('[data-basis]').forEach(function (other) {
-          other.classList.toggle('active', other === button);
-        });
-        state.basis = button.dataset.basis;
-        graph.setBasis(state.basis);
-        var note = window.BASIS_PREFIX[state.basis];
-        setSide(state.basis === 'z'
-          ? ''
-          : 'basis ' + state.basis.toUpperCase() + ': would insert ' + note.gates.join(' + ') + ' before each measure');
-      });
-    });
-
     $('range-from').addEventListener('change', applyRange);
     $('range-to').addEventListener('change', applyRange);
     $('range-reset').addEventListener('click', function () {
@@ -648,7 +633,6 @@
     $('graph-empty').hidden = true;
     graph.setData(data);
     graph.setActiveDeps(state.activeDeps);
-    graph.setBasis(state.basis);
 
     $('range-from').value = 0;
     $('range-to').value = data.nodes.length - 1;

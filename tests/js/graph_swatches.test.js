@@ -52,7 +52,7 @@ test('paintSwatches colors every [data-dep-swatch] and runs on DOMContentLoaded'
 function bareGraph(extra) {
   const { window } = loadPage(['swatches.js', 'mathfmt.js', 'graph.js']);
   const g = Object.create(window.QGraph.prototype);
-  return Object.assign(g, { offsets: {}, range: null, activeDeps: null, basis: 'z' }, extra);
+  return Object.assign(g, { offsets: {}, range: null, activeDeps: null }, extra);
 }
 
 const DATA = {
@@ -65,11 +65,9 @@ const DATA = {
   edges: [],
 };
 
-test('graph.js exposes QGraph and the basis table', () => {
+test('graph.js exposes QGraph', () => {
   const { window } = loadPage(['swatches.js', 'graph.js']);
   assert.strictEqual(typeof window.QGraph, 'function');
-  assert.deepStrictEqual(Object.keys(window.BASIS_PREFIX).sort(), ['x', 'y', 'z']);
-  assert.deepStrictEqual(Array.from(window.BASIS_PREFIX.y.gates), ['sdg', 'h']);
   assert.ok(window.QGraph.READABLE_SCALE > 0 && window.QGraph.READABLE_SCALE < 1);
 });
 
@@ -137,11 +135,9 @@ test('tooltip escapes gate names, titles and params', () => {
   assert.ok(html.includes('No reference entry'));
 });
 
-test('tooltip shows the basis note only on measurements outside Z', () => {
+test('tooltip lists the classical bits a measurement writes', () => {
   const node = tooltipNode({ is_measurement: true, clbits: [0] });
-  assert.ok(!bareGraph({ basis: 'z' })._tooltipHtml(node).includes('tip-basis'));
-  const html = bareGraph({ basis: 'x' })._tooltipHtml(node);
-  assert.ok(html.includes('X basis: Apply h'));
+  const html = bareGraph()._tooltipHtml(node);
   assert.ok(html.includes('<dt>clbits</dt><dd>0</dd>'));
 });
 

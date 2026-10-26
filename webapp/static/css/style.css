@@ -651,7 +651,7 @@ body.page-slicer main { overflow: hidden; }
 .tooltip dt { color: var(--text-faint); }
 .tooltip dd { margin: 0; font-family: var(--mono); }
 .tooltip .tip-flags { display: flex; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.5rem; }
-.tooltip .tip-basis { margin-top: 0.5rem; padding-top: 0.45rem; border-top: 1px solid var(--surface-3); font-size: 0.78rem; color: var(--warn); }
+.tooltip .tip-note { margin-top: 0.5rem; padding-top: 0.45rem; border-top: 1px solid var(--surface-3); font-size: 0.78rem; color: var(--warn); }
 
 .flag {
   font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em;

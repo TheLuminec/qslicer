@@ -5,7 +5,7 @@ import *``), so that directory has to be on ``sys.path`` rather than imported as
 a package. Everything the web layer needs is converted to plain JSON-safe dicts
 here, so the templates and the JavaScript never touch the analysis objects.
 
-Two front ends:
+Four front ends:
 
 * **OpenQASM** (``.qasm``) is parsed as text and never executed. This is the
   route to prefer for anything that did not come from you.
@@ -293,7 +293,8 @@ def analyze_source(
 ) -> Dict[str, Any]:
     """Lint, parse, build the QPDG, and describe everything as JSON-safe data.
 
-    ``language`` names the front end: ``"qiskit"`` or ``"qasm"``. The page
+    ``language`` names the front end: ``"qiskit"``, ``"qiskit-static"``, ``"qasm"``
+    or ``"qasm-static"`` (see INTERPRETERS). The page
     always passes one; without it the filename extension decides.
     ``lint_rules`` are the rule ids to lint with (see ``linters.py``); None
     means the default selection.

@@ -120,7 +120,7 @@ def test_team_page_shows_members_and_charter(client):
 
 def test_index_page_content(client):
     body = _text(client.get("/"))
-    assert "See how a quantum program actually fits together." in body
+    assert "Explore how a quantum program actually fits together." in body
     assert "Ready to look at a circuit?" in body
 
 

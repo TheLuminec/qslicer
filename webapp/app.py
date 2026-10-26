@@ -201,7 +201,7 @@ def api_analyze():
             "diagnostics": [],
             "error": {
                 "kind": "too_large",
-                "message": "That file is larger than this mock-up will accept.",
+                "message": "That file is larger than the slicer will accept.",
                 "detail": f"Limit is {MAX_SOURCE_BYTES // 1024} KB.",
                 "hint": "Trim the circuit down to the part you want to slice.",
             },
@@ -295,7 +295,7 @@ def too_large(error):
         "ok": False,
         "error": {
             "kind": "too_large",
-            "message": "That upload is too large for this mock-up.",
+            "message": "That upload is too large.",
             "detail": "",
             "hint": "Keep circuit files under 2 MB.",
         },

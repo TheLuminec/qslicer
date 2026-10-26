@@ -31,14 +31,6 @@
     'structural': '#6C7086'
   };
 
-  /* Basis rotations shown on measurement nodes. Display only -- the analysis
-     always runs in the computational (Z) basis. */
-  var BASIS_PREFIX = {
-    z: { gates: [], note: 'Computational basis. No rotation needed.' },
-    x: { gates: ['h'], note: 'Apply h before the measurement to read the X axis.' },
-    y: { gates: ['sdg', 'h'], note: 'Apply sdg then h before the measurement to read the Y axis.' }
-  };
-
   function el(name, attrs) {
     var node = document.createElementNS(SVG_NS, name);
     if (attrs) {
@@ -65,7 +57,6 @@
     this.selectedQubit = null;
     this.activeDeps = null;    // Set of dependency names, or null for all
     this.range = null;         // [from, to] inclusive, or null
-    this.basis = 'z';
     this.hoveredId = null;
     this.marked = null;        // Set of ids picked from the source, or null
 
@@ -144,11 +135,6 @@
 
   QGraph.prototype.setRange = function (from, to) {
     this.range = (from === null || to === null) ? null : [from, to];
-    this.render();
-  };
-
-  QGraph.prototype.setBasis = function (basis) {
-    this.basis = basis;
     this.render();
   };
 
@@ -461,13 +447,8 @@
     if (gate.self_inverse) flags.push('<span class="flag flag-inv">self-inverse</span>');
     if (flags.length) parts.push('<div class="tip-flags">' + flags.join('') + '</div>');
 
-    if (node.is_measurement && this.basis !== 'z') {
-      var basis = BASIS_PREFIX[this.basis];
-      parts.push('<div class="tip-basis">' + this.basis.toUpperCase() + ' basis: ' +
-        escapeHtml(basis.note) + '</div>');
-    }
     if (!gate.known) {
-      parts.push('<div class="tip-basis">No reference entry for this gate yet.</div>');
+      parts.push('<div class="tip-note">No reference entry for this gate yet.</div>');
     }
     return parts.join('');
   };
@@ -650,5 +631,4 @@
 
   QGraph.READABLE_SCALE = READABLE_SCALE;
   window.QGraph = QGraph;
-  window.BASIS_PREFIX = BASIS_PREFIX;
 })();

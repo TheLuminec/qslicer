@@ -20,7 +20,9 @@ Then open <http://127.0.0.1:5000/>.
 
 ## How submitted circuits are handled
 
-There are two front ends, and they differ in exactly one important way.
+There are four front ends, and they differ in exactly one important way:
+whether your file is executed. Only **Qiskit (Python)** runs it; the other
+three read it.
 
 Which front end runs is an explicit choice, not a guess. The page has an
 **Interpreter** dropdown next to Example and Rules, and sends it as `language`
@@ -38,6 +40,20 @@ the switch is yours to make.
 circuit. Nothing in the file runs, so there is nothing to time out and nothing
 to contain. **Prefer this route for any circuit that did not come from you.**
 Export one from Qiskit with `qiskit.qasm3.dumps(qc)`.
+
+**OpenQASM 2/3 (static)** (`language="qasm-static"`) interprets the file with
+`StaticOpenQASMParser` instead of going through Qiskit, and keeps the source
+line of every instruction.
+
+### Python, static -- interpreted, never executed
+
+**Qiskit (Python, static)** (`language="qiskit-static"`) reads the same `.py`
+files with `StaticQiskitParser`, which walks the syntax tree with a small
+interpreter of its own and never runs the file, so there is no worker and no
+timeout. It keeps every instruction's source line too. Anything only a real run
+could decide stops it with a `StaticParseError` naming the line; what it
+skipped or approximated comes back as `QS200` warnings. Its docstring in
+`scripts/Parsers/staticqiskitparser.py` lists what it models.
 
 ### Python (`.py`) -- executed in a worker, under a timeout
 
@@ -67,10 +83,9 @@ Qiskit, so expect a couple of seconds per run even for a four-gate circuit.
    since both publish QASM.
 2. **Harden the worker.** A low-privilege user, no network, and a memory cap
    would cover most of what is left, without much work.
-3. **Interpret the Python statically.** Walk the AST and follow the
-   `QuantumCircuit` calls without running them. Zero execution, but it only
-   handles straight-line construction -- loops, helpers, `compose` and numpy
-   all defeat it.
+3. **Interpret the Python statically.** Now available as the Qiskit (Python,
+   static) interpreter, above. Dropping the executing route would leave only
+   it and OpenQASM.
 4. **A container per request.** The only option that actually contains hostile
    code, and the heaviest to operate.
 
@@ -81,19 +96,27 @@ Qiskit, so expect a couple of seconds per run even for a four-gate circuit.
 | `/`        | Landing page: what the tool does, quantum programming in brief           |
 | `/slicer`  | The application: source on the left, graph and analysis on the right     |
 | `/quantum` | Background on quantum programs, on the QDG, and on the tools we use     |
-| `/team`    | Team, advisor, course                                                    |
+| `/benchmark` | Grades the selected lint rules on the Bugs4Q bugs                     |
+| `/team`    | Team, course, vision and mission                                         |
 
 ## JSON API
 
-| Endpoint               | Method | Body / params                                  |
-|------------------------|--------|------------------------------------------------|
-| `/api/examples`        | GET    | —                                               |
-| `/api/examples/<key>`  | GET    | —                                               |
-| `/api/analyze`         | POST   | `{source, filename, profile, language}`         |
-| `/api/slice`           | POST   | `{token, node_idx, direction, dep_types}`       |
+| Endpoint                      | Method | Body / params                                       |
+|-------------------------------|--------|-----------------------------------------------------|
+| `/api/examples`               | GET    | —                                                    |
+| `/api/examples/<key>`         | GET    | —                                                    |
+| `/api/analyze`                | POST   | `{source, filename, profile, language, lint_rules}`  |
+| `/api/slice`                  | POST   | `{token, node_idx, direction, dep_types}`            |
+| `/api/linters`                | GET    | —                                                    |
+| `/api/benchmark`              | GET    | —                                                    |
+| `/api/benchmark/bugs/<key>`   | GET    | —                                                    |
+| `/api/benchmark`              | POST   | `{lint_rules, profile}`                              |
 
-`language` is `"qiskit"` or `"qasm"`. It is optional for API callers -- without
-it the filename extension decides -- but the page always sends it.
+`language` is `"qiskit"`, `"qiskit-static"`, `"qasm"` or `"qasm-static"`. It
+is optional for API callers -- without it the filename extension decides -- but
+the page always sends it. `lint_rules` is a list of rule ids such as
+`"quick/QS002"`; leave it out for the default selection, which
+`/api/linters` reports.
 
 `/api/analyze` returns nodes, edges, entanglement groups, lint diagnostics and
 a `token`. The token names the QDG cached server-side, so slicing never
@@ -105,14 +128,18 @@ in memory; after a server restart the client is told to analyze again.
 ```
 webapp/
 ├── app.py          Flask routes and the JSON API
+├── wsgi.py         entry point for running behind gunicorn
 ├── analysis.py     bridge to scripts/ -- route, parse, build QDG, slice, serialize
 ├── parse_worker.py the child process that runs a submitted .py file
 ├── capture_io.py   shim that keeps the stdout the Qiskit parser discards
-├── lint.py         AST-based static checks (the LintQ stand-in)
+├── linters.py      linter registry: runs the selected rules across every linter
+├── lint.py         the quick checks: AST-based static checks
+├── linter_plugins/ add-on linters: dependence checks, LintQ (port and CodeQL)
+├── benchmark.py    grades the selected rules on the Bugs4Q bugs
 ├── gates.py        gate reference used by the hover cards and the glossary
 ├── examples.py     reads the example catalog (module, not the directory)
 ├── examples/       the example circuits themselves, plus manifest.json
-├── team.py         team page content  <-- placeholder data, edit this
+├── team.py         team page content
 ├── tools_make_hero_figure.py   regenerates the landing page's graph figure
 ├── templates/      Jinja templates, one per page plus a base layout
 └── static/
@@ -120,8 +147,11 @@ webapp/
     └── js/
         ├── swatches.js  shared dependency colors
         ├── highlight.js the editor's syntax highlighter (Python and OpenQASM)
+        ├── mathfmt.js   renders the gate math markup
         ├── graph.js     the SVG graph: pan, zoom, drag, hover, PNG export
-        └── slicer.js    page controller
+        ├── lintrules.js the Lint rule picker shared by Slicer and Benchmark
+        ├── slicer.js    page controller
+        └── benchmark.js Benchmark page controller
 ```
 
 No build step and no CDN: the graph is hand-rolled SVG, so the site works
@@ -148,9 +178,9 @@ Do not add an `__init__.py` to `webapp/examples/`: the directory and
 
 For bulk circuits, [QASMBench](https://github.com/pnnl/QASMBench) and
 [MQT Bench](https://quantum-journal.org/papers/q-2023-07-20-1062/) publish
-large collections, but both ship OpenQASM rather than Python. Those would come
-in through `scripts/Parsers/openqasmparser.py`, which the web layer does not
-call yet.
+large collections, but both ship OpenQASM rather than Python, so they would
+come in through the OpenQASM interpreters -- the static one for OpenQASM 2
+files, since `qiskit.qasm3.load()` reads only OpenQASM 3.
 
 The circuits under `Attachments/Sample Code` are untouched and still drive the
 command-line visualizer. The site no longer lists them: two are named after
@@ -268,18 +298,17 @@ visible instead of silent.
 Everything here is deliberate, and each item is a place the mock-up stops short
 of the real thing:
 
-* **Measurement basis toggle (X / Y / Z).** Annotates measurement nodes with the
-  rotation that basis would need (`h` for X, `sdg` then `h` for Y). It does not
-  rewrite the circuit or re-run the analysis. Left as a placeholder on purpose:
-  the research that decides what it should do is still in progress.
 * **Horizontal (qubit) slices.** Computed in the browser from the instruction
   list. `SlicingCriterion` has a `qubits` field, but `QuantumSlicer` does not
   consume it yet, so there is nothing server-side to call. Also waiting on the
   research; when the slicer grows real vertical and horizontal criteria, the UI
   hooks are already here.
-* **Static checks.** Ten heuristics over the Python AST, not LintQ. They see
-  only literal arguments — anything built in a loop or passed through a helper
-  is invisible to them. Codes are `QS000`–`QS010`; the rules live in `lint.py`.
+* **Quick checks.** Twelve heuristics over the Python AST. They see only
+  literal arguments — anything built in a loop or passed through a helper is
+  invisible to them. Codes are `QS000`–`QS011`; the rules live in `lint.py`.
+  They are the only linter on by default. LintQ (the port, and the original
+  through CodeQL where it is installed) and the dependence checks are add-ons in
+  `linter_plugins/`, picked from the **Lint** menu.
 * **Rule profiles.** The dropdown lists whatever `qdg.list_rule_profiles()`
   returns, which today is just `baseline`. Entanglement and phase rules exist in
   `scripts/Dependencies/rules.py` but ship disabled, so a profile that enables
@@ -290,8 +319,6 @@ of the real thing:
   name. A rule missing from that map is still picked up from the edges it
   emitted, so a new rule appears either way; add a line only for a rule that can
   legitimately produce nothing.
-* **Team page.** Placeholder names seeded from the commit history. Edit
-  `webapp/team.py`.
 * **No persistence.** Nothing is written to disk and nothing is shared between
   browser sessions.
 * **Console output.** `QiskitParser.parse_file` redirects the submitted
@@ -300,9 +327,10 @@ of the real thing:
   shim in `capture_io.py`, and restores it in a `finally` block. It is a small
   piece of monkey-patching, done so `scripts/` did not have to change; if the
   parser ever grows a way to hand back captured output, delete `capture_io.py`.
-* **Static checks on OpenQASM.** There are none -- the checks read a Python
-  AST. A `.qasm` analysis reports one informational note saying so. Errors in
-  the QASM itself come from the parser.
+* **Static checks on OpenQASM.** Only the dependence checks run -- the quick
+  checks and LintQ read a Python AST. When quick checks are selected, a `.qasm`
+  analysis reports one informational note (`QS100`) saying they were skipped.
+  Errors in the QASM itself come from the parser.
 
 ## Known limits
 

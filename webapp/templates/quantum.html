@@ -14,7 +14,7 @@
       <li><a href="#dependencies">The dependency types</a></li>
       <li><a href="#qpdg">How our slicer works</a></li>
       <li><a href="#walkthrough">Walkthrough: teleportation</a></li>
-      <li><a href="#inputs">Two ways in</a></li>
+      <li><a href="#inputs">Four ways in</a></li>
       <li><a href="#tools">Tools we use</a></li>
       <li><a href="#glossary">Gate reference</a></li>
     </ol>
@@ -138,14 +138,8 @@
         Measuring always answers a question in <em>some</em> basis. The default is the Z
         basis: &ldquo;is this qubit 0 or 1?&rdquo; Asking about the X axis instead means
         applying <code>h</code> first; asking about Y means <code>sdg</code> then
-        <code>h</code>. The basis toggle on the slicer page shows which rotation each choice
-        would insert.
+        <code>h</code>.
       </p>
-      <aside class="callout callout-note">
-        <strong>Mock-up note.</strong> The basis toggle annotates the graph. It does not
-        rewrite your circuit or re-run the analysis &mdash; that feature is planned but
-        not yet implemented.
-      </aside>
     </section>
 
     <section id="slicing">
@@ -300,10 +294,11 @@
           <p>
             A parser turns a circuit into a flat list of <code>QuantumInstruction</code>
             objects, each with a gate name, qubit indices, classical bit indices and
-            parameters. The Qiskit parser gets there by executing your file and pulling the
-            <code>QuantumCircuit</code> out of the resulting namespace, so what you see in the
-            graph is the circuit <em>after</em> Qiskit has built and composed it &mdash; gate
-            names may differ from what you typed.
+            parameters. The executing Qiskit parser gets there by running your file and pulling
+            the <code>QuantumCircuit</code> out of the resulting namespace, so what you see in
+            the graph is the circuit <em>after</em> Qiskit has built and composed it &mdash;
+            gate names may differ from what you typed. The static interpreters build the same
+            list by reading the file instead (see <a href="#inputs">Four ways in</a>).
           </p>
         </li>
         <li>
@@ -449,9 +444,9 @@
     </section>
 
     <section id="inputs">
-      <h2>Two ways in</h2>
+      <h2>Four ways in</h2>
       <p>
-        The analysis is the same either way &mdash; both front ends produce the same
+        The analysis is the same whichever you pick &mdash; every front end produces the same
         instruction list, and everything downstream works on that. What differs is what has to
         happen to your file first, so which one runs is an explicit choice: the
         <strong>Interpreter</strong> dropdown on the slicer page. Loading an example or
@@ -461,26 +456,32 @@
         <div>
           <h4>Python (<code>.py</code>)</h4>
           <p>
-            The Qiskit parser has to <strong>execute</strong> your file, because the
-            <code>QuantumCircuit</code> only exists once the code that builds it has run. The
-            circuit you see is therefore the circuit Qiskit actually built, after any
+            <strong>Qiskit (Python)</strong> has to <strong>execute</strong> your file, because
+            the <code>QuantumCircuit</code> only exists once the code that builds it has run.
+            The circuit you see is therefore the circuit Qiskit actually built, after any
             composition and transpilation &mdash; which is why gate names sometimes differ
-            from what you typed.
+            from what you typed. On this site that execution happens in a separate worker
+            process under a timeout, so a circuit that loops forever kills a worker rather than
+            the server. That bounds accidents; it is not a sandbox.
           </p>
           <p>
-            On this site that execution happens in a separate worker process under a timeout,
-            so a circuit that loops forever kills a worker rather than the server. That bounds
-            accidents; it is not a sandbox.
+            <strong>Qiskit (Python, static)</strong> reads the same file without running it: a
+            small interpreter of its own follows the Python and the Qiskit calls that build the
+            circuit, and links every instruction back to its source line. Anything only a real
+            run could decide stops it with the line number, and the executing interpreter is
+            the way past.
           </p>
         </div>
         <div>
-          <h4>OpenQASM 3 (<code>.qasm</code>)</h4>
+          <h4>OpenQASM (<code>.qasm</code>)</h4>
           <p>
-            Parsed as text against the
+            <strong>OpenQASM 3</strong> is parsed as text against the
             <a href="https://openqasm.com/grammar/index.html" rel="noopener">OpenQASM
-            grammar</a>. Nothing in the file is executed, so there is nothing to time out and
-            nothing to contain &mdash; this is the route to prefer for a circuit that did not
-            come from you.
+            grammar</a>, through Qiskit. <strong>OpenQASM 2/3 (static)</strong> interprets the
+            file without Qiskit and, like the static Python route, keeps each instruction's
+            source line. Either way nothing in the file is executed, so there is nothing to
+            time out and nothing to contain &mdash; this is the route to prefer for a circuit
+            that did not come from you.
           </p>
           <p>
             Export one from any Qiskit circuit with
@@ -502,8 +503,8 @@
 
         <dt>OpenQASM</dt>
         <dd>A textual assembly language for circuits, and the execution-free way into this
-          tool. A second parser loads it through <code>qiskit.qasm3.load</code>, so the file is
-          read rather than run.</dd>
+          tool. One parser loads it through <code>qiskit.qasm3.load</code> and another
+          interprets it without Qiskit; either way the file is read rather than run.</dd>
 
         <dt>NetworkX</dt>
         <dd>Graph library. The QPDG is a <code>MultiDiGraph</code> &mdash; multi, because two
