@@ -6,7 +6,7 @@ Anything still marked TODO is a genuine gap rather than a guess.
 """
 
 COURSE = {
-    "name": "CSE 449 Senior Capstone",  # TODO: the course's actual title and number
+    "name": "CSE 449 Senior Capstone",
     "term": "2026-2027",
     "institution": "Miami University",
     "summary": "A two-semester capstone building static analysis tooling for quantum "

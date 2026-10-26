@@ -530,8 +530,32 @@ body.page-slicer main { overflow: hidden; }
 .diagnostics {
   flex: none; max-height: 36%;
   display: flex; flex-direction: column;
-  border-top: 1px solid var(--line); background: var(--bg);
+  background: var(--bg);
 }
+/* Once dragged, the height is the user's: slicer.js sets it inline. */
+.diagnostics.sized { max-height: none; }
+
+/* The divider above the diagnostics: the row-wise twin of .splitter. */
+.row-splitter {
+  position: relative; flex: none; height: 7px;
+  background: var(--line);
+  cursor: row-resize;
+  touch-action: none;
+}
+.row-splitter::before {
+  content: ""; position: absolute; inset: -4px 0;
+}
+.row-splitter::after {
+  content: ""; position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 28px; height: 3px; border-radius: 2px;
+  background: var(--surface-3);
+  transition: background 0.12s ease;
+}
+.row-splitter:hover::after, .row-splitter:focus-visible::after { background: var(--accent); }
+.row-splitter:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+body.splitting-rows { cursor: row-resize; user-select: none; }
+body.splitting-rows .row-splitter::after { background: var(--accent); }
 .diagnostics-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 0.45rem 0.9rem; border-bottom: 1px solid var(--line); flex: none;
@@ -542,7 +566,7 @@ body.page-slicer main { overflow: hidden; }
 .diagnostics-summary.has-warnings { color: var(--warn); }
 .diagnostics-summary.clean { color: var(--ok); }
 
-.diagnostics-list { list-style: none; margin: 0; padding: 0.4rem 0.6rem 0.8rem; overflow-y: auto; }
+.diagnostics-list { list-style: none; margin: 0; padding: 0.4rem 0.6rem 0.8rem; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
 .diagnostics-list li { padding: 0.45rem 0.55rem; border-radius: var(--radius-sm); font-size: 0.85rem; }
 .diagnostics-list li.placeholder { font-size: 0.8rem; }
 .diagnostics-list li.diag { border-left: 3px solid var(--surface-3); background: var(--surface); margin-bottom: 0.4rem; cursor: pointer; }
@@ -651,7 +675,7 @@ body.page-slicer main { overflow: hidden; }
 .tooltip dt { color: var(--text-faint); }
 .tooltip dd { margin: 0; font-family: var(--mono); }
 .tooltip .tip-flags { display: flex; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.5rem; }
-.tooltip .tip-basis { margin-top: 0.5rem; padding-top: 0.45rem; border-top: 1px solid var(--surface-3); font-size: 0.78rem; color: var(--warn); }
+.tooltip .tip-note { margin-top: 0.5rem; padding-top: 0.45rem; border-top: 1px solid var(--surface-3); font-size: 0.78rem; color: var(--warn); }
 
 .flag {
   font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em;

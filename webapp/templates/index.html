@@ -5,16 +5,16 @@
 <section class="hero">
   <div class="hero-text">
     <p class="eyebrow">Static analysis for quantum programs</p>
-    <h1>See how a quantum program actually fits together.</h1>
+    <h1>Explore how a quantum program actually fits together.</h1>
     <p class="lede">
       This project is designed to help visualize how quantum programs work, and to assist in
-      debugging their code. Using code taken from a file or text input, it creates a fully
-      interactive map that shows the functionality of the quantum code.
+      debugging their code. Using code taken from a file or text input, it generates an interactive
+      dependence graph showing relationships between quantum instructions.
     </p>
     <p class="lede-sub">
       The map details the individual steps of a quantum circuit and maps out the connections
-      between each step, sorting out entanglements and clarifying the relationship between
-      qubits.
+      between each step, approximating entanglement relationships and illustrating dependencies
+      between qubits.
     </p>
     <div class="hero-actions">
       <a class="btn btn-primary" href="{{ url_for('slicer') }}">Map a circuit</a>
@@ -122,8 +122,8 @@
       <p>
         The normal assumption of programming is that given a chosen input, a specific set of
         instructions will be executed to produce a certain outcome. This is what is known as
-        classical programming, whose foundation is built upon <strong>bits</strong>, pieces of
-        data that store either 0 or 1.
+        deterministic classical programming, whose foundation is built upon <strong>bits</strong>,
+        pieces of data that store either 0 or 1.
       </p>
       <p>
         Although a classical program may have conditional branches and produce different
@@ -142,9 +142,9 @@
       </p>
       <p>
         These fundamental units of quantum information can be in a <strong>superposition</strong>,
-        a weighted combination of 0 and 1 that only settles on one value when it is measured. Rather than representing several classical
-        values as separate pieces of data, a quantum state can encode a combination of possible
-        outcomes that is manipulated by quantum operations.
+        a quantum state whose measurement outcomes have probabilities determined by its amplitudes.
+        Rather than representing several classical values as separate pieces of data, a quantum state
+        can encode a combination of possible outcomes that is manipulated by quantum operations.
       </p>
     </article>
 
@@ -206,7 +206,7 @@
       <div class="slice-pair">
         <div>
           <h3>Backward slice</h3>
-          <p>Starts with an instruction and traces back to the earliest instruction to
+          <p>Starts with an instruction and traces back to the earlier instructions that
             influence it.</p>
         </div>
         <div>
@@ -262,8 +262,9 @@
     </div>
     <div class="card">
       <h3>Catch mistakes early</h3>
-      <p>Static checks run before your file is executed: out-of-range qubits, a circuit with
-        no measurement, classical bits written twice, removed Qiskit APIs.</p>
+      <p>Static checks read your file alongside the parser and flag issues such as out-of-range
+        qubits, a circuit with no measurement, classical bits written twice, and removed Qiskit
+        APIs.</p>
     </div>
   </div>
 </section>

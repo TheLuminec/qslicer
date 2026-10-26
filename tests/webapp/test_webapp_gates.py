@@ -39,7 +39,8 @@ QISKIT_GATES = {
     "dcx": lib.DCXGate(), "ecr": lib.ECRGate(),
     "rxx": lib.RXXGate(THETA), "ryy": lib.RYYGate(THETA), "rzz": lib.RZZGate(THETA),
 }
-NOT_UNITARY = {"measure", "measure_all", "reset", "if_else", "c_if", "barrier", "init"}
+NOT_UNITARY = {"measure", "measure_all", "reset", "if_else", "c_if", "barrier", "init",
+               "while_loop", "for_loop", "switch_case", "store"}
 
 
 # ------------------------------------------------------- markup evaluator --

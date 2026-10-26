@@ -43,8 +43,8 @@ pip install -r webapp/requirements.txt
 python webapp/app.py
 ```
 
-Open <http://127.0.0.1:5000/>, go to **Slicer**, pick an example, choose a
-static interpreter, press **Analyze**, then click any node in the graph.
+Open <http://127.0.0.1:5000/>, go to **Slicer**, pick an example, press
+**Analyze**, then click any node in the graph.
 
 ### Supported Qiskit version
 
@@ -62,28 +62,28 @@ suite, and update this section.
 
 ## Front ends: static first
 
-The Interpreter dropdown offers four front ends. Which one runs is always your
-explicit choice: loading an example or uploading a file sets the dropdown from
-the file extension, and nothing else changes it. If the text and the choice
-disagree, the error says so instead of guessing.
+The Interpreter dropdown offers two front ends, one per language, and neither
+executes your code. Which one runs is always your explicit choice: loading an
+example or uploading a file sets the dropdown from the file extension, and
+nothing else changes it. If the text and the choice disagree, the error says so
+instead of guessing.
 
-| Interpreter | How it gets the circuit | Executes your code? | Source lines |
+| Interpreter | `language` | How it gets the circuit | Source lines |
 |---|---|---|---|
-| **Qiskit (Python, static)** | Parses with `ast` and interprets the tree with its own interpreter | **No** | Yes |
-| **OpenQASM 2/3 (static)** | The `openqasm3` reference parser plus its own interpreter | **No** | Yes |
-| Qiskit (Python) | Runs the file in a worker process and keeps the largest `QuantumCircuit` | **Yes** | No |
-| OpenQASM 3 | `qiskit.qasm3.load` builds a circuit from the text | No | No |
+| **Qiskit (Python)** | `qiskit-static` | Parses with `ast` and interprets the tree with its own interpreter | Yes |
+| **OpenQASM 2/3** | `qasm-static` | The `openqasm3` reference parser plus its own interpreter | Yes |
 
-**Prefer the two static front ends.** They are safe on untrusted input and they
-are the only ones that record where each instruction came from, which powers
-the source highlighting in the app. The executing Qiskit route remains for
-comparison and for programs the static interpreter cannot yet follow. It
-**executes the submitted file** in a child process with a timeout (default 20 s,
-`QSLICER_PARSE_TIMEOUT`) and a scratch working directory. That bounds
-accidents. **It is not a sandbox.** Do not expose it to untrusted users.
+Both bound their own work with a step limit and a wall-clock limit
+(`QSLICER_PARSE_TIMEOUT`, default 20 s). The OpenQASM interpreter covers the
+language rather than the subset `qiskit.qasm3` can import: classical variables
+and arrays, subroutines, `extern`, physical qubits, and `if`/`while`/`switch`
+on measured values.
 
-The dropdown currently starts on the executing "Qiskit (Python)" option.
-Switch it to a static option for the behaviour described in this README.
+The route that **executed the submitted file** to reach its circuit has been
+removed: the API refuses `language="qiskit"` (or `python`, `py`) with an
+`execution_disabled` error rather than rerouting it. `language="qasm"`, which
+goes through `qiskit.qasm3.load` and runs nothing, is still accepted from the
+API but is not on the page.
 
 ## Using the web app
 
@@ -109,8 +109,8 @@ On the slicer page:
 - **Lint** picks the linters and individual rules that run on Analyze. The
   choice is remembered in the browser and shared with the Benchmark page.
 - **Instructions tab** lists every instruction with its line; **Console** shows
-  the program's output (executing route only); **diagnostics** list lint
-  findings and parser warnings, each jumping to its line.
+  the last error; **diagnostics** list lint findings and parser warnings, each
+  jumping to its line.
 - **Range**, drag-to-move nodes, relayout, zoom/fit, a resizable divider, and
   **PNG export**.
 - Parse errors name the failing stage and mark the offending line in the gutter.
@@ -128,7 +128,8 @@ The JSON API behind it:
 | `/api/benchmark/bugs/<key>` | GET | `?dataset=<id>` (optional) |
 | `/api/benchmark` | POST | `{lint_rules, profile, dataset}` |
 
-`language` is one of `qiskit`, `qiskit-static`, `qasm`, `qasm-static`.
+`language` is `qiskit-static` or `qasm-static` (or, off the page, `qasm`;
+`qiskit` is refused); without it the file extension picks a static one.
 `/api/analyze` returns nodes (each with `line` and `source`), edges,
 entanglement groups, diagnostics and a `token` naming the cached QDG, so
 slicing never re-parses. The cache holds the 24 most recent analyses in memory.
@@ -314,21 +315,38 @@ statements and loop iterations, 200,000 instructions, 40 nested calls, and
 so coverage tracks the language specification, and its own interpreter for
 meaning:
 
-- `qubit`/`bit` and OpenQASM 2 `qreg`/`creg`; `const`, `input` and classical
-  variables.
+- `qubit`/`bit`, OpenQASM 2 `qreg`/`creg`, and physical qubits (`$0`);
+  `const`, `input`, `output` and classical variables, arrays, and `extern`
+  functions (their results are run-time values).
 - `stdgates.inc` and `qelib1.inc` gates named as Qiskit names them; user `gate`
-  definitions.
+  and OpenQASM 2 `opaque` definitions.
 - Gate modifiers `inv @`, `ctrl @`, `negctrl @`, and `pow @` (kept as one
-  instruction, with a warning).
-- Measurement in both syntaxes, `reset`, `barrier`, `delay`.
-- `if`/`else`, taken at compile time when computable, or kept as one `if_else`
-  instruction when it compares a bit or register to a constant.
-- **Loops are unrolled** and subroutines **inlined**, so each iteration's gates
-  are separate nodes, which is better for slicing than an opaque loop.
+  instruction, with a warning), also on `gphase`: a controlled global phase is
+  a phase gate on the controls.
+- Measurement in both syntaxes and without a target, into bits or into a
+  `bool`/`int` variable (which gets a classical register of its own); `reset`,
+  `barrier`, `delay`, and `box` (its contents placed as ordinary instructions).
+- Bits written with a constant are tracked at compile time. A copy of a
+  measured bit becomes a `store` instruction that reads the source bits and
+  writes the target, so the dependency survives the copy.
+- `if`/`else`, `switch` and `while` are taken or unrolled when the condition is
+  known at compile time. On a measured value each becomes one `if_else`,
+  `switch_case` or `while_loop` instruction, as Qiskit builds them, reading the
+  bits of any condition (`c[0] && c[1]`, `c > 2`, a variable computed from
+  bits). A variable set differently on two run-time paths becomes a run-time
+  value that remembers those bits.
+- **`for` loops are unrolled** and subroutines **inlined** (including
+  `return measure q;`), so each iteration's gates are separate nodes, which is
+  better for slicing than an opaque loop. A loop that a `break` or `continue`
+  under a run-time condition may leave early becomes one `for_loop` instruction
+  over everything any iteration does.
 
-It refuses, with a line number, `while` loops on measured values, `box`,
-physical qubits and unsupported conditions. Unlike the `qiskit.qasm3` route it
-reads OpenQASM 2 and register indexing by a loop variable.
+It refuses, with a line number, a qubit index or gate parameter computed from a
+measured value, and a `return` under a run-time condition. Every program the
+`qiskit.qasm3` route imports, it reads too, with the same instructions apart
+from three deliberate differences: `box` is placed as its contents, a
+controlled `gphase` is named `p`/`cp` rather than `ccircuit-N`, and `pow(k) @ g`
+is named `g_pow` rather than `unitary`.
 
 ### How close is it to executing?
 
@@ -336,7 +354,7 @@ reads OpenQASM 2 and register indexing by a loop variable.
 |---|---|
 | Static vs executing Qiskit parser, 35 programs | 32 identical. The other three are explained differences, not bugs |
 | Same, through the running web app | 21 of 22 examples identical |
-| Static OpenQASM vs `qiskit.qasm3` | Identical on both `.qasm` examples and a mixed program |
+| Static OpenQASM vs `qiskit.qasm3` | Identical on both `.qasm` examples, a mixed program, and run-time `while` and `for` loops; also reads what `qiskit.qasm3` refuses, such as classical variables, subroutines, `switch` and OpenQASM 2 |
 | Hostile input (dunder access, `eval`, runaway recursion, `9 ** 9 ** 9`) | Every case refused cleanly with a line |
 
 The known differences: a script that keeps a transpiled copy at module level
@@ -378,7 +396,6 @@ and it is why parse errors and warnings land on a line.
 │   └── visualizer.py, entangle_viewer.py, combined_visualizer.py
 ├── webapp/                      Flask web app (see webapp/README.md)
 │   ├── app.py, analysis.py      Routes and the bridge to scripts/
-│   ├── parse_worker.py          Child process for the executing Qiskit route
 │   ├── lint.py, gates.py        Static checks and the gate reference
 │   ├── linters.py               Linter registry and rule selection
 │   ├── linter_plugins/          Linter add-ons (dependence checks)

@@ -105,7 +105,7 @@ def _static_parse(source: str, filename: str, kind: str) -> Tuple[Any, Optional[
     try:
         if kind in QASM_KINDS:
             from Parsers.staticopenqasmparser import StaticOpenQASMParser
-            parser = StaticOpenQASMParser()
+            parser = StaticOpenQASMParser(time_limit=STATIC_PARSE_TIME_LIMIT)
         else:
             from Parsers.staticqiskitparser import StaticQiskitParser
             parser = StaticQiskitParser(filename=os.path.basename(filename),

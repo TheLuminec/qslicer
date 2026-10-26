@@ -19,7 +19,6 @@
     criterion: null,
     selectedQubit: null,
     activeDeps: null,   // Set of dependency names
-    basis: 'z',
     busy: false,
     sliceSeq: 0,       // guards against an older slice response landing last
     // FR-07: which source lines are linked to the graph right now. Cleared
@@ -50,6 +49,7 @@
 
     wireEditor();
     wireSplitter();
+    wireDiagnosticsSplitter();
     wireToolbar();
     wireTabs();
     wireLintPicker();
@@ -58,6 +58,7 @@
 
     window.addEventListener('resize', debounce(function () {
       if (state.payload) graph.fit(window.QGraph.READABLE_SCALE);
+      reclampDiagnostics();
       updateGutter();
     }, 180));
   });
@@ -154,7 +155,7 @@
     reader.onload = function () {
       $('code').value = reader.result;
       state.filename = file.name;
-      setInterpreter(keepPythonParser(interpreterForFilename(file.name)));
+      setInterpreter(interpreterForFilename(file.name));
       $('example-select').value = '';
       $('example-blurb').textContent = 'Loaded from ' + file.name + '.';
       updateGutter();
@@ -175,7 +176,7 @@
       .then(function (data) {
         $('code').value = data.source;
         state.filename = data.filename;
-        setInterpreter(keepPythonParser(data.interpreter || interpreterForFilename(data.filename)));
+        setInterpreter(data.interpreter || interpreterForFilename(data.filename));
         var blurb = data.blurb || '';
         $('example-blurb').innerHTML = escapeHtml(blurb) +
           (data.highlight ? ' <span class="highlight">' + escapeHtml(data.highlight) + '</span>' : '');
@@ -224,7 +225,7 @@
   /* The Interpreter dropdown is the single source of truth for the front end.
      Uploads and examples set it; nothing else changes it behind the user. */
   function interpreter() {
-    return $('interpreter-select').value || 'qiskit';
+    return $('interpreter-select').value || 'qiskit-static';
   }
 
   function setInterpreter(value) {
@@ -236,16 +237,7 @@
   }
 
   function interpreterForFilename(name) {
-    return /\.qasm3?$/i.test(name || '') ? 'qasm' : 'qiskit';
-  }
-
-  /* Both Qiskit parsers read .py files, so a Python file or example keeps
-     whichever of the two is selected rather than resetting to the default. */
-  function keepPythonParser(value) {
-    // Each language has an executing/importing route and a static one; a file
-    // of the same language keeps whichever of the two is selected.
-    if (isQasm(value) === isQasm(interpreter())) return interpreter();
-    return value;
+    return /\.qasm3?$/i.test(name || '') ? 'qasm-static' : 'qiskit-static';
   }
 
   function isQasm(value) {
@@ -406,20 +398,6 @@
   function wireToolbar() {
     $('dir-backward').addEventListener('click', function () { setDirection('backward'); });
     $('dir-forward').addEventListener('click', function () { setDirection('forward'); });
-
-    document.querySelectorAll('[data-basis]').forEach(function (button) {
-      button.addEventListener('click', function () {
-        document.querySelectorAll('[data-basis]').forEach(function (other) {
-          other.classList.toggle('active', other === button);
-        });
-        state.basis = button.dataset.basis;
-        graph.setBasis(state.basis);
-        var note = window.BASIS_PREFIX[state.basis];
-        setSide(state.basis === 'z'
-          ? ''
-          : 'basis ' + state.basis.toUpperCase() + ': would insert ' + note.gates.join(' + ') + ' before each measure');
-      });
-    });
 
     $('range-from').addEventListener('change', applyRange);
     $('range-to').addEventListener('change', applyRange);
@@ -651,7 +629,6 @@
     $('graph-empty').hidden = true;
     graph.setData(data);
     graph.setActiveDeps(state.activeDeps);
-    graph.setBasis(state.basis);
 
     $('range-from').value = 0;
     $('range-to').value = data.nodes.length - 1;
@@ -1247,6 +1224,126 @@
     } catch (err) { /* not worth telling anyone about */ }
   }
 
+  /* --------------------------------------------- diagnostics height -- */
+
+  /* The divider between the editor and the diagnostics panel. Until it is
+     dragged the panel sizes to its contents (up to 36% of the pane); after,
+     it keeps the height it was given, remembered like the column split. */
+
+  var DIAG_KEY = 'qslicer.diagnostics';
+  var DIAG_MIN = 64;       // px: the heading and the first line of the list
+  var EDITOR_MIN = 120;    // px the editor keeps however tall the panel gets
+
+  function wireDiagnosticsSplitter() {
+    var handle = $('diag-splitter');
+    if (!handle) return;
+
+    applyDiagHeight(readDiagHeight());
+
+    var dragging = false;
+    var startY = 0;
+    var startHeight = 0;
+
+    handle.addEventListener('pointerdown', function (event) {
+      if (event.button !== 0) return;
+      dragging = true;
+      startY = event.clientY;
+      startHeight = $('diagnostics').getBoundingClientRect().height;
+      document.body.classList.add('splitting-rows');
+      handle.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+
+    handle.addEventListener('pointermove', function (event) {
+      if (!dragging) return;
+      // Dragging up makes the panel taller.
+      applyDiagHeight(startHeight + (startY - event.clientY));
+    });
+
+    function stop(event) {
+      if (!dragging) return;
+      dragging = false;
+      document.body.classList.remove('splitting-rows');
+      try { handle.releasePointerCapture(event.pointerId); } catch (err) { /* fine */ }
+      saveDiagHeight();
+      updateGutter();
+    }
+    handle.addEventListener('pointerup', stop);
+    handle.addEventListener('pointercancel', stop);
+
+    // Double-click hands the height back to the contents.
+    handle.addEventListener('dblclick', function () {
+      applyDiagHeight(null);
+      saveDiagHeight();
+      updateGutter();
+    });
+
+    handle.addEventListener('keydown', function (event) {
+      var step = event.shiftKey ? 64 : 16;
+      var height = $('diagnostics').getBoundingClientRect().height;
+      if (event.key === 'ArrowUp') applyDiagHeight(height + step);
+      else if (event.key === 'ArrowDown') applyDiagHeight(height - step);
+      else if (event.key === 'Home') applyDiagHeight(diagMax());
+      else if (event.key === 'End') applyDiagHeight(DIAG_MIN);
+      else if (event.key === 'Enter' || event.key === ' ') applyDiagHeight(null);
+      else return;
+      event.preventDefault();
+      saveDiagHeight();
+      updateGutter();
+    });
+  }
+
+  /* The tallest the panel may be: everything but EDITOR_MIN of the editor. */
+  function diagMax() {
+    var panel = $('diagnostics').getBoundingClientRect().height;
+    var editor = $('editor-shell').getBoundingClientRect().height;
+    return Math.max(DIAG_MIN, panel + editor - EDITOR_MIN);
+  }
+
+  /* `height` in px, or null to size to the contents again. */
+  function applyDiagHeight(height) {
+    var panel = $('diagnostics');
+    var handle = $('diag-splitter');
+    if (height === null || isNaN(height)) {
+      panel.style.removeProperty('height');
+      panel.classList.remove('sized');
+      handle.removeAttribute('aria-valuenow');
+      return;
+    }
+    var value = Math.round(clamp(height, DIAG_MIN, diagMax()));
+    panel.style.height = value + 'px';
+    panel.classList.add('sized');
+    handle.setAttribute('aria-valuenow', value);
+    handle.setAttribute('aria-valuemin', DIAG_MIN);
+  }
+
+  /* A smaller window may leave a dragged panel taller than now fits. */
+  function reclampDiagnostics() {
+    var panel = $('diagnostics');
+    if (panel && panel.classList.contains('sized')) {
+      applyDiagHeight(panel.getBoundingClientRect().height);
+    }
+  }
+
+  function readDiagHeight() {
+    try {
+      var saved = parseFloat(window.localStorage.getItem(DIAG_KEY));
+      if (!isNaN(saved)) return saved;
+    } catch (err) { /* private window, blocked storage: size to contents */ }
+    return null;
+  }
+
+  function saveDiagHeight() {
+    try {
+      var panel = $('diagnostics');
+      if (panel.classList.contains('sized')) {
+        window.localStorage.setItem(DIAG_KEY, String(panel.getBoundingClientRect().height));
+      } else {
+        window.localStorage.removeItem(DIAG_KEY);
+      }
+    } catch (err) { /* not worth telling anyone about */ }
+  }
+
   /* --------------------------------------------------------- tooltip ---- */
 
   function showTooltip(node, event, html) {
@@ -1318,7 +1415,7 @@
     $('console-out').textContent = '(nothing yet)';
     $('console-error').textContent = '(none)';
     $('diagnostics-list').innerHTML =
-      '<li class="placeholder">Static checks run on every Python analysis, before your file is executed.</li>';
+      '<li class="placeholder">The linters picked under <strong>Lint</strong> run on every analysis.</li>';
     $('diagnostics-summary').textContent = 'not run yet';
     $('diagnostics-summary').className = 'diagnostics-summary';
     setStatus('Nothing analyzed yet.');

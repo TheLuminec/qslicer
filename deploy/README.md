@@ -10,32 +10,25 @@ Three files:
 
 ## Read this first
 
-**Analysing a Python circuit executes it on the server.** That is not a flaw in
-the deployment, it is how the Qiskit front end reaches the `QuantumCircuit` a
-program builds — see [the web app README](../webapp/README.md#how-submitted-circuits-are-handled).
-Putting the site on a hostname means anyone who can reach that hostname can run
-Python as the service's throwaway `DynamicUser`.
+**Nothing a user submits is executed.** Both front ends the site offers read
+the file and interpret it themselves, and the API refuses the old route that
+ran Python (`language="qiskit"`) with an `execution_disabled` error. See
+[the web app README](../webapp/README.md#how-submitted-circuits-are-handled).
 
-The mitigations that exist, in the order they matter:
+What a submission can still cost is CPU and memory while it is parsed. The
+parsers stop after 2,000,000 steps, 200,000 instructions or
+`QSLICER_PARSE_TIMEOUT` seconds (default 20), whichever comes first, and the
+source is capped at 256 KB. The service unit's hardening stays as defence
+in depth:
 
-1. **An `allow` / `deny` block in the nginx `server {}`.** If the site is
-   only ever used from campus or the VPN, add one there. This is the control
-   that actually decides who can run code.
-2. **`IPAddressDeny=any` in the service unit**, so submitted code cannot open
-   outbound connections even though it runs.
-3. **`MemoryMax` and `TasksMax`**, so a runaway allocation or a fork loop hits
-   a wall instead of the machine.
-4. **`QSLICER_PARSE_TIMEOUT`**, which kills a worker after 20 seconds.
-5. **`ProtectSystem=strict`, `ProtectHome=tmpfs` and `PrivateTmp`**, so the
+1. **`MemoryMax` and `TasksMax`**, so a pathological parse hits a wall instead
+   of the machine.
+2. **`IPAddressDeny=any`**, so the service cannot open outbound connections.
+3. **`ProtectSystem=strict`, `ProtectHome=tmpfs` and `PrivateTmp`**, so the
    filesystem is read-only apart from a private `/tmp`, and nothing in
    `/home` is visible except the checkout.
-
-Together these bound the damage from a mistake and from casual mischief. They
-do not make the box safe to hand to the internet. If the site has to be open to
-anyone who finds it, the honest options are to take OpenQASM only — that route
-parses text and executes nothing — or to move the parse step into a container.
-Ask and I can wire up a switch that refuses Python input at the deployment
-level.
+4. **An `allow` / `deny` block in the nginx `server {}`**, if the site should
+   only be reachable from campus or the VPN.
 
 ## Install
 

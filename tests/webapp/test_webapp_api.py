@@ -33,7 +33,7 @@ def test_api_example_returns_source(client, key):
     assert body["key"] == key
     assert body["source"].strip()
     assert body["filename"] == body["file"]
-    assert body["interpreter"] in ("qiskit", "qasm")
+    assert body["interpreter"] in ("qiskit-static", "qasm-static")
 
 
 def test_api_example_unknown_key_is_404(client):
@@ -138,9 +138,20 @@ def test_language_param_overrides_extension(client):
     assert body["ok"] and body["language"] == "qasm"
 
 
+@pytest.mark.requirement("NFR-04")
+@pytest.mark.parametrize("language", ["qiskit", "python", "py"])
+def test_api_refuses_the_executing_interpreter(client, language, tmp_path):
+    marker = tmp_path / "ran.txt"
+    source = f"open({str(marker)!r}, 'w').write('ran')\n"
+    response, body = post_analyze(client, source=source, filename="evil.py", language=language)
+    assert response.status_code == 400
+    assert body["ok"] is False and body["error"]["kind"] == "execution_disabled"
+    assert not marker.exists()
+
+
 def test_extension_decides_without_language(client):
     _, body = post_analyze(client, source=GHZ_QASM, filename="ghz.qasm")
-    assert body["ok"] and body["language"] == "qasm"
+    assert body["ok"] and body["language"] == "qasm-static"
 
 
 def test_unknown_profile_falls_back_to_baseline(client):
@@ -157,13 +168,13 @@ def test_missing_profile_defaults_to_baseline(client):
 @pytest.mark.requirement("FR-04")
 @pytest.mark.requirement("VV-04")
 def test_qasm_text_under_qiskit_interpreter_names_mismatch(client):
-    response, body = post_analyze(client, source=GHZ_QASM, language="qiskit")
+    response, body = post_analyze(client, source=GHZ_QASM, language="qiskit-static")
     assert response.status_code == 200
     assert body["ok"] is False
-    assert body["language"] == "python"
+    assert body["language"] == "python-static"
     assert body["error"]["kind"] == "syntax_error"
     assert "looks like OpenQASM" in body["error"]["hint"]
-    assert "OpenQASM 3" in body["error"]["hint"]
+    assert "OpenQASM 2/3" in body["error"]["hint"]
 
 
 @pytest.mark.requirement("FR-04")
@@ -194,13 +205,9 @@ def test_malformed_qasm_is_rejected_with_reason(client):
 @pytest.mark.requirement("FR-03")
 @pytest.mark.requirement("VV-04")
 @pytest.mark.requirement("VV-07")
-def test_python_syntax_error_is_rejected_before_execution(client, monkeypatch):
-    def boom(*args, **kwargs):
-        raise AssertionError("a syntax error must not start the worker")
-
-    monkeypatch.setattr(analysis.subprocess, "run", boom)
+def test_python_syntax_error_is_reported_with_its_line(client):
     source = "from qiskit import QuantumCircuit\nqc = QuantumCircuit(1\nqc.h(0)\n"
-    _, body = post_analyze(client, source=source, language="qiskit")
+    _, body = post_analyze(client, source=source, language="qiskit-static")
     assert body["ok"] is False
     assert body["error"]["kind"] == "syntax_error"
     assert body["error"]["line"] >= 2
@@ -216,7 +223,7 @@ def test_empty_qasm_program_is_reported(client):
 @pytest.mark.requirement("FR-21")
 def test_lint_findings_returned_even_when_run_fails(client, monkeypatch):
     def fail(source, filename, kind):
-        raise analysis._ParseFailure({"kind": "execution_error", "message": "stub",
+        raise analysis._ParseFailure({"kind": "static_error", "message": "stub",
                                       "detail": "", "hint": "h"}, "printed")
 
     monkeypatch.setattr(analysis, "_parse_source", fail)
@@ -224,7 +231,7 @@ def test_lint_findings_returned_even_when_run_fails(client, monkeypatch):
               "qc = QuantumCircuit(2)\n"
               "qc.h(0)\n"
               "qc.cx(0, 5)\n")
-    _, body = post_analyze(client, source=source, language="qiskit")
+    _, body = post_analyze(client, source=source, language="qiskit-static")
     assert body["ok"] is False
     assert body["stdout"] == "printed"
     codes = {d["code"] for d in body["diagnostics"]}

@@ -215,7 +215,7 @@ def api_analyze():
             "diagnostics": [],
             "error": {
                 "kind": "too_large",
-                "message": "That file is larger than this mock-up will accept.",
+                "message": "That file is larger than the slicer will accept.",
                 "detail": f"Limit is {MAX_SOURCE_BYTES // 1024} KB.",
                 "hint": "Trim the circuit down to the part you want to slice.",
             },
@@ -317,7 +317,7 @@ def too_large(error):
         "ok": False,
         "error": {
             "kind": "too_large",
-            "message": "That upload is too large for this mock-up.",
+            "message": "That upload is too large.",
             "detail": "",
             "hint": "Keep circuit files under 2 MB.",
         },
@@ -328,10 +328,4 @@ if __name__ == "__main__":
     if not analysis.backend_available():
         print("WARNING: the analysis backend failed to import:", analysis.backend_error())
         print("         The site will run, but analysis requests will return an error.")
-    print(f"NOTE: a submitted .py file is EXECUTED in a worker process, with a "
-          f"{analysis.PARSE_TIMEOUT}s timeout,")
-    print("      because that is how QiskitParser reaches the QuantumCircuit. That bounds "
-          "accidents,")
-    print("      not attacks: run this on localhost only. A .qasm file is parsed without "
-          "executing.")
     app.run(debug=True, host="127.0.0.1", port=5000)

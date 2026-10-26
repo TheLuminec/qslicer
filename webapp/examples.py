@@ -58,11 +58,12 @@ SOURCE_SUFFIXES = (".py", ".qasm")
 # Which Interpreter option an example needs. The page reads this when an
 # example is picked, so the dropdown follows the file rather than the other way
 # around.
-INTERPRETER_BY_SUFFIX = {".py": "qiskit", ".qasm": "qasm", ".qasm3": "qasm"}
+INTERPRETER_BY_SUFFIX = {".py": "qiskit-static", ".qasm": "qasm-static",
+                         ".qasm3": "qasm-static"}
 
 
 def interpreter_for(filename: str) -> str:
-    return INTERPRETER_BY_SUFFIX.get(os.path.splitext(filename)[1].lower(), "qiskit")
+    return INTERPRETER_BY_SUFFIX.get(os.path.splitext(filename)[1].lower(), "qiskit-static")
 
 
 def _files_on_disk() -> List[str]:

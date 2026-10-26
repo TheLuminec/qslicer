@@ -345,9 +345,43 @@ _GATES: Dict[str, Dict[str, Any]] = {
     "if_else": {
         "title": "Classical conditional", "category": CLASSICAL, "qubits": 1,
         "summary": r"Runs a block of gates only when a classical bit matches.",
-        "detail": r"Produced by a $\text{with qc.if_test((clbit, value))}$ block. The body is "
-                  r"carried as a parameter, so the graph shows the branch as one node; the "
-                  r"classical bits it reads are what give it a measurement dependency.",
+        "detail": r"Produced by a $\text{with qc.if_test((clbit, value))}$ block, or an "
+                  r"OpenQASM $\text{if}$ on a measured value. The body is carried as a "
+                  r"parameter, so the graph shows the branch as one node; the classical bits "
+                  r"it reads are what give it a measurement dependency.",
+        "matrix": r"\text{not unitary}",
+    },
+    "while_loop": {
+        "title": "Run-time loop", "category": CLASSICAL, "qubits": 1,
+        "summary": r"Repeats a block for as long as a classical condition holds.",
+        "detail": r"Produced by an OpenQASM $\text{while}$ on a measured value. How many times "
+                  r"it runs is only known at run time, so the body is one node over every "
+                  r"qubit it touches; the bits its condition reads give it a measurement "
+                  r"dependency.",
+        "matrix": r"\text{not unitary}",
+    },
+    "for_loop": {
+        "title": "Loop with a run-time exit", "category": CLASSICAL, "qubits": 1,
+        "summary": r"A counted loop that a measured value can end early.",
+        "detail": r"OpenQASM $\text{for}$ loops are unrolled into separate nodes. One with a "
+                  r"$\text{break}$ or $\text{continue}$ under a run-time condition cannot be, "
+                  r"so it becomes one node over everything any iteration does.",
+        "matrix": r"\text{not unitary}",
+    },
+    "switch_case": {
+        "title": "Classical switch", "category": CLASSICAL, "qubits": 1,
+        "summary": r"Runs one of several blocks, chosen by a classical value.",
+        "detail": r"Produced by an OpenQASM $\text{switch}$ on a measured value. Every case is "
+                  r"carried as a parameter, and the bits the target reads give it a "
+                  r"measurement dependency.",
+        "matrix": r"\text{not unitary}",
+    },
+    "store": {
+        "title": "Classical copy", "category": CLASSICAL, "qubits": 0,
+        "summary": r"Copies a classical value into bits.",
+        "detail": r"Produced by an OpenQASM assignment such as $\text{b = c[0];}$. It acts on "
+                  r"no qubit; reading one bit and writing another is what carries the "
+                  r"measurement dependency on to whatever later reads the copy.",
         "matrix": r"\text{not unitary}",
     },
     "c_if": {
