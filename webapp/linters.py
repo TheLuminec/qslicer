@@ -84,7 +84,9 @@ class LintContext:
 
     ``program()`` parses the source without executing it (the static Qiskit
     or OpenQASM front end), at most once per context however many linters ask,
-    and returns ``(program, error)`` with exactly one of them set.
+    and returns ``(program, error)`` with exactly one of them set. When it
+    fails, ``failure()`` is the front end's exception, for the line and the
+    class of anything the program itself raised.
     """
 
     def __init__(self, source: str, filename: str = "", kind: str = "python-static",
@@ -94,14 +96,20 @@ class LintContext:
         self.kind = kind
         self.profile = profile
         self._parsed: Optional[Tuple[Any, Optional[str]]] = None
+        self._failure: Optional[Exception] = None
 
     def program(self) -> Tuple[Any, Optional[str]]:
         if self._parsed is None:
-            self._parsed = _static_parse(self.source, self.filename, self.kind)
+            self._parsed, self._failure = _static_parse(self.source, self.filename, self.kind)
         return self._parsed
 
+    def failure(self) -> Optional[Exception]:
+        self.program()
+        return self._failure
 
-def _static_parse(source: str, filename: str, kind: str) -> Tuple[Any, Optional[str]]:
+
+def _static_parse(source: str, filename: str,
+                  kind: str) -> Tuple[Tuple[Any, Optional[str]], Optional[Exception]]:
     try:
         if kind in QASM_KINDS:
             from Parsers.staticopenqasmparser import StaticOpenQASMParser
@@ -111,9 +119,9 @@ def _static_parse(source: str, filename: str, kind: str) -> Tuple[Any, Optional[
             parser = StaticQiskitParser(filename=os.path.basename(filename),
                                         time_limit=STATIC_PARSE_TIME_LIMIT)
         parser.source = source
-        return parser.parse(), None
+        return (parser.parse(), None), None
     except Exception as exc:  # any front-end failure means "no IR", never a crash
-        return None, str(exc) or type(exc).__name__
+        return (None, str(exc) or type(exc).__name__), exc
 
 
 # --------------------------------------------------------------------------

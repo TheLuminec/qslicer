@@ -58,7 +58,8 @@ def test_analyze_honours_lint_rules(client):
     _, body = post_analyze(client, source=GHZ_QASM, filename="ghz.qasm", language="qasm-static",
                            lint_rules=["dependence"])
     assert body["ok"], body
-    assert body["lint_rules"] == ["dependence/QD01", "dependence/QD02", "dependence/QD03"]
+    assert body["lint_rules"] == ["dependence/QD01", "dependence/QD02", "dependence/QD03",
+                                  "dependence/QD04"]
     # No quick checks were selected, so there is nothing to say about skipping them.
     assert all(d["code"] != "QS100" for d in body["diagnostics"])
 

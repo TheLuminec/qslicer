@@ -4,7 +4,9 @@ The slicer keeps every instruction that could change a measured bit. These
 checks report the instructions that provably cannot, on the circuit the static
 front end rebuilt (loops unrolled, helpers followed), so they see what the
 quick checks' literal reading misses. They never execute the program; a file
-the static parser cannot read gets no findings.
+the static parser cannot read gets no findings, except QD04 when the reason is
+that Qiskit itself would reject an operation (a qubit index out of range, the
+same qubit twice): the parser raises Qiskit's errors where Qiskit would.
 
 This module is also the reference for writing an add-on: define ``LINTER``,
 give each rule a code, and return diagnostics from ``run``.
@@ -26,7 +28,15 @@ RULES = [
          "anything reads it."),
     Rule("QD03", "Constant measurement", "warning",
          "A qubit is measured before any gate has acted on it, so the result is always 0."),
+    Rule("QD04", "Qiskit rejects an operation", "error",
+         "Rebuilding the circuit hits an error Qiskit raises when the program runs: a qubit "
+         "index out of range, the same qubit twice, the wrong number of arguments."),
 ]
+
+# Errors the static parser raises where Qiskit would. Other exceptions it reports
+# (NameError, TypeError, ...) can come from what it cannot model, so they are not
+# findings: on the benchmarks they also appear on fixed programs.
+_QISKIT_ERRORS = frozenset({"CircuitError", "QiskitError"})
 
 
 def _line(instruction) -> int:
@@ -121,9 +131,24 @@ def _merge(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return list(merged.values())
 
 
+def _rejected_operation(failure) -> List[Dict[str, Any]]:
+    raised = getattr(failure, "raised", None)
+    line = getattr(failure, "lineno", None)
+    if raised not in _QISKIT_ERRORS or not line:
+        return []
+    detail = getattr(failure, "message", str(failure)).split(f"{raised}: ", 1)[-1]
+    return [_finding(
+        "QD04", line, f"Qiskit raises {raised} here: {detail}",
+        "The program stops at this line when it runs. Check the qubit and bit indices against "
+        "the circuit's size, and the number of qubits the gate takes.",
+    )]
+
+
 def run(context: LintContext) -> List[Dict[str, Any]]:
     program, _error = context.program()
-    if program is None or len(program) == 0:
+    if program is None:
+        return _rejected_operation(context.failure())
+    if len(program) == 0:
         return []
     from qpdg import QPDG, get_rule_profile
 

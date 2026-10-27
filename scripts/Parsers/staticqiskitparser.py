@@ -88,11 +88,16 @@ MAX_BITS = 100_000             # bits in one register
 # --------------------------------------------------------------------------
 
 class StaticParseError(ValueError):
-    """The circuit cannot be determined without running the program."""
+    """The circuit cannot be determined without running the program.
 
-    def __init__(self, message, lineno=None):
+    ``raised`` names the exception class when the reason is that the program
+    itself raises one (``CircuitError``, ``NameError``, ...), else it is None.
+    """
+
+    def __init__(self, message, lineno=None, raised=None):
         self.message = message
         self.lineno = lineno
+        self.raised = raised
         super().__init__(f"line {lineno}: {message}" if lineno else message)
 
 
@@ -1061,7 +1066,8 @@ class _Interpreter:
             self.exec_block(tree.body, self.module_frame)
         except _ProgramError as err:
             raise StaticParseError(
-                f"the program raises {type(err.exc).__name__}: {err.exc}", err.lineno) from None
+                f"the program raises {type(err.exc).__name__}: {err.exc}", err.lineno,
+                raised=type(err.exc).__name__) from None
         except _NeedsUnknown as exc:
             raise self.error(f"`{exc}` cannot be determined without running the program") from None
         except (_Break, _Continue):

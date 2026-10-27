@@ -166,6 +166,38 @@ def test_constant_measurement():
     assert [d["line"] for d in dependence(source, "QD03")] == [6]
 
 
+def test_qubit_index_out_of_range_inside_a_function():
+    source = py("""
+        def entangle(qc, qs):
+            qc.h(qs[0])
+            qc.cx(qs[0], qs[1])
+            return qc
+
+        qc = entangle(QuantumCircuit(2), [0, 2])
+    """)
+    found = dependence(source, "QD04")
+    assert [d["line"] for d in found] == [5]       # the gate, not the call
+    assert found[0]["severity"] == "error" and "Index 2 out of range" in found[0]["message"]
+
+
+def test_same_qubit_twice_in_a_loop():
+    source = py("""
+        qc = QuantumCircuit(3)
+        for i in range(2):
+            qc.cx(i, i)
+    """)
+    found = dependence(source, "QD04")
+    assert [d["line"] for d in found] == [5] and "duplicate qubit" in found[0]["message"]
+
+
+@pytest.mark.parametrize("body", [
+    "qc = QuantumCircuit(1)\nqc.h(undefined_name)\n",   # a Python error: maybe the parser's limit
+    "qc = QuantumCircuit(2)\nqc.cx(0, 1)\n",            # fine
+])
+def test_qd04_reports_only_qiskit_errors(body):
+    assert dependence(py(body), "QD04") == []
+
+
 def test_unreadable_program_gets_no_dependence_findings():
     assert linters.run("import os\nos.system('x')\n", selection=["dependence"]) == []
 
