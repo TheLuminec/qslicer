@@ -35,14 +35,20 @@ _MEASURE_METHODS = {"measure", "measure_all", "measure_active"}
 # linter registry (linters.py) offers these as individually selectable rules.
 RULES = {
     "QS000": ("Python syntax error", "error", "The file does not parse as Python."),
-    "QS001": ("No circuit", "error", "No QuantumCircuit is constructed anywhere in the file."),
+    "QS001": ("No circuit", "error",
+              "No QuantumCircuit is constructed or loaded anywhere in the file, and no function "
+              "takes one."),
     "QS002": ("Qubit index out of range", "error",
               "A literal qubit index falls outside the circuit's declared qubits."),
     "QS003": ("Repeated qubit", "error", "A multi-qubit gate names the same qubit twice."),
     "QS004": ("Classical bit out of range", "error",
               "measure() writes a classical bit the circuit does not declare."),
-    "QS005": ("No measurement", "warning", "The circuit never measures anything."),
-    "QS006": ("Idle qubit", "info", "A declared qubit no literal gate call touches."),
+    "QS005": ("No measurement", "warning",
+              "The circuit never measures anything, and its state is not read another way "
+              "(Statevector, Operator, an Estimator)."),
+    "QS006": ("Idle qubit", "info",
+              "A declared qubit no literal gate call touches (circuits handed to a function "
+              "of the file are not judged)."),
     "QS007": ("Classical bit written twice", "warning",
               "Two measurements write the same classical bit; the first result is lost."),
     "QS008": ("c_if() removed", "error", "c_if() was removed in Qiskit 2.0."),
@@ -105,13 +111,47 @@ def _qubit_args(node: ast.AST) -> Optional[List[int]]:
     return _int_list(node)
 
 
+# Calls that read a circuit's state or operator rather than sampling it, so a
+# circuit that never measures is deliberate (QS005).
+_STATE_READERS = frozenset({
+    "Statevector", "DensityMatrix", "Operator", "Clifford", "from_instruction",
+    "from_circuit", "evolve", "save_statevector", "save_unitary", "save_density_matrix",
+    "Estimator", "EstimatorV2", "StatevectorEstimator", "BackendEstimatorV2",
+})
+# Result methods that read a simulated state: a file that calls one runs its
+# circuit on a statevector or unitary simulator, where measuring is not wanted.
+_STATE_RESULTS = frozenset({"get_statevector", "get_unitary", "get_density_matrix"})
+# Calls that sample a circuit: without a measurement they return nothing useful.
+_SAMPLERS = frozenset({"execute", "run", "Sampler", "SamplerV2", "StatevectorSampler",
+                       "BackendSamplerV2"})
+# Ways a file gets a circuit without calling QuantumCircuit(...) itself (QS001).
+_CIRCUIT_SOURCES = frozenset({"random_circuit", "from_qasm_str", "from_qasm_file"})
+_LOADER_MODULES = frozenset({"qasm2", "qasm3", "qpy"})
+
+
 class _CircuitCollector(ast.NodeVisitor):
-    """Finds ``QuantumCircuit(...)`` assignments and the calls made on them."""
+    """Finds ``QuantumCircuit(...)`` assignments and the calls made on them, and
+    where those circuits go: into functions this file defines, or into calls that
+    read their state or sample them."""
 
     def __init__(self) -> None:
         self.circuits: Dict[str, Dict[str, Any]] = {}
         self.calls: List[Dict[str, Any]] = []
         self.has_circuit_call = False
+        self.takes_circuit = False        # a function has a parameter annotated QuantumCircuit
+        self.functions: set = set()        # names of functions defined in this file
+        self.passed_to: Dict[str, set] = {}   # variable -> names of the calls it is passed to
+        self.reads_state = False          # get_statevector() and friends, anywhere
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.functions.add(node.name)
+        arguments = node.args.posonlyargs + node.args.args + node.args.kwonlyargs
+        if any(arg.annotation is not None and _callee_name(arg.annotation) == "QuantumCircuit"
+               for arg in arguments):
+            self.takes_circuit = True
+        self.generic_visit(node)
+
+    visit_AsyncFunctionDef = visit_FunctionDef
 
     def visit_Assign(self, node: ast.Assign) -> None:
         call = node.value
@@ -128,15 +168,36 @@ class _CircuitCollector(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
+        callee = _callee_name(node.func)
+        owner = None
         if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+            owner = node.func.value.id
             self.calls.append({
-                "owner": node.func.value.id,
+                "owner": owner,
                 "method": node.func.attr,
                 "node": node,
             })
-        if _callee_name(node.func) == "QuantumCircuit":
+        if (callee == "QuantumCircuit" or owner == "QuantumCircuit" or callee in _CIRCUIT_SOURCES
+                or (owner in _LOADER_MODULES and callee in ("load", "loads"))):
             self.has_circuit_call = True
+        if callee in _STATE_RESULTS:
+            self.reads_state = True
+        if callee == "run" and owner and "estimator" in owner.lower():
+            callee = "Estimator"            # estimator.run([(qc, obs)]) reads, it does not sample
+        arguments = list(node.args) + [keyword.value for keyword in node.keywords]
+        while arguments:
+            arg = arguments.pop()
+            if isinstance(arg, ast.Starred):
+                arg = arg.value
+            if isinstance(arg, (ast.List, ast.Tuple)):          # sampler.run([qc])
+                arguments.extend(arg.elts)
+            elif isinstance(arg, ast.Name) and arg.id != owner:
+                self.passed_to.setdefault(arg.id, set()).add(callee)
         self.generic_visit(node)
+
+    def escapes(self, name: str) -> bool:
+        """The circuit is handed to a function this file defines, which may use it."""
+        return bool(self.passed_to.get(name, set()) & self.functions)
 
 
 def _callee_name(func: ast.AST) -> str:
@@ -189,7 +250,8 @@ def check_source(source: str) -> List[Dict[str, Any]]:
 
 
 def _check_has_circuit(tree: ast.AST, collector: _CircuitCollector) -> List[Dict[str, Any]]:
-    if collector.has_circuit_call:
+    """No circuit is made or loaded anywhere, and no function is given one."""
+    if collector.has_circuit_call or collector.takes_circuit:
         return []
     root = ast.Module(body=[], type_ignores=[])
     root.lineno = 1  # type: ignore[attr-defined]
@@ -197,8 +259,8 @@ def _check_has_circuit(tree: ast.AST, collector: _CircuitCollector) -> List[Dict
     return [_Finding(
         "QS001", "error", root,
         "No QuantumCircuit is constructed anywhere in this file.",
-        "The parser executes the file and then looks for a QuantumCircuit in the resulting "
-        "namespace. Assign one at module level, for example qc = QuantumCircuit(3, 3).",
+        "The static parser reads the file and then looks for the QuantumCircuit it builds. "
+        "Assign one at module level, for example qc = QuantumCircuit(3, 3).",
     )]
 
 
@@ -279,11 +341,26 @@ def _check_indices(collector: _CircuitCollector) -> List[Dict[str, Any]]:
 
 
 def _check_measurement(tree: ast.AST, collector: _CircuitCollector) -> List[Dict[str, Any]]:
-    """A circuit with no measurement produces no slice criterion worth the name."""
+    """A circuit with no measurement produces no slice criterion worth the name.
+
+    Not reported when the circuit's state is read instead (Statevector,
+    Operator, an Estimator, a simulator result's get_statevector() or
+    get_unitary(), ...), or when the circuit goes into a function
+    this file defines (which may measure it, or return it to be measured),
+    unless it is also sampled (execute, run, a Sampler): sampling a circuit
+    that measures nothing is the mistake this rule is for.
+    """
     if not collector.circuits:
         return []
     measured = any(call["method"] in _MEASURE_METHODS for call in collector.calls)
     if measured:
+        return []
+    names = list(collector.circuits)
+    if collector.reads_state:
+        return []
+    sampled = any(collector.passed_to.get(n, set()) & _SAMPLERS for n in names)
+    read = any(collector.passed_to.get(n, set()) & _STATE_READERS for n in names)
+    if not sampled and (read or any(collector.escapes(n) for n in names)):
         return []
     first = next(iter(collector.circuits.values()))
     return [_Finding(
@@ -295,11 +372,12 @@ def _check_measurement(tree: ast.AST, collector: _CircuitCollector) -> List[Dict
 
 
 def _check_idle_qubits(collector: _CircuitCollector) -> List[Dict[str, Any]]:
-    """Declared qubits that no literal gate call ever touches."""
+    """Declared qubits that no literal gate call ever touches (a circuit handed to
+    a function this file defines may be used there, so it is not judged)."""
     findings: List[Dict[str, Any]] = []
     for name, circuit in collector.circuits.items():
         declared = circuit["num_qubits"]
-        if not declared:
+        if not declared or collector.escapes(name):
             continue
         touched = set()
         opaque = False
