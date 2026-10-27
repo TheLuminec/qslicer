@@ -61,6 +61,10 @@ RULES = {
     "QS012": ("Unknown Qiskit name", "error",
               "An import of a name or module the installed Qiskit does not have, such as "
               "CNOT from qiskit.circuit.library (the gate class is CXGate)."),
+    "QS013": ("Unknown Qiskit method or argument", "error",
+              "A QuantumCircuit method or attribute, or a keyword argument of a circuit method "
+              "or an imported Qiskit class, that the installed Qiskit does not have "
+              "(qc.mcx(..., control_state=1): the keyword is ctrl_state)."),
 }
 
 
@@ -142,13 +146,21 @@ class _CircuitCollector(ast.NodeVisitor):
         self.functions: set = set()        # names of functions defined in this file
         self.passed_to: Dict[str, set] = {}   # variable -> names of the calls it is passed to
         self.reads_state = False          # get_statevector() and friends, anywhere
+        self.circuit_params: set = set()  # parameters annotated QuantumCircuit
+        self.attributes: List[Dict[str, Any]] = []   # name.attr reads, calls included
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self.functions.add(node.name)
         arguments = node.args.posonlyargs + node.args.args + node.args.kwonlyargs
-        if any(arg.annotation is not None and _callee_name(arg.annotation) == "QuantumCircuit"
-               for arg in arguments):
-            self.takes_circuit = True
+        for arg in arguments:
+            if arg.annotation is not None and _callee_name(arg.annotation) == "QuantumCircuit":
+                self.takes_circuit = True
+                self.circuit_params.add(arg.arg)
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        if isinstance(node.value, ast.Name) and isinstance(node.ctx, ast.Load):
+            self.attributes.append({"owner": node.value.id, "attr": node.attr, "node": node})
         self.generic_visit(node)
 
     visit_AsyncFunctionDef = visit_FunctionDef
@@ -243,6 +255,7 @@ def check_source(source: str) -> List[Dict[str, Any]]:
     findings += _check_removed_api(tree)
     findings += _check_removed_qiskit(tree, collector)
     findings += _check_unknown_qiskit_names(tree)
+    findings += _check_unknown_qiskit_api(tree, collector)
     findings += _check_self_inverse_pairs(collector)
 
     findings.sort(key=lambda f: (f["line"], f["column"], f["code"]))
@@ -654,6 +667,78 @@ def _check_unknown_qiskit_names(tree: ast.AST) -> List[Dict[str, Any]]:
                         and _qiskit_module(alias.name) is None:
                     report(node, f"There is no module {alias.name} in Qiskit {version}.",
                            "Check the module path against the Qiskit docs.")
+    return findings
+
+
+def _unknown_keywords(target: Any, call: ast.Call) -> List[tuple]:
+    """``(keyword, suggestion)`` for each keyword ``target``'s signature does not take."""
+    import difflib
+    import inspect
+    try:
+        params = inspect.signature(target).parameters
+    except (TypeError, ValueError):
+        return []
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return []
+    names = [name for name in params if name != "self"]
+    bad = []
+    for keyword in call.keywords:
+        if keyword.arg is not None and keyword.arg not in params:
+            close = difflib.get_close_matches(keyword.arg, names, n=1)
+            bad.append((keyword.arg, f"Did you mean {close[0]}?" if close else
+                        f"It takes: {', '.join(names) or 'no arguments'}."))
+    return bad
+
+
+def _check_unknown_qiskit_api(tree: ast.AST, collector: _CircuitCollector) -> List[Dict[str, Any]]:
+    """QS013: methods, attributes and keyword arguments the installed Qiskit lacks, on
+    known circuits (assigned QuantumCircuit(...), or parameters annotated so) and in
+    calls of names imported from Qiskit. Removed methods are QS011's."""
+    import difflib
+    findings: List[Dict[str, Any]] = []
+    try:
+        import qiskit
+        from qiskit import QuantumCircuit
+        version = qiskit.__version__
+    except Exception:                            # noqa: BLE001 -- no Qiskit: nothing to check
+        return findings
+    circuits = set(collector.circuits) | collector.circuit_params
+    public = [n for n in dir(QuantumCircuit) if not n.startswith("_")]
+    reported = set()
+    for use in collector.attributes:
+        attr, node = use["attr"], use["node"]
+        if use["owner"] not in circuits or attr.startswith("_") or attr in _REMOVED_METHODS \
+                or hasattr(QuantumCircuit, attr) or (node.lineno, attr) in reported:
+            continue
+        reported.add((node.lineno, attr))
+        close = difflib.get_close_matches(attr, public, n=1)
+        findings.append(_Finding(
+            "QS013", "error", node, f"QuantumCircuit has no attribute {attr} in Qiskit {version}.",
+            f"Did you mean {close[0]}?" if close else "Check the name against the Qiskit docs."))
+    for call in collector.calls:
+        if call["owner"] in circuits and hasattr(QuantumCircuit, call["method"]):
+            for keyword, hint in _unknown_keywords(getattr(QuantumCircuit, call["method"]),
+                                                    call["node"]):
+                findings.append(_Finding(
+                    "QS013", "error", call["node"],
+                    f"QuantumCircuit.{call['method']}() takes no argument {keyword} in "
+                    f"Qiskit {version}.", hint))
+
+    imported: Dict[str, Any] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and not node.level \
+                and _QISKIT_MODULE.match(node.module) and not _removed_module(node.module):
+            module = _qiskit_module(node.module)
+            for alias in node.names:
+                if module and alias.name != "*" and hasattr(module, alias.name):
+                    imported[alias.asname or alias.name] = getattr(module, alias.name)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
+                and node.func.id in imported:
+            for keyword, hint in _unknown_keywords(imported[node.func.id], node):
+                findings.append(_Finding(
+                    "QS013", "error", node,
+                    f"{node.func.id}() takes no argument {keyword} in Qiskit {version}.", hint))
     return findings
 
 

@@ -477,3 +477,43 @@ def test_qs012_negative(line):
 def test_qs012_leaves_removed_apis_to_qs011(line):
     findings = check(f"qc = QuantumCircuit(3, 3)\n{line}\nqc.measure_all()\n")
     assert "QS011" in codes(findings) and "QS012" not in codes(findings)
+
+
+# QS013 unknown Qiskit method or argument -----------------------------------------
+
+@pytest.mark.parametrize("line, message, hint", [
+    ("qc.clbit(0)", "QuantumCircuit has no attribute clbit", "Did you mean clbits?"),
+    ("n = qc.num_qbits", "QuantumCircuit has no attribute num_qbits", "num_qubits"),
+    ("qc.mcx([0, 1], 2, control_state=1)", "mcx() takes no argument control_state",
+     "Did you mean ctrl_state?"),
+    ("qc.h(0, lable='x')", "h() takes no argument lable", "Did you mean label?"),
+    ("from qiskit.circuit.library import IntegerComparator\n"
+     "cmp = IntegerComparator(2, 3, ge=True)", "IntegerComparator() takes no argument ge",
+     "Did you mean geq?"),
+])
+def test_qs013_positive(line, message, hint):
+    qs = only(check(f"qc = QuantumCircuit(3, 3)\n{line}\nqc.measure_all()\n"), "QS013")
+    assert len(qs) == 1 and qs[0]["severity"] == "error"
+    assert message in qs[0]["message"] and "2.6.0" in qs[0]["message"] and hint in qs[0]["hint"]
+
+
+def test_qs013_reads_parameters_annotated_quantumcircuit():
+    findings = check("""
+        def flip(qc: QuantumCircuit, q: int) -> QuantumCircuit:
+            qc.mcx([0], q, control_state=0)
+            return qc
+        """)
+    assert [f["line"] for f in only(findings, "QS013")] == [4]
+
+
+@pytest.mark.parametrize("line", [
+    "qc.mcx([0, 1], 2, ctrl_state=1)",
+    "qc.h(0, label='x')",
+    "n = qc.num_qubits + len(qc.clbits)",
+    "qc.compose(other, qubits=[0, 1], inplace=True)",
+    "values = []\nvalues.clbit()",                            # not a circuit
+    "from qiskit.circuit.library import QFTGate\ngate = QFTGate(3)",
+    "qc.cu1(0.5, 0, 1)",                                     # removed: QS011's
+])
+def test_qs013_negative(line):
+    assert "QS013" not in codes(check(f"qc = QuantumCircuit(3, 3)\n{line}\nqc.measure_all()\n"))

@@ -468,11 +468,11 @@ approximations are accepted. Specifically:
   slices do not yet exclude an entangling gate that is uncomputed before the
   criterion.
 - **Qubit-wise (horizontal) slices** are computed in the browser;
-  `SlicingCriterion.qubits` is not consumed by the slicer yet. The X/Y/Z
-  measurement-basis toggle is a placeholder pending research.
-- **Static checks** (`QS000`–`QS012`) read only Python source, are not LintQ,
-  and see only literal arguments (QS012 also imports the installed Qiskit
-  modules a file imports from, to look its names up). OpenQASM input gets none.
+  `SlicingCriterion.qubits` is not consumed by the slicer yet.
+- **Static checks** (`QS000`–`QS013`) read only Python source, are not LintQ,
+  and see only literal arguments (QS012 and QS013 also import the installed
+  Qiskit modules a file uses, to look its names and arguments up). OpenQASM
+  input gets none.
 - **Large circuits** (several hundred instructions and up) draw slowly, since
   each node is a DOM element; use Range. Chunking is the planned fix.
 - **Static interpreter limits:** unmodelled code (user-defined classes,
