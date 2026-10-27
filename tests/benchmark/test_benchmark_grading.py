@@ -232,3 +232,31 @@ def test_runner_takes_a_manifest(tmp_path, capsys):
     assert capsys.readouterr().out.startswith("tiny: 1 bugs (1 edit)")
     with pytest.raises(SystemExit):
         runner.main(["--manifest", "no-such-dataset"])
+
+
+def test_scaffolding_lines_are_not_graded():
+    bug = {"ignore_from_line": {"buggy": 10, "fixed": 8}}
+    warnings = [{"line": 3}, {"line": 9}, {"line": 10}, {"line": 0}]
+    assert [w["line"] for w in benchmark.graded_warnings(bug, "buggy", warnings)] == [3, 9, 0]
+    assert [w["line"] for w in benchmark.graded_warnings(bug, "fixed", warnings)] == [3, 0]
+    assert benchmark.graded_warnings({}, "buggy", warnings) == warnings
+
+
+def test_a_run_leaves_out_warnings_on_scaffolding(tmp_path):
+    manifest = json.loads(open(_tiny_dataset(tmp_path), encoding="utf-8").read())
+    programs = tmp_path / "tiny" / "programs"
+    scaffold = "from qiskit import QuantumCircuit\nqc = QuantumCircuit(1)\nqc.h(0)\n"
+    (programs / "buggy.py").write_text("a = 1\nb = 2\n" + scaffold, encoding="utf-8")
+    (programs / "fixed.py").write_text("a = 1\nb = 3\n" + scaffold, encoding="utf-8")
+    path = str(tmp_path / "tiny" / "manifest.json")
+
+    def fixed_warnings():
+        benchmark._DATASETS.pop(path, None)
+        report = benchmark.run(["quick/QS005"], use_cache=False, dataset=path)
+        return report["totals"]["selection"]["warnings_fixed"]
+
+    assert fixed_warnings() == 1                     # QS005 on the scaffolding's circuit
+    manifest["bugs"][0]["ignore_from_line"] = {"buggy": 3, "fixed": 3}
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(manifest, handle)
+    assert fixed_warnings() == 0

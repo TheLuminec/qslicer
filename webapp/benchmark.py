@@ -13,6 +13,8 @@ is Bugs4Q (``benchmarks/bugs4q/``, real Qiskit bugs). A manifest looks like::
 
 Only ``bugs`` and each bug's ``key``, ``buggy`` and ``fixed`` (paths under
 ``programs/``) are required; anything else is shown when present.
+``ignore_from_line`` (per version) marks appended scaffolding whose warnings
+are not graded (see ``graded_warnings``).
 
 Ground truth is the fix itself. The *fault lines* of a bug are the buggy
 program's code lines the fix deletes or rewrites; comments, blank lines and
@@ -387,8 +389,9 @@ def _run(data: Dataset, chosen: List[str], profile: str,
             context = linters.LintContext(bug["sources"][version], os.path.basename(bug[version]),
                                           "python-static", profile)
             pre = {lid: found.get(bug[version], []) for lid, found in batched.items()}
-            raw[bug["key"]][version] = linters.run(context.source, context.filename,
-                                                   context.kind, chosen, profile, context, pre)
+            raw[bug["key"]][version] = graded_warnings(
+                bug, version, linters.run(context.source, context.filename, context.kind,
+                                          chosen, profile, context, pre))
             if context._parsed is not None:
                 program, error = context._parsed
                 front_end.setdefault(bug["key"], {})[version] = {
@@ -477,4 +480,17 @@ def _warnings_for(config: Dict[str, Any], bug: Dict[str, Any],
         return ([w for w in raw["buggy"] if w.get("tool") == config["filter"]],
                 [w for w in raw["fixed"] if w.get("tool") == config["filter"]])
     results = config["filter"]["results"]
-    return (list(results.get(bug["buggy"], [])), list(results.get(bug["fixed"], [])))
+    return (graded_warnings(bug, "buggy", results.get(bug["buggy"], [])),
+            graded_warnings(bug, "fixed", results.get(bug["fixed"], [])))
+
+
+def graded_warnings(bug: Dict[str, Any], version: str,
+                    warnings: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """The warnings a bug is graded on: all of them, unless its manifest entry says
+    from which line a program is scaffolding added by whoever built the dataset
+    (``"ignore_from_line": {"buggy": 18, "fixed": 17}``), whose warnings say
+    nothing about the program itself."""
+    start = (bug.get("ignore_from_line") or {}).get(version)
+    if not start:
+        return list(warnings)
+    return [w for w in warnings if not (w.get("line") or 0) >= start]

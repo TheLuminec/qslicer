@@ -44,3 +44,9 @@ is shown where present. Ground truth comes from the diff between the two
 programs (`webapp/benchmark.py` explains how), so nothing else needs labelling.
 A manifest outside this folder can be run with `--manifest <path>`, but only
 folders here appear on the web app.
+
+A dataset that appends scaffolding to its programs (the `qiskit-llm-bugs`
+harness adds a call of the solution's function, so a static reader sees a
+circuit) can give each bug `"ignore_from_line": {"buggy": 18, "fixed": 17}`:
+warnings from that line on are left out of the grading, since they say nothing
+about the program itself.
