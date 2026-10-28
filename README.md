@@ -146,7 +146,7 @@ all of its rules); `lint_rules` omitted means the default selection.
 | Linter | Id | Reads | Default |
 |---|---|---|---|
 | Quick checks | `quick` | the Python syntax tree (`webapp/lint.py`) | on |
-| Dependence checks | `dependence` | the static IR and its QDG: dead gates, overwritten and constant measurements, and operations Qiskit would reject while the circuit is rebuilt (QD04) | off |
+| Dependence checks | `dependence` | the static IR and its QDG: dead gates, overwritten and constant measurements, operations Qiskit would reject while the circuit is rebuilt (QD04), and controlled gates whose control is still \|0⟩ (QD05) | off |
 | LintQ | `lintq` | LintQ's ten queries, reimplemented on the syntax tree (`scripts/Linters/lintq_port.py`) | off |
 | LintQ (original, CodeQL) | `lintq-codeql` | LintQ's own CodeQL queries, where `QSLICER_CODEQL` and `QSLICER_LINTQ` are set | off |
 

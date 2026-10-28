@@ -59,7 +59,7 @@ def test_analyze_honours_lint_rules(client):
                            lint_rules=["dependence"])
     assert body["ok"], body
     assert body["lint_rules"] == ["dependence/QD01", "dependence/QD02", "dependence/QD03",
-                                  "dependence/QD04"]
+                                  "dependence/QD04", "dependence/QD05"]
     # No quick checks were selected, so there is nothing to say about skipping them.
     assert all(d["code"] != "QS100" for d in body["diagnostics"])
 

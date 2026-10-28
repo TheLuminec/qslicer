@@ -31,7 +31,25 @@ RULES = [
     Rule("QD04", "Qiskit rejects an operation", "error",
          "Rebuilding the circuit hits an error Qiskit raises when the program runs: a qubit "
          "index out of range, the same qubit twice, the wrong number of arguments."),
+    Rule("QD05", "Control never set", "warning",
+         "A controlled gate whose control qubit is still |0> when it runs, so the gate never "
+         "acts: control and target swapped, or the gate preparing the control is missing or "
+         "comes later."),
 ]
+
+# QD05: how many leading qubits of a controlled gate are controls.
+_CONTROLS = {
+    "cx": 1, "cy": 1, "cz": 1, "ch": 1, "cs": 1, "csdg": 1, "csx": 1, "cp": 1, "cu1": 1,
+    "crx": 1, "cry": 1, "crz": 1, "cu": 1, "cu3": 1, "cswap": 1,
+    "ccx": 2, "ccz": 2, "rccx": 2, "c3x": 3, "c3sx": 3, "rc3x": 3, "c4x": 4,
+}
+_ALL_BUT_LAST = frozenset({"mcx", "mcp", "mcphase", "mcrx", "mcry", "mcrz", "mcx_gray",
+                           "mcx_recursive", "mcx_vchain"})
+# Instructions after which a qubit that was |0> still is: diagonal gates, and the
+# bookkeeping that does not change a state (a measured |0> stays |0>).
+_KEEP_ZERO = frozenset({"z", "s", "sdg", "t", "tdg", "p", "rz", "u1", "id", "i", "barrier",
+                        "delay", "measure", "global_phase", "cz", "cp", "cu1", "ccz", "cs",
+                        "csdg", "crz", "mcp", "mcphase", "mcrz", "rzz"})
 
 # Errors the static parser raises where Qiskit would. Other exceptions it reports
 # (NameError, TypeError, ...) can come from what it cannot model, so they are not
@@ -117,6 +135,87 @@ def _constant_measurements(program) -> List[Dict[str, Any]]:
     return findings
 
 
+def _controls(instruction) -> List[int]:
+    if instruction.name in _CONTROLS:
+        return list(instruction.qubits[:_CONTROLS[instruction.name]])
+    if instruction.name in _ALL_BUT_LAST:
+        return list(instruction.qubits[:-1])
+    return []
+
+
+def _lines_given_a_circuit(source: str) -> Set[int]:
+    """Lines of gate calls on a circuit that a function receives as a parameter.
+
+    Such a function (an oracle, a QFT, an adder) is written for any input; the
+    rebuilt circuit only shows it run on one, where a control may well be |0>.
+    """
+    import ast
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+    found: Set[int] = set()
+    for func in ast.walk(tree):
+        if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        params = {a.arg for a in func.args.posonlyargs + func.args.args + func.args.kwonlyargs}
+        for node in ast.walk(func):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name) and node.func.value.id in params):
+                found.add(node.lineno)
+    return found
+
+
+def _unset_controls(program, source: str) -> List[Dict[str, Any]]:
+    """Controlled gates run while a control qubit is provably still |0>.
+
+    Every qubit starts in |0>. It stays there through diagonal gates and
+    measurements, returns there on reset, and leaves for good on anything
+    else: another gate, a classically conditioned one, a control-flow block, an
+    instruction the rule does not know. A gate written with ``ctrl_state`` is
+    skipped, since the IR does not record which controls are open, and so is a
+    gate on a circuit a function receives (see ``_lines_given_a_circuit``).
+    """
+    lines = source.splitlines()
+    given = _lines_given_a_circuit(source)
+    zero: Set[int] = set(q for i in range(len(program)) for q in program[i].qubits)
+    idle: Dict[int, List[tuple]] = {}         # line -> (gate, unset controls) per idle instance
+    acting: Set[int] = set()                  # lines with at least one gate that can act
+    for idx in range(len(program)):
+        instruction = program[idx]
+        qubits = list(instruction.qubits)
+        name = instruction.name
+        conditioned = instruction.metadata.get("condition") is not None
+        line = _line(instruction)
+        text = lines[line - 1] if 0 < line <= len(lines) else ""
+        unset = [q for q in _controls(instruction) if q in zero]
+        if unset and not conditioned and "ctrl_state" not in text:
+            idle.setdefault(line, []).append((name, unset))
+            continue                          # the gate does nothing, so no state changes
+        if _controls(instruction):
+            acting.add(line)
+        if name == "reset":
+            zero.update(qubits)
+        elif conditioned or name not in _KEEP_ZERO:
+            zero.difference_update(qubits)
+    # A line is reported only when no gate it produced could act: a loop whose
+    # other iterations do act is general code meeting one particular input.
+    findings = []
+    for line, instances in idle.items():
+        if not line or line in acting or line in given:
+            continue
+        name, unset = instances[0]
+        findings.append(_finding(
+            "QD05", line,
+            f"{name} never acts: its control qubit(s) {unset} are always |0> here"
+            + (f" ({len(instances)} instances from this line, none of which act)."
+               if len(instances) > 1 else "."),
+            "Control and target may be swapped, or the gate that should put the control "
+            "into superposition (h) or |1> (x) is missing or comes after this one.",
+        ))
+    return findings
+
+
 def _merge(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """One finding per (code, line): a gate inside a loop is reported once, with a count."""
     merged: Dict[tuple, Dict[str, Any]] = {}
@@ -158,7 +257,7 @@ def run(context: LintContext) -> List[Dict[str, Any]]:
         rules = get_rule_profile("baseline")
     qpdg = QPDG(program, rules=rules)
     return _merge(_dead_gates(program, qpdg) + _overwritten_measurements(program)
-                  + _constant_measurements(program))
+                  + _constant_measurements(program) + _unset_controls(program, context.source))
 
 
 LINTER = Linter(

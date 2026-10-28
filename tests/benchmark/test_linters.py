@@ -190,6 +190,74 @@ def test_same_qubit_twice_in_a_loop():
     assert [d["line"] for d in found] == [5] and "duplicate qubit" in found[0]["message"]
 
 
+def test_ghz_with_control_and_target_swapped():
+    source = py("""
+        def ghz(n):
+            qc = QuantumCircuit(n)
+            qc.h(0)
+            for i in range(n - 1):
+                qc.cx(i + 1, i)
+            return qc
+
+        qc = ghz(4)
+    """)
+    found = dependence(source, "QD05")
+    assert [d["line"] for d in found] == [7] and "3 instances" in found[0]["message"]
+
+
+def test_ghz_built_correctly_is_quiet():
+    source = py("""
+        def ghz(n):
+            qc = QuantumCircuit(n)
+            qc.h(0)
+            for i in range(n - 1):
+                qc.cx(i, i + 1)
+            return qc
+
+        qc = ghz(4)
+    """)
+    assert dependence(source, "QD05") == []
+
+
+def test_control_prepared_too_late():
+    source = py("""
+        qc = QuantumCircuit(2, 2)
+        qc.cx(0, 1)
+        qc.h(0)
+        qc.measure([0, 1], [0, 1])
+    """)
+    found = dependence(source, "QD05")
+    assert [d["line"] for d in found] == [4] and "[0]" in found[0]["message"]
+
+
+@pytest.mark.parametrize("body", [
+    # A loop line that acts on some iterations: general code meeting one input (a QFT on |010>).
+    "qc = QuantumCircuit(3)\nqc.x(1)\nfor t in range(3):\n    qc.h(t)\n"
+    "    for c in range(t + 1, 3):\n        qc.cp(0.5, c, t)\n",
+    # A function given its circuit is written for any input.
+    "def oracle(qc, a, b):\n    qc.cx(a, b)\n    return qc\n\nqc = oracle(QuantumCircuit(2), 0, 1)\n",
+    # Diagonal gates and a measurement leave |0> where it was; x then reset then x again acts.
+    "qc = QuantumCircuit(2, 1)\nqc.x(0)\nqc.reset(0)\nqc.x(0)\nqc.cx(0, 1)\n",
+    # Open controls fire on |0>; the IR does not record ctrl_state, so the rule stays out.
+    "qc = QuantumCircuit(3)\nqc.mcx([0, 1], 2, ctrl_state='00')\n",
+    # A classically conditioned gate may or may not have run.
+    "qc = QuantumCircuit(2, 1)\nqc.h(1)\nqc.measure(1, 0)\nwith qc.if_test((qc.clbits[0], 1)):\n"
+    "    qc.x(0)\nqc.cx(0, 1)\n",
+])
+def test_qd05_negative(body):
+    assert dependence(py(body), "QD05") == []
+
+
+def test_reset_makes_a_control_zero_again():
+    source = py("""
+        qc = QuantumCircuit(2)
+        qc.h(0)
+        qc.reset(0)
+        qc.cx(0, 1)
+    """)
+    assert [d["line"] for d in dependence(source, "QD05")] == [6]
+
+
 @pytest.mark.parametrize("body", [
     "qc = QuantumCircuit(1)\nqc.h(undefined_name)\n",   # a Python error: maybe the parser's limit
     "qc = QuantumCircuit(2)\nqc.cx(0, 1)\n",            # fine
