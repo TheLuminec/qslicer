@@ -249,6 +249,18 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
         "fixed": _HEAD + "qc = QuantumCircuit(2, 1)\nqc.h(0)\nqc.measure(0, 0)\n"
                          "with qc.if_test((qc.clbits[0], 1)):\n    qc.x(1)\n",
     },
+    "QD10": {
+        "explain": "A gate that cannot change its qubit, because the code just before it put the "
+                   "qubit in an eigenstate of that gate: x after h (x leaves |+> as it is), y "
+                   "on |+i>, sx on |->. Usually a different gate was meant (z turns |+> into "
+                   "|->), or two gates are in the wrong order (x before h).",
+        "limits": "Follows each qubit while it is |0>, |1>, |+>, |->, |+i> or |-i> (through "
+                  "single-qubit Clifford gates), and only when the gate that set that state "
+                  "comes from the same code. Diagonal gates on |0> or |1> are not judged, nor "
+                  "x ... x around a control, nor a loop line that acts on other iterations.",
+        "example": _HEAD + "qc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.x(0)\nqc.measure(0, 0)\n",
+        "fixed": _HEAD + "qc = QuantumCircuit(1, 1)\nqc.x(0)\nqc.h(0)\nqc.measure(0, 0)\n",
+    },
     # ---------------------------------------------------------------- LintQ
     "LQ00": {
         "explain": "LintQ skipped the program because it has very many quantum operations; its "

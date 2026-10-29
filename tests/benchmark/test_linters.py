@@ -43,7 +43,7 @@ def test_quick_checks_are_errors_and_dependence_checks_the_quantum_side():
     assert {code for code, severity in quick.items() if severity != "error"} == {"QS009", "QS015", "QS016"}
     assert {"QS005", "QS006", "QS007", "QS010"}.isdisjoint(quick) and "QS014" in quick
     codes = [r.code for r in linters.get("dependence").rules]
-    assert codes == ["QD01", "QD02", "QD03", "QD05", "QD06", "QD07", "QD08", "QD09"]
+    assert codes == ["QD01", "QD02", "QD03", "QD05", "QD06", "QD07", "QD08", "QD09", "QD10"]
 
 
 def test_bare_linter_id_selects_all_its_rules_and_unknown_ids_drop():
@@ -463,3 +463,30 @@ def test_condition_never_set(body, line):
 ])
 def test_qd09_negative(body):
     assert dependence(py(body), "QD09") == []
+
+
+# QD10 gate has no effect -----------------------------------------------------
+
+@pytest.mark.parametrize("body, line, ket", [
+    ("qc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.x(0)\nqc.measure(0, 0)\n", 4, "|+>"),
+    ("qc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.s(0)\nqc.y(0)\nqc.measure(0, 0)\n", 5, "|+i>"),
+    ("qc = QuantumCircuit(1, 1)\nqc.x(0)\nqc.h(0)\nqc.sx(0)\nqc.measure(0, 0)\n", 5, "|->"),
+])
+def test_gate_with_no_effect(body, line, ket):
+    found = dependence(py(body), "QD10")
+    assert [d["line"] for d in found] == [line] and ket in found[0]["message"]
+    assert len(found[0]["nodes"]) == 2               # the gate that set the state, and this one
+
+
+@pytest.mark.parametrize("body", [
+    "qc = QuantumCircuit(1, 1)\nqc.x(0)\nqc.h(0)\nqc.measure(0, 0)\n",             # x on |0> acts
+    "qc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.z(0)\nqc.measure(0, 0)\n",             # z on |+> acts
+    # x ... x around a control: an open control, written by hand.
+    "qc = QuantumCircuit(2, 1)\nqc.h(0)\nqc.x(0)\nqc.cx(0, 1)\nqc.x(0)\nqc.measure(1, 0)\n",
+    # The caller's h and the helper's x: other inputs reach the helper too.
+    "def f(qc):\n    qc.x(0)\n\nqc = QuantumCircuit(1, 1)\nqc.h(0)\nf(qc)\nqc.measure(0, 0)\n",
+    # Entangled: no single-qubit state to follow.
+    "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.cx(0, 1)\nqc.x(0)\nqc.measure([0, 1], [0, 1])\n",
+])
+def test_qd10_negative(body):
+    assert dependence(py(body), "QD10") == []

@@ -18,7 +18,7 @@ This module is also the reference for writing an add-on: define ``LINTER``,
 give each rule a code, and return diagnostics from ``run``.
 """
 
-from typing import Any, Dict, Iterable, List, Set
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 from linters import Linter, LintContext, Rule
 
@@ -49,7 +49,27 @@ RULES = [
     Rule("QD09", "Condition never set", "warning",
          "An if_test (or other classical condition) reads only bits no earlier measurement "
          "wrote: they are still 0, so the branch is decided before the program runs."),
+    Rule("QD10", "Gate has no effect", "warning",
+         "A gate that leaves its qubit's state unchanged, because its own code just put the "
+         "qubit in an eigenstate of it: x after h (x leaves |+> as it is), y on |+i>."),
 ]
+
+# QD10: single-qubit Clifford gates as maps of a qubit's stabilizer, one of
+# "+Z" (|0>), "-Z" (|1>), "+X" (|+>), "-X" (|->), "+Y" (|+i>), "-Y" (|-i>).
+_CLIFFORD = {
+    "h": {"X": "+Z", "Z": "+X", "Y": "-Y"},
+    "x": {"X": "+X", "Y": "-Y", "Z": "-Z"},
+    "y": {"X": "-X", "Y": "+Y", "Z": "-Z"},
+    "z": {"X": "-X", "Y": "-Y", "Z": "+Z"},
+    "s": {"X": "+Y", "Y": "-X", "Z": "+Z"},
+    "sdg": {"X": "-Y", "Y": "+X", "Z": "+Z"},
+    "id": {"X": "+X", "Y": "+Y", "Z": "+Z"},
+}
+# Gates (non-diagonal ones only) and the axis whose eigenstates they leave alone.
+_FIXES = {"x": "X", "sx": "X", "sxdg": "X", "rx": "X", "y": "Y", "ry": "Y"}
+# Diagonal gates: they keep a Z eigenstate as it is.
+_DIAGONAL = frozenset({"z", "s", "sdg", "t", "tdg", "p", "rz", "u1", "id", "i"})
+_KET = {"+Z": "|0>", "-Z": "|1>", "+X": "|+>", "-X": "|->", "+Y": "|+i>", "-Y": "|-i>"}
 
 # QD05: how many leading qubits of a controlled gate are controls.
 _CONTROLS = {
@@ -376,6 +396,76 @@ def _conditions_never_set(program) -> List[Dict[str, Any]]:
     return findings
 
 
+def _no_effect_gates(program) -> List[Dict[str, Any]]:
+    """QD10: a non-diagonal gate on a qubit already in one of its eigenstates.
+
+    Each qubit's state is followed while it is a Pauli eigenstate: from |0>
+    through single-qubit Clifford gates, back to |0> on reset, lost on anything
+    else (a multi-qubit or conditioned gate, a measurement, an unknown gate).
+    A gate is reported when it leaves that state as it is, the gate that put
+    the qubit there came from the same code (the same call chain), and the
+    qubit is not about to be used as a control (x ... x around a control is a
+    pattern). Like QD05, a line is reported only when none of its gates act.
+    """
+    state: Dict[int, Optional[str]] = {}
+    setter: Dict[int, Optional[int]] = {}
+    idle: Dict[int, List[tuple]] = {}
+    acting: Set[int] = set()
+
+    def next_use_is_control(start: int, qubit: int) -> bool:
+        for later in range(start + 1, len(program)):
+            if qubit in program[later].qubits:
+                return qubit in _controls(program[later])
+        return False
+
+    for idx in range(len(program)):
+        instruction = program[idx]
+        name, qubits = instruction.name, list(instruction.qubits)
+        conditioned = instruction.metadata.get("condition") is not None
+        if len(qubits) == 1 and not conditioned and name not in ("barrier", "delay"):
+            q = qubits[0]
+            current = state.get(q, "+Z")
+            source = setter.get(q)
+            axis = _FIXES.get(name)
+            if (current and axis and current[1] == axis and source is not None
+                    and _call_chain(program[source]) == _call_chain(instruction)
+                    and not next_use_is_control(idx, q)):
+                idle.setdefault(_line(instruction), []).append((name, q, current, source, idx))
+                continue                       # no effect: the state stays
+            acting.add(_line(instruction))
+            if name == "reset":
+                state[q], setter[q] = "+Z", idx
+            elif name in _CLIFFORD and current:
+                state[q], setter[q] = _apply(name, current), idx
+            elif not (name in _DIAGONAL and current and current[1] == "Z"):
+                state[q], setter[q] = None, None
+        elif name not in ("barrier", "delay"):
+            for q in qubits:
+                state[q], setter[q] = None, None
+    findings = []
+    for line, instances in idle.items():
+        if not line or line in acting:
+            continue
+        name, q, current, source, _ = instances[0]
+        findings.append(_finding(
+            "QD10", line,
+            f"{name} on qubit {q} has no effect: the {program[source].name} at line "
+            f"{_line(program[source])} left it in {_KET[current]}, which {name} does not change.",
+            "A different gate was probably meant (z turns |+> into |->), or the two are in the "
+            "wrong order (x before h).",
+            nodes=[source] + [i for *_, i in instances],
+        ))
+    return findings
+
+
+def _apply(gate: str, stabilizer: str) -> str:
+    """A single-qubit Clifford gate's action on a Pauli stabilizer such as "-X"."""
+    sign, axis = stabilizer[0], stabilizer[1]
+    mapped = _CLIFFORD[gate][axis]
+    flip = (sign == "-") != (mapped[0] == "-")
+    return ("-" if flip else "+") + mapped[1]
+
+
 def _merge(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """One finding per (code, line): a gate inside a loop is reported once, with a count."""
     merged: Dict[tuple, Dict[str, Any]] = {}
@@ -409,7 +499,7 @@ def run(context: LintContext) -> List[Dict[str, Any]]:
                   + _constant_measurements(program) + _unset_controls(program, context.source)
                   + _no_measurement(program, context.source)
                   + _idle_qubits(program, context.source) + _cancelling_pairs(program, context.source)
-                  + _conditions_never_set(program))
+                  + _conditions_never_set(program) + _no_effect_gates(program))
 
 
 LINTER = Linter(
