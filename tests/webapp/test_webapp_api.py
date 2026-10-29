@@ -235,7 +235,9 @@ def test_lint_findings_returned_even_when_run_fails(client, monkeypatch):
     assert body["ok"] is False
     assert body["stdout"] == "printed"
     codes = {d["code"] for d in body["diagnostics"]}
-    assert {"QS002", "QS005"} <= codes
+    # The literal index (QS002) and Qiskit rejecting it (QS014): both from the linters,
+    # which parse the source themselves.
+    assert {"QS002", "QS014"} <= codes
     for diagnostic in body["diagnostics"]:
         assert isinstance(diagnostic["line"], int) and diagnostic["line"] > 0
         assert diagnostic["hint"]

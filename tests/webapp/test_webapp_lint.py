@@ -206,104 +206,6 @@ def test_qs004_negative():
     assert "QS004" not in codes(check(CLEAN))
 
 
-# QS005 never measures -------------------------------------------------------
-
-def test_qs005_positive():
-    findings = check("""
-        qc = QuantumCircuit(1)
-        qc.h(0)
-        """)
-    qs = only(findings, "QS005")
-    assert len(qs) == 1 and qs[0]["severity"] == "warning" and qs[0]["line"] == 3
-
-
-@pytest.mark.parametrize("call", ["qc.measure(0, 0)", "qc.measure_all()", "qc.measure_active()"])
-def test_qs005_negative(call):
-    findings = check(f"""
-        qc = QuantumCircuit(1, 1)
-        qc.h(0)
-        {call}
-        """)
-    assert "QS005" not in codes(findings)
-
-
-@pytest.mark.parametrize("use", [
-    "state = Statevector(qc)",
-    "state = Statevector.from_instruction(qc)",
-    "unitary = Operator(qc)",
-    "job = estimator.run([(qc, observable)])",              # reads expectation values
-    "flip(qc, 0)",                                           # a helper here may measure it
-    "state = execute(qc, sim).result().get_statevector()",   # statevector simulator
-])
-def test_qs005_negative_state_is_read_not_sampled(use):
-    findings = check(f"""
-        def flip(qc, q):
-            qc.x(q)
-
-        qc = QuantumCircuit(1)
-        qc.h(0)
-        {use}
-        """)
-    assert "QS005" not in codes(findings)
-
-
-@pytest.mark.parametrize("use", [
-    "counts = execute(qc, backend).result().get_counts()",
-    "job = backend.run(qc)",
-    "job = sampler.run([qc])",
-    "flip(qc, 0)\njob = backend.run(qc)",                    # also sampled: still a mistake
-])
-def test_qs005_positive_sampling_an_unmeasured_circuit(use):
-    findings = lint.check_source(HEADER + "def flip(qc, q):\n    qc.x(q)\n\n"
-                                 "qc = QuantumCircuit(1)\nqc.h(0)\n" + use + "\n")
-    assert "QS005" in codes(findings)
-
-
-# QS006 idle qubits ----------------------------------------------------------
-
-def test_qs006_positive():
-    findings = check("""
-        qc = QuantumCircuit(4, 1)
-        qc.h(0)
-        qc.cx(0, 1)
-        qc.measure(0, 0)
-        """)
-    qs = only(findings, "QS006")
-    assert len(qs) == 1 and qs[0]["severity"] == "info" and qs[0]["line"] == 3
-    assert "[2, 3]" in qs[0]["message"]
-
-
-@pytest.mark.parametrize("body", [
-    CLEAN,
-    # Opaque uses: something the AST cannot see through.
-    "qc = QuantumCircuit(3)\nqc.h(0)\nqc.measure_all()\n",
-    "qc = QuantumCircuit(3)\nfor i in range(3):\n    qc.h(i)\n",
-    "qc = QuantumCircuit(3)\nqc.append(gate, [0, 1, 2])\n",
-    # Handed to a function of this file, which may use the other qubits.
-    "def prepare(qc):\n    qc.x(2)\n\nqc = QuantumCircuit(3)\nqc.h(0)\nprepare(qc)\n",
-])
-def test_qs006_negative(body):
-    assert "QS006" not in codes(check(body))
-
-
-# QS007 two measurements into one clbit -------------------------------------
-
-def test_qs007_positive():
-    findings = check("""
-        qc = QuantumCircuit(2, 1)
-        qc.measure(0, 0)
-        qc.measure(1, 0)
-        """)
-    qs = only(findings, "QS007")
-    assert len(qs) == 1 and qs[0]["line"] == 5 and qs[0]["severity"] == "warning"
-    assert "first at line 4" in qs[0]["message"]
-
-
-def test_qs007_negative():
-    assert "QS007" not in codes(check(CLEAN))
-    assert "QS007" not in codes(check("qc = QuantumCircuit(2, 2)\nqc.measure([0, 1], [0, 1])\n"))
-
-
 # QS008 c_if -----------------------------------------------------------------
 
 def test_qs008_positive():
@@ -350,35 +252,8 @@ def test_qs009_negative():
     assert "QS009" not in codes(findings)
 
 
-# QS010 adjacent canceling pair ---------------------------------------------
-
-def test_qs010_positive():
-    findings = check("""
-        qc = QuantumCircuit(2, 2)
-        qc.cx(0, 1)
-        qc.cx(0, 1)
-        qc.measure_all()
-        """)
-    qs = only(findings, "QS010")
-    assert len(qs) == 1 and qs[0]["line"] == 5 and qs[0]["severity"] == "info"
-    assert "line 4" in qs[0]["message"]
-
-
-@pytest.mark.parametrize("body", [
-    "qc = QuantumCircuit(2)\nqc.cx(0, 1)\nqc.cx(1, 0)\nqc.measure_all()\n",      # different wires
-    "qc = QuantumCircuit(1)\nqc.h(0)\nqc.barrier()\nqc.h(0)\nqc.measure_all()\n",  # separated
-    "qc = QuantumCircuit(1)\nqc.s(0)\nqc.s(0)\nqc.measure_all()\n",              # not self-inverse
-    "qc = QuantumCircuit(1)\nqc.h(i)\nqc.h(i)\nqc.measure_all()\n",              # not literal
-])
-def test_qs010_negative(body):
-    assert "QS010" not in codes(check(body))
-
-
-def test_linter_showcase_example_trips_the_advertised_checks():
-    import examples
-
-    found = set(codes(lint.check_source(examples.load("linter_showcase")["source"])))
-    assert {"QS005", "QS006", "QS010"} <= found
+# QS005-QS007 and QS010 are dependence checks now (QD06, QD07, QD02, QD08); their
+# tests are in tests/benchmark/test_linters.py.
 
 
 # QS011 removed Qiskit API -------------------------------------------------------

@@ -46,13 +46,13 @@ def test_port_runs_through_the_registry():
 def test_analyze_reports_lintq_with_the_other_linters():
     import app as app_module
     body = app_module.app.test_client().post("/api/analyze", json={
-        # The repeated x() is a cancelling pair for the quick checks.
+        # The repeated x() is a cancelling pair for the dependence checks.
         "source": SHOWCASE + "qc.x(1)\nqc.x(1)\n", "filename": "showcase.py",
         "language": "qiskit-static",
-        "lint_rules": ["quick", "lintq"]}).get_json()
+        "lint_rules": ["dependence", "lintq"]}).get_json()
     assert body["ok"], body
     tools = {d.get("tool") for d in body["diagnostics"]}
-    assert {"quick", "lintq"} <= tools
+    assert {"dependence", "lintq"} <= tools
 
 
 def test_read_sarif_maps_ids_to_codes(tmp_path):

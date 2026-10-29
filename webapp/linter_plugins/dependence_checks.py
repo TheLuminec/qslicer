@@ -1,12 +1,18 @@
-"""Dependence checks: mistakes the QDG can prove, as a linter add-on.
+"""Dependence checks: quantum mistakes in the circuit the static front end rebuilds.
 
-The slicer keeps every instruction that could change a measured bit. These
-checks report the instructions that provably cannot, on the circuit the static
-front end rebuilt (loops unrolled, helpers followed), so they see what the
-quick checks' literal reading misses. They never execute the program; a file
-the static parser cannot read gets no findings, except QD04 when the reason is
-that Qiskit itself would reject an operation (a qubit index out of range, the
-same qubit twice): the parser raises Qiskit's errors where Qiskit would.
+The static parser rebuilds the circuit without running the program (loops
+unrolled, helpers followed), so these checks see what a literal reading of the
+source misses. Some use the dependence graph: the slicer keeps every
+instruction that could change a measured bit, and QD01 reports those that
+provably cannot. The others follow the rebuilt circuit: measurements that are
+overwritten or constant, controls that are never set, a circuit that measures
+nothing, idle qubits, gates that cancel. A file the static parser cannot read
+gets no findings (the errors Qiskit raises while rebuilding it are the quick
+checks' QS014).
+
+Findings name the instructions they are about (``nodes``: indices into the
+rebuilt circuit, which are the slicer's graph node ids), so the graph marks
+exactly those, even inside a loop.
 
 This module is also the reference for writing an add-on: define ``LINTER``,
 give each rule a code, and return diagnostics from ``run``.
@@ -28,13 +34,18 @@ RULES = [
          "anything reads it."),
     Rule("QD03", "Constant measurement", "warning",
          "A qubit is measured before any gate has acted on it, so the result is always 0."),
-    Rule("QD04", "Qiskit rejects an operation", "error",
-         "Rebuilding the circuit hits an error Qiskit raises when the program runs: a qubit "
-         "index out of range, the same qubit twice, the wrong number of arguments."),
     Rule("QD05", "Control never set", "warning",
          "A controlled gate whose control qubit is still |0> when it runs, so the gate never "
          "acts: control and target swapped, or the gate preparing the control is missing or "
          "comes later."),
+    Rule("QD06", "No measurement", "warning",
+         "The circuit never measures anything (helpers and loops included), and its state is "
+         "not read another way (Statevector, Operator, an Estimator)."),
+    Rule("QD07", "Idle qubit", "info",
+         "A declared qubit that no instruction of the rebuilt circuit ever touches."),
+    Rule("QD08", "Cancelling pair", "info",
+         "Two identical self-inverse gates back to back on the same wires (loops and helpers "
+         "included) cancel; a barrier in between keeps them apart."),
 ]
 
 # QD05: how many leading qubits of a controlled gate are controls.
@@ -51,10 +62,8 @@ _KEEP_ZERO = frozenset({"z", "s", "sdg", "t", "tdg", "p", "rz", "u1", "id", "i",
                         "delay", "measure", "global_phase", "cz", "cp", "cu1", "ccz", "cs",
                         "csdg", "crz", "mcp", "mcphase", "mcrz", "rzz"})
 
-# Errors the static parser raises where Qiskit would. Other exceptions it reports
-# (NameError, TypeError, ...) can come from what it cannot model, so they are not
-# findings: on the benchmarks they also appear on fixed programs.
-_QISKIT_ERRORS = frozenset({"CircuitError", "QiskitError"})
+# QD07: instructions that span qubits without using them.
+_NOT_A_USE = frozenset({"barrier", "delay"})
 
 
 def _line(instruction) -> int:
@@ -226,6 +235,117 @@ def _unset_controls(program, source: str) -> List[Dict[str, Any]]:
     return findings
 
 
+def _operation_names(program) -> Set[str]:
+    """Every instruction name, those inside control-flow bodies included."""
+    names: Set[str] = set()
+
+    def walk(circuit) -> None:
+        for item in circuit.data:
+            names.add(item.operation.name)
+            for param in item.operation.params:
+                if hasattr(param, "data"):
+                    walk(param)
+
+    for idx in range(len(program)):
+        names.add(program[idx].name)
+        for param in program[idx].params or []:
+            if hasattr(param, "data"):
+                walk(param)
+    return names
+
+
+def _no_measurement(program, source: str) -> List[Dict[str, Any]]:
+    """QD06: the rebuilt circuit never measures, and nothing reads its state instead."""
+    import lint
+    if len(program) == 0 or "measure" in _operation_names(program) \
+            or lint.measurement_excused(source):
+        return []
+    line = lint.circuit_line(source) or _line(program[0])
+    return [_finding(
+        "QD06", line, "This circuit never measures anything.",
+        "Sampling it returns nothing useful. Add measure_all() (or measure the qubits you "
+        "want), or read its state with Statevector if that is what you meant. Slicing still "
+        "works on the gate graph, but a backward slice usually starts from a measurement.",
+    )]
+
+
+def _idle_qubits(program, source: str) -> List[Dict[str, Any]]:
+    """QD07: declared qubits no instruction touches (barriers and delays do not count)."""
+    import lint
+    used: Set[int] = set()
+    for idx in range(len(program)):
+        if program[idx].name not in _NOT_A_USE:
+            used.update(program[idx].qubits)
+    idle = sorted(set(range(program.num_qubits)) - used)
+    if not idle or len(program) == 0:
+        return []
+    line = lint.circuit_line(source) or _line(program[0])
+    return [_finding(
+        "QD07", line, f"Qubit(s) {idle} are declared but never used.",
+        "They show up in the graph as empty wires. Shrink the register if they are left over "
+        "from an earlier draft, or check whether a gate meant for them names another qubit.",
+    )]
+
+
+def _call_chain(instruction) -> tuple:
+    """The lines of the calls that led to an instruction (empty at module level)."""
+    return tuple(getattr(getattr(instruction, "location", None), "via", None) or ())
+
+
+def _cancelling_pairs(program, source: str) -> List[Dict[str, Any]]:
+    """QD08: a self-inverse gate followed, on its wires, by the very same gate.
+
+    The next instruction to touch any of the first gate's qubits or bits must be
+    the same gate on the same qubits in the same order, with the same
+    parameters, and neither may be classically conditioned. Anything else on
+    those wires in between, a barrier included, keeps them apart.
+
+    Both gates must also come from the same code: the same chain of calls (the
+    location's ``via``). A gate the caller applies and one the helper it calls
+    applies, or two calls of one helper, only cancel for the input the program
+    happens to build, as when a test prepares x(0) and the solution's own x(0)
+    undoes it; the helper is not wrong for other inputs. For the same reason,
+    gates on a circuit a function receives (``_lines_given_a_circuit``: an
+    oracle's compute/uncompute meets nothing in between only on some inputs)
+    are not judged, as for QD05.
+    """
+    from gates import SELF_INVERSE
+
+    given = _lines_given_a_circuit(source)
+    findings = []
+    paired: Set[int] = set()
+    for first in range(len(program)):
+        a = program[first]
+        if first in paired or a.name not in SELF_INVERSE or a.metadata.get("condition") is not None:
+            continue
+        wires = set(a.qubits)
+        bits = set(a.clbits)
+        for second in range(first + 1, len(program)):
+            b = program[second]
+            if not (wires & set(b.qubits) or bits & set(b.clbits)):
+                continue
+            if (b.name == a.name and list(b.qubits) == list(a.qubits)
+                    and list(b.params or []) == list(a.params or [])
+                    and b.metadata.get("condition") is None and _line(b)
+                    and _call_chain(a) == _call_chain(b)
+                    and _line(a) not in given and _line(b) not in given):
+                paired.add(second)
+                where = f"line {_line(a)}" if _line(a) != _line(b) else "this same line"
+                finding = _finding(
+                    "QD08", _line(b),
+                    f"{b.name} on qubit(s) {list(b.qubits)} directly follows the identical gate "
+                    f"from {where}; the pair cancels.",
+                    "The entanglement analyzer reads this as an uncomputation. If that is what "
+                    "you meant, fine -- if not, one of the two is probably a typo. A barrier "
+                    "between them marks a deliberate pair.",
+                    nodes=[first, second],
+                )
+                finding["lines"] = sorted({_line(a), _line(b)})
+                findings.append(finding)
+            break
+    return findings
+
+
 def _merge(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """One finding per (code, line): a gate inside a loop is reported once, with a count."""
     merged: Dict[tuple, Dict[str, Any]] = {}
@@ -244,24 +364,9 @@ def _merge(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return list(merged.values())
 
 
-def _rejected_operation(failure) -> List[Dict[str, Any]]:
-    raised = getattr(failure, "raised", None)
-    line = getattr(failure, "lineno", None)
-    if raised not in _QISKIT_ERRORS or not line:
-        return []
-    detail = getattr(failure, "message", str(failure)).split(f"{raised}: ", 1)[-1]
-    return [_finding(
-        "QD04", line, f"Qiskit raises {raised} here: {detail}",
-        "The program stops at this line when it runs. Check the qubit and bit indices against "
-        "the circuit's size, and the number of qubits the gate takes.",
-    )]
-
-
 def run(context: LintContext) -> List[Dict[str, Any]]:
     program, _error = context.program()
-    if program is None:
-        return _rejected_operation(context.failure())
-    if len(program) == 0:
+    if program is None or len(program) == 0:
         return []
     from qdg import QDG, get_rule_profile
 
@@ -271,16 +376,20 @@ def run(context: LintContext) -> List[Dict[str, Any]]:
         rules = get_rule_profile("baseline")
     qdg = QDG(program, rules=rules)
     return _merge(_dead_gates(program, qdg) + _overwritten_measurements(program)
-                  + _constant_measurements(program) + _unset_controls(program, context.source))
+                  + _constant_measurements(program) + _unset_controls(program, context.source)
+                  + _no_measurement(program, context.source)
+                  + _idle_qubits(program, context.source) + _cancelling_pairs(program, context.source))
 
 
 LINTER = Linter(
     id="dependence",
     label="Dependence checks",
-    description="Reads the circuit the static front end rebuilds and its dependence graph "
-                "(with the selected QDG rules). Finds gates no measured bit depends on.",
+    description="Quantum mistakes in the circuit the static front end rebuilds (loops "
+                "unrolled, helpers followed) and its dependence graph: dead gates, overwritten "
+                "or constant measurements, controls never set, missing measurements, idle "
+                "qubits, cancelling pairs.",
     rules=RULES,
     run=run,
     languages=("python", "qasm"),
-    default=False,
+    default=True,
 )

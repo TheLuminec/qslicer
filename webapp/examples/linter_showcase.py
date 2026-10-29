@@ -1,11 +1,11 @@
-"""A circuit that runs, but that the static checks have opinions about.
+"""A circuit that runs, but that the dependence checks have opinions about.
 
 Nothing here is a Python error and nothing raises at build time, so the
 analysis succeeds and you still get a graph. The Diagnostics panel is the
-point: this file trips three of the checks at once.
+point: this file trips three checks at once, marked on the graph's nodes too.
 
-Expect: no measurement at all (QS005), a declared qubit nothing ever touches
-(QS006), and a pair of identical adjacent gates that cancel (QS010).
+Expect: no measurement at all (QD06), a declared qubit nothing ever touches
+(QD07), and a pair of identical adjacent gates that cancel (QD08).
 """
 
 from qiskit import QuantumCircuit

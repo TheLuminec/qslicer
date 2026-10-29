@@ -3,7 +3,7 @@
     python benchmarks/run_benchmark.py                          # Bugs4Q, default rules (as the site)
     python benchmarks/run_benchmark.py --manifest path/to/manifest.json
     python benchmarks/run_benchmark.py --rules quick,dependence # whole linters
-    python benchmarks/run_benchmark.py --rules quick/QS005,dependence/QD01
+    python benchmarks/run_benchmark.py --rules quick/QS002,dependence/QD01
     python benchmarks/run_benchmark.py --json report.json       # the full report
     python benchmarks/run_benchmark.py --list-datasets
     python benchmarks/run_benchmark.py --list-rules

@@ -1,11 +1,15 @@
-"""Heuristic static checks for Qiskit source, run before the program is executed.
+"""The quick checks: errors Python or Qiskit would raise, found without running the file.
 
-This is a stand-in for LintQ: it works on the Python AST only, so it never runs
-the submitted file and it only sees what is written literally in the source.
-(QS012 also imports the installed Qiskit modules a file imports from, to see
-whether the names exist; the file itself is still never run.)
-Anything computed in a loop, passed through a helper, or built from a variable
-is invisible to it -- those cases are left to the real analysis pass.
+They read the Python AST, so they see what is written literally: a syntax
+error, a QuantumCircuit that is never built, an index outside a literal
+register, removed or unknown Qiskit APIs (QS012 and QS013 look names and
+arguments up in the installed Qiskit, importing its modules, never the file).
+QS014 adds the errors Qiskit itself raises while the static parser rebuilds the
+circuit, which also covers indices computed in loops and helpers.
+
+Mistakes about what the circuit does (no measurement, idle qubits, overwritten
+measurements, cancelling pairs, dead gates) need the rebuilt circuit and are
+the dependence checks' (linter_plugins/dependence_checks.py).
 
 Each finding is a dict with: code, severity (error/warning/info), line, column,
 message and hint, and, when it is about more than its own line, ``lines``: every
@@ -30,7 +34,6 @@ _PARAM_GATES = {
     "crx": (1, 2), "cry": (1, 2), "crz": (1, 2), "cp": (1, 2),
     "rxx": (1, 2), "ryy": (1, 2), "rzz": (1, 2),
 }
-_MEASURE_METHODS = {"measure", "measure_all", "measure_active"}
 
 # Every code check_source can report: (title, severity, description). The
 # linter registry (linters.py) offers these as individually selectable rules.
@@ -44,18 +47,8 @@ RULES = {
     "QS003": ("Repeated qubit", "error", "A multi-qubit gate names the same qubit twice."),
     "QS004": ("Classical bit out of range", "error",
               "measure() writes a classical bit the circuit does not declare."),
-    "QS005": ("No measurement", "warning",
-              "The circuit never measures anything, and its state is not read another way "
-              "(Statevector, Operator, an Estimator)."),
-    "QS006": ("Idle qubit", "info",
-              "A declared qubit no literal gate call touches (circuits handed to a function "
-              "of the file are not judged)."),
-    "QS007": ("Classical bit written twice", "warning",
-              "Two measurements write the same classical bit; the first result is lost."),
     "QS008": ("c_if() removed", "error", "c_if() was removed in Qiskit 2.0."),
     "QS009": ("execute() removed", "warning", "execute() was removed from qiskit."),
-    "QS010": ("Cancelling pair", "info",
-              "Two identical self-inverse gates in a row on the same wires cancel."),
     "QS011": ("Removed Qiskit API", "error",
               "A method, name or module that older Qiskit had and current Qiskit does not "
               "(u1, cu1, cnot, iden, bind_parameters, Aer, qiskit.extensions, ...)."),
@@ -66,7 +59,13 @@ RULES = {
               "A QuantumCircuit method or attribute, or a keyword argument of a circuit method "
               "or an imported Qiskit class, that the installed Qiskit does not have "
               "(qc.mcx(..., control_state=1): the keyword is ctrl_state)."),
+    "QS014": ("Qiskit rejects an operation", "error",
+              "Rebuilding the circuit hits an error Qiskit raises when the program runs: a qubit "
+              "index out of range, the same qubit twice, the wrong number of arguments."),
 }
+# Quantum-side checks that read the rebuilt circuit (no measurement, idle qubits,
+# measurements overwritten, cancelling pairs) are dependence checks, QD01-QD08,
+# in linter_plugins/dependence_checks.py; QS005-QS007 and QS010 were these once.
 
 
 class _Finding(dict):
@@ -117,7 +116,7 @@ def _qubit_args(node: ast.AST) -> Optional[List[int]]:
 
 
 # Calls that read a circuit's state or operator rather than sampling it, so a
-# circuit that never measures is deliberate (QS005).
+# circuit that never measures is deliberate (QD06).
 _STATE_READERS = frozenset({
     "Statevector", "DensityMatrix", "Operator", "Clifford", "from_instruction",
     "from_circuit", "evolve", "save_statevector", "save_unitary", "save_density_matrix",
@@ -250,14 +249,10 @@ def check_source(source: str) -> List[Dict[str, Any]]:
     findings: List[Dict[str, Any]] = []
     findings += _check_has_circuit(tree, collector)
     findings += _check_indices(collector)
-    findings += _check_measurement(tree, collector)
-    findings += _check_idle_qubits(collector)
-    findings += _check_duplicate_clbits(collector)
     findings += _check_removed_api(tree)
     findings += _check_removed_qiskit(tree, collector)
     findings += _check_unknown_qiskit_names(tree)
     findings += _check_unknown_qiskit_api(tree, collector)
-    findings += _check_self_inverse_pairs(collector)
 
     findings.sort(key=lambda f: (f["line"], f["column"], f["code"]))
     return findings
@@ -354,96 +349,64 @@ def _check_indices(collector: _CircuitCollector) -> List[Dict[str, Any]]:
     return findings
 
 
-def _check_measurement(tree: ast.AST, collector: _CircuitCollector) -> List[Dict[str, Any]]:
-    """A circuit with no measurement produces no slice criterion worth the name.
+def measurement_excused(source: str) -> bool:
+    """Whether a circuit of ``source`` that never measures is fine as it is (QD06).
 
-    Not reported when the circuit's state is read instead (Statevector,
-    Operator, an Estimator, a simulator result's get_statevector() or
-    get_unitary(), ...), or when the circuit goes into a function
-    this file defines (which may measure it, or return it to be measured),
-    unless it is also sampled (execute, run, a Sampler): sampling a circuit
-    that measures nothing is the mistake this rule is for.
+    It is when its state is read instead (Statevector, Operator, an Estimator,
+    a simulator result's get_statevector() or get_unitary(), ...), or when it
+    goes into a function of this file (which may return it to be measured
+    elsewhere), unless it is also sampled (execute, run, a Sampler): sampling a
+    circuit that measures nothing is the mistake QD06 is for.
     """
-    if not collector.circuits:
-        return []
-    measured = any(call["method"] in _MEASURE_METHODS for call in collector.calls)
-    if measured:
-        return []
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+    collector = _CircuitCollector()
+    collector.visit(tree)
     names = list(collector.circuits)
     if collector.reads_state:
-        return []
+        return True
     sampled = any(collector.passed_to.get(n, set()) & _SAMPLERS for n in names)
     read = any(collector.passed_to.get(n, set()) & _STATE_READERS for n in names)
-    if not sampled and (read or any(collector.escapes(n) for n in names)):
+    return not sampled and (read or any(collector.escapes(n) for n in names))
+
+
+def circuit_line(source: str) -> Optional[int]:
+    """The line of the first QuantumCircuit(...) assignment in ``source``, or None."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    collector = _CircuitCollector()
+    collector.visit(tree)
+    lines = [c["node"].lineno for c in collector.circuits.values()]
+    return min(lines) if lines else None
+
+
+# QS014: errors the static parser raises where Qiskit would. Other exceptions it
+# reports (NameError, TypeError, ...) can come from what it cannot model, so they
+# are not findings: on the benchmarks they also appear on fixed programs.
+_QISKIT_ERRORS = frozenset({"CircuitError", "QiskitError"})
+
+
+def rejected_operation(failure: Optional[Exception]) -> List[Dict[str, Any]]:
+    """QS014 from the static parser's failure (``LintContext.failure()``), if Qiskit's own.
+
+    The parser raises Qiskit's errors where Qiskit would, at the line inside a
+    helper where they happen, so this sees indices computed in loops and
+    functions, which QS002/QS003 cannot.
+    """
+    raised = getattr(failure, "raised", None)
+    line = getattr(failure, "lineno", None)
+    if raised not in _QISKIT_ERRORS or not line:
         return []
-    first = next(iter(collector.circuits.values()))
-    return [_Finding(
-        "QS005", "warning", first["node"],
-        "This circuit never measures anything.",
-        "Slicing still works on the gate graph, but a backward slice from a measurement is "
-        "usually the question you actually want to ask.",
-    )]
-
-
-def _check_idle_qubits(collector: _CircuitCollector) -> List[Dict[str, Any]]:
-    """Declared qubits that no literal gate call ever touches (a circuit handed to
-    a function this file defines may be used there, so it is not judged)."""
-    findings: List[Dict[str, Any]] = []
-    for name, circuit in collector.circuits.items():
-        declared = circuit["num_qubits"]
-        if not declared or collector.escapes(name):
-            continue
-        touched = set()
-        opaque = False
-        for call in collector.calls:
-            if call["owner"] != name:
-                continue
-            if call["method"] in ("compose", "append", "from_gate", "to_gate", "measure_all"):
-                opaque = True
-            args = call["node"].args
-            for arg in args:
-                indices = _qubit_args(arg)
-                if indices is None:
-                    if not isinstance(arg, ast.Constant):
-                        opaque = True
-                    continue
-                touched.update(indices)
-        if opaque:
-            continue
-        idle = sorted(set(range(declared)) - touched)
-        if idle:
-            findings.append(_Finding(
-                "QS006", "info", circuit["node"],
-                f"Qubit(s) {idle} are declared but never used.",
-                "They will show up in the graph as isolated wires. Shrink the register if they "
-                "are left over from an earlier draft.",
-            ))
-    return findings
-
-
-def _check_duplicate_clbits(collector: _CircuitCollector) -> List[Dict[str, Any]]:
-    """Two measurements writing to the same classical bit: the first result is lost."""
-    findings: List[Dict[str, Any]] = []
-    seen: Dict[int, ast.AST] = {}
-    for call in collector.calls:
-        if call["method"] != "measure" or len(call["node"].args) < 2:
-            continue
-        indices = _qubit_args(call["node"].args[1])
-        if indices is None:
-            continue
-        for index in indices:
-            if index in seen:
-                finding = _Finding(
-                    "QS007", "warning", call["node"],
-                    f"Classical bit {index} is written by more than one measurement "
-                    f"(first at line {getattr(seen[index], 'lineno', '?')}).",
-                    "The later measurement overwrites the earlier outcome. That is legal, and "
-                    "sometimes deliberate, but it also hides a dependency.",
-                )
-                finding["lines"] = [seen[index].lineno, call["node"].lineno]
-                findings.append(finding)
-            seen[index] = call["node"]
-    return findings
+    detail = getattr(failure, "message", str(failure)).split(f"{raised}: ", 1)[-1]
+    return [{"code": "QS014", "severity": "error", "line": line, "column": 1,
+             "message": f"Qiskit raises {raised} here: {detail}",
+             "hint": "The program stops at this line when it runs. Check the qubit and bit "
+                     "indices against the circuit's size, and the number of qubits the gate "
+                     "takes."}]
 
 
 class _RemovedApiVisitor(ast.NodeVisitor):
@@ -742,33 +705,4 @@ def _check_unknown_qiskit_api(tree: ast.AST, collector: _CircuitCollector) -> Li
                 findings.append(_Finding(
                     "QS013", "error", node,
                     f"{node.func.id}() takes no argument {keyword} in Qiskit {version}.", hint))
-    return findings
-
-
-def _check_self_inverse_pairs(collector: _CircuitCollector) -> List[Dict[str, Any]]:
-    """Adjacent identical self-inverse gates on the same wire cancel out."""
-    from gates import SELF_INVERSE
-
-    findings: List[Dict[str, Any]] = []
-    previous: Optional[Dict[str, Any]] = None
-    for call in collector.calls:
-        if call["owner"] not in collector.circuits:
-            continue
-        method = call["method"]
-        if method not in SELF_INVERSE:
-            previous = None
-            continue
-        args = [_qubit_args(arg) for arg in call["node"].args]
-        signature = (method, tuple(tuple(a) for a in args if a is not None))
-        if previous is not None and previous["signature"] == signature and signature[1]:
-            finding = _Finding(
-                "QS010", "info", call["node"],
-                f"{method}() repeats the identical call from line "
-                f"{previous['node'].lineno}; the pair cancels.",
-                "The entanglement analyzer reads this as an uncomputation. If that is what you "
-                "meant, fine -- if not, one of the two is probably a typo.",
-            )
-            finding["lines"] = [previous["node"].lineno, call["node"].lineno]   # the whole pair
-            findings.append(finding)
-        previous = {"signature": signature, "node": call["node"]}
     return findings

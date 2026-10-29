@@ -24,13 +24,25 @@ def test_catalog_has_the_quick_checks_and_the_dependence_add_on():
     entries = {entry["id"]: entry for entry in linters.catalog()}
     assert {"quick", "dependence"} <= set(entries)
     assert [r["code"] for r in entries["quick"]["rules"]][:3] == ["QS000", "QS001", "QS002"]
-    assert entries["quick"]["default"] and not entries["dependence"]["default"]
+    assert entries["quick"]["default"] and entries["dependence"]["default"]
+    assert not entries["lintq"]["default"]
     assert linters.plugin_errors() == []
 
 
-def test_default_selection_is_the_quick_checks():
-    assert linters.default_selection() == linters.get("quick").rule_ids()
+def test_default_selection_is_the_quick_and_dependence_checks():
+    assert linters.default_selection() == (linters.get("quick").rule_ids()
+                                           + linters.get("dependence").rule_ids())
     assert linters.normalize_selection(None) == linters.default_selection()
+
+
+def test_quick_checks_are_errors_and_dependence_checks_the_quantum_side():
+    # Quick checks: what Python or Qiskit would reject, so errors (QS009, execute(), is the
+    # one warning); the quantum-side rules live in the dependence checks.
+    quick = {r.code: r.severity for r in linters.get("quick").rules}
+    assert {code for code, severity in quick.items() if severity != "error"} == {"QS009"}
+    assert {"QS005", "QS006", "QS007", "QS010"}.isdisjoint(quick) and "QS014" in quick
+    codes = [r.code for r in linters.get("dependence").rules]
+    assert codes == ["QD01", "QD02", "QD03", "QD05", "QD06", "QD07", "QD08"]
 
 
 def test_bare_linter_id_selects_all_its_rules_and_unknown_ids_drop():
@@ -39,7 +51,7 @@ def test_bare_linter_id_selects_all_its_rules_and_unknown_ids_drop():
 
 
 def test_run_reports_only_selected_rules_and_tags_them():
-    assert [d["code"] for d in linters.run(BAD_INDEX, selection=["quick/QS005"])] == ["QS005"]
+    assert [d["code"] for d in linters.run(BAD_INDEX, selection=["quick/QS001"])] == []
     found = linters.run(BAD_INDEX, selection=["quick/QS002"])
     assert [d["code"] for d in found] == ["QS002"]
     assert found[0]["tool"] == "quick" and found[0]["rule"] == "quick/QS002"
@@ -97,6 +109,10 @@ def test_context_parses_once():
 
 def dependence(source, code):
     return [d for d in linters.run(source, selection=[f"dependence/{code}"])]
+
+
+def quick(source, code):
+    return [d for d in linters.run(source, selection=[f"quick/{code}"])]
 
 
 def test_dead_gate_after_the_last_measurement():
@@ -175,7 +191,7 @@ def test_qubit_index_out_of_range_inside_a_function():
 
         qc = entangle(QuantumCircuit(2), [0, 2])
     """)
-    found = dependence(source, "QD04")
+    found = quick(source, "QS014")
     assert [d["line"] for d in found] == [5]       # the gate, not the call
     assert found[0]["severity"] == "error" and "Index 2 out of range" in found[0]["message"]
 
@@ -186,7 +202,7 @@ def test_same_qubit_twice_in_a_loop():
         for i in range(2):
             qc.cx(i, i)
     """)
-    found = dependence(source, "QD04")
+    found = quick(source, "QS014")
     assert [d["line"] for d in found] == [5] and "duplicate qubit" in found[0]["message"]
 
 
@@ -262,8 +278,125 @@ def test_reset_makes_a_control_zero_again():
     "qc = QuantumCircuit(1)\nqc.h(undefined_name)\n",   # a Python error: maybe the parser's limit
     "qc = QuantumCircuit(2)\nqc.cx(0, 1)\n",            # fine
 ])
-def test_qd04_reports_only_qiskit_errors(body):
-    assert dependence(py(body), "QD04") == []
+def test_qs014_reports_only_qiskit_errors(body):
+    assert quick(py(body), "QS014") == []
+
+
+# QD06 no measurement --------------------------------------------------------
+
+def test_no_measurement():
+    found = dependence(py("qc = QuantumCircuit(1)\nqc.h(0)\n"), "QD06")
+    assert [d["line"] for d in found] == [2] and found[0]["severity"] == "warning"
+
+
+@pytest.mark.parametrize("call", ["qc.measure(0, 0)", "qc.measure_all()", "qc.measure_active()"])
+def test_measured_circuits_are_quiet(call):
+    assert dependence(py(f"qc = QuantumCircuit(1, 1)\nqc.h(0)\n{call}\n"), "QD06") == []
+
+
+def test_a_measurement_in_a_helper_counts():
+    source = py("def finish(c):\n    c.measure_all()\n\nqc = QuantumCircuit(2)\nqc.h(0)\n"
+                "finish(qc)\n")
+    assert dependence(source, "QD06") == []
+
+
+@pytest.mark.parametrize("use", [
+    "state = Statevector(qc)",
+    "state = Statevector.from_instruction(qc)",
+    "unitary = Operator(qc)",
+    "job = estimator.run([(qc, observable)])",              # reads expectation values
+    "flip(qc, 0)",                                           # a helper may return it to measure
+    "state = execute(qc, sim).result().get_statevector()",   # statevector simulator
+])
+def test_no_measurement_is_fine_when_the_state_is_read(use):
+    source = py(f"def flip(qc, q):\n    qc.x(q)\n\nqc = QuantumCircuit(1)\nqc.h(0)\n{use}\n")
+    assert dependence(source, "QD06") == []
+
+
+@pytest.mark.parametrize("use", [
+    "counts = backend.run(qc).result().get_counts()",
+    "job = backend.run(qc)",
+    "job = sampler.run([qc])",
+    "flip(qc, 0)\njob = backend.run(qc)",                    # also sampled: still a mistake
+])
+def test_sampling_an_unmeasured_circuit(use):
+    # The static parser has to rebuild the program, so the backends are real names.
+    setup = ("from qiskit_aer import AerSimulator\nfrom qiskit.primitives import StatevectorSampler\n"
+             "backend = AerSimulator()\nsampler = StatevectorSampler()\n")
+    source = py(setup + f"def flip(qc, q):\n    qc.x(q)\n\nqc = QuantumCircuit(1)\nqc.h(0)\n{use}\n")
+    assert [d["code"] for d in dependence(source, "QD06")] == ["QD06"]
+
+
+# QD07 idle qubit ------------------------------------------------------------
+
+def test_idle_qubits():
+    found = dependence(py("qc = QuantumCircuit(4, 1)\nqc.h(0)\nqc.cx(0, 1)\nqc.measure(0, 0)\n"),
+                       "QD07")
+    assert [d["line"] for d in found] == [2] and found[0]["severity"] == "info"
+    assert "[2, 3]" in found[0]["message"]
+
+
+@pytest.mark.parametrize("body, idle", [
+    # The rebuilt circuit sees through loops and helpers, which a literal reading cannot.
+    ("qc = QuantumCircuit(4)\nfor q in range(3):\n    qc.h(q)\n", "[3]"),
+    ("def prepare(qc):\n    qc.x(2)\n\nqc = QuantumCircuit(3)\nqc.h(0)\nprepare(qc)\n", "[1]"),
+    # A barrier spans every qubit without using any.
+    ("qc = QuantumCircuit(2)\nqc.h(0)\nqc.barrier()\n", "[1]"),
+])
+def test_idle_qubits_through_loops_helpers_and_barriers(body, idle):
+    found = dependence(py(body), "QD07")
+    assert len(found) == 1 and idle in found[0]["message"]
+
+
+@pytest.mark.parametrize("body", [
+    "qc = QuantumCircuit(3)\nfor i in range(3):\n    qc.h(i)\n",
+    "qc = QuantumCircuit(3)\nqc.h(0)\nqc.measure_all()\n",   # measured qubits are used (QD03's)
+])
+def test_qd07_negative(body):
+    assert dependence(py(body), "QD07") == []
+
+
+# QD02 also covers two measurements into one literal bit (once QS007) ------------
+
+def test_two_literal_measurements_into_one_bit():
+    found = dependence(py("qc = QuantumCircuit(2, 1)\nqc.h(0)\nqc.measure(0, 0)\n"
+                          "qc.measure(1, 0)\n"), "QD02")
+    assert [d["line"] for d in found] == [5] and "line 4" in found[0]["message"]
+
+
+# QD08 cancelling pair -------------------------------------------------------
+
+def test_cancelling_pair():
+    found = dependence(py("qc = QuantumCircuit(2, 2)\nqc.cx(0, 1)\nqc.cx(0, 1)\nqc.measure_all()\n"),
+                       "QD08")
+    assert [d["line"] for d in found] == [4] and found[0]["severity"] == "info"
+    assert "line 3" in found[0]["message"] and found[0]["lines"] == [3, 4]
+    assert found[0]["nodes"] == [0, 1]
+
+
+def test_cancelling_pair_from_a_loop():
+    found = dependence(py("qc = QuantumCircuit(1, 1)\nfor _ in range(2):\n    qc.h(0)\n"
+                          "qc.measure(0, 0)\n"), "QD08")
+    assert [d["line"] for d in found] == [4] and "this same line" in found[0]["message"]
+
+
+@pytest.mark.parametrize("body", [
+    "qc = QuantumCircuit(2)\nqc.cx(0, 1)\nqc.cx(1, 0)\nqc.measure_all()\n",      # other order
+    "qc = QuantumCircuit(1)\nqc.h(0)\nqc.barrier()\nqc.h(0)\nqc.measure_all()\n",  # a barrier
+    "qc = QuantumCircuit(1)\nqc.s(0)\nqc.s(0)\nqc.measure_all()\n",              # not self-inverse
+    "qc = QuantumCircuit(2)\nqc.x(0)\nqc.cx(0, 1)\nqc.x(0)\nqc.measure_all()\n",  # cx in between
+    "qc = QuantumCircuit(2, 1)\nqc.h(1)\nqc.measure(1, 0)\nqc.x(0)\n"
+    "with qc.if_test((qc.clbits[0], 1)):\n    qc.x(0)\nqc.measure_all()\n",       # conditional
+])
+def test_qd08_negative(body):
+    assert dependence(py(body), "QD08") == []
+
+
+def test_showcase_example_trips_the_advertised_checks():
+    import examples
+    found = {d["code"] for d in linters.run(examples.load("linter_showcase")["source"],
+                                              selection=["dependence"])}
+    assert {"QD06", "QD07", "QD08"} <= found
 
 
 def test_unreadable_program_gets_no_dependence_findings():
@@ -289,3 +422,17 @@ def test_static_parse_time_limit():
     with pytest.raises(StaticParseError, match="time limit"):
         parser.parse()
     assert time.monotonic() - started < 5
+
+
+@pytest.mark.parametrize("body", [
+    # The test's preparation and the solution's own gate: they cancel only for this input.
+    "def flip(qc, q):\n    qc.x(q)\n    return qc\n\nqc = QuantumCircuit(1, 1)\nqc.x(0)\n"
+    "flip(qc, 0)\nqc.measure(0, 0)\n",
+    # Two calls of one helper.
+    "def flip(qc):\n    qc.x(0)\n\nqc = QuantumCircuit(1, 1)\nflip(qc)\nflip(qc)\nqc.measure(0, 0)\n",
+    # An oracle handed its circuit: compute/uncompute meets nothing in between on this input.
+    "def oracle(qc, q, t):\n    qc.x(q)\n    if q == t:\n        qc.h(t)\n    qc.x(q)\n    return qc\n\n"
+    "qc = oracle(QuantumCircuit(2, 1), 0, 1)\nqc.measure(0, 0)\n",
+])
+def test_qd08_needs_both_gates_from_the_same_code(body):
+    assert dependence(py(body), "QD08") == []

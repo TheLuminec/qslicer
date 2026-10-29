@@ -45,7 +45,7 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
                    "so a 2-qubit circuit has qubits 0 and 1; Qiskit raises a CircuitError when "
                    "the line runs. The classic cause is counting from 1.",
         "limits": "Only literal indices on a circuit built in the same file with a literal "
-                  "size. Computed indices are QD04's (dependence checks).",
+                  "size. Computed indices are QS014's.",
         "example": _HEAD + "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.cx(0, 2)\n"
                            "qc.measure([0, 1], [0, 1])\n",
         "fixed": _HEAD + "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.cx(0, 1)\n"
@@ -54,7 +54,7 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
     "QS003": {
         "explain": "A multi-qubit gate names the same qubit twice, such as cx(1, 1). A control "
                    "cannot also be its own target; Qiskit raises a CircuitError.",
-        "limits": "Literal indices only; a repeat computed in a loop is QD04's.",
+        "limits": "Literal indices only; a repeat computed in a loop is QS014's.",
         "example": _HEAD + "qc = QuantumCircuit(2)\nqc.h(0)\nqc.cx(1, 1)\n",
         "fixed": _HEAD + "qc = QuantumCircuit(2)\nqc.h(0)\nqc.cx(0, 1)\n",
     },
@@ -64,41 +64,6 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
         "limits": "Literal indices on a circuit with a literal number of classical bits.",
         "example": _HEAD + "qc = QuantumCircuit(2, 1)\nqc.h(0)\nqc.cx(0, 1)\nqc.measure(1, 1)\n",
         "fixed": _HEAD + "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.cx(0, 1)\nqc.measure(1, 1)\n",
-    },
-    "QS005": {
-        "explain": "The circuit is never measured, yet it is sampled (run on a backend, "
-                   "execute, a Sampler): the counts come back empty. Students often build the "
-                   "gates and forget measure_all().",
-        "limits": "Quiet when the state is read without measuring (Statevector, Operator, an "
-                  "Estimator, a simulator's get_statevector()) or the circuit goes into a "
-                  "function of the file that may measure it.",
-        "example": _HEAD + "from qiskit_aer import AerSimulator\n\nqc = QuantumCircuit(2)\n"
-                           "qc.h(0)\nqc.cx(0, 1)\ncounts = AerSimulator().run(qc).result()"
-                           ".get_counts()\n",
-        "fixed": _HEAD + "from qiskit_aer import AerSimulator\n\nqc = QuantumCircuit(2)\n"
-                         "qc.h(0)\nqc.cx(0, 1)\nqc.measure_all()\ncounts = AerSimulator()"
-                         ".run(qc).result().get_counts()\n",
-    },
-    "QS006": {
-        "explain": "A declared qubit is never touched by any gate. Often harmless, a register "
-                   "sized for an earlier draft, but it can also mean a gate meant for that "
-                   "qubit names another one.",
-        "limits": "Literal indices only; any computed index, compose/append, or handing the "
-                  "circuit to a function of the file makes the rule stay quiet.",
-        "example": _HEAD + "qc = QuantumCircuit(3, 2)\nqc.h(0)\nqc.cx(0, 1)\n"
-                           "qc.measure([0, 1], [0, 1])\n",
-        "fixed": _HEAD + "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.cx(0, 1)\n"
-                         "qc.measure([0, 1], [0, 1])\n",
-    },
-    "QS007": {
-        "explain": "Two measurements write the same classical bit, so the first result is "
-                   "overwritten before anything reads it. Usually the second should go into "
-                   "the next bit.",
-        "limits": "Literal bit indices; QD02 follows loops and conditions.",
-        "example": _HEAD + "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.cx(0, 1)\nqc.measure(0, 0)\n"
-                           "qc.measure(1, 0)\n",
-        "fixed": _HEAD + "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.cx(0, 1)\nqc.measure(0, 0)\n"
-                         "qc.measure(1, 1)\n",
     },
     "QS008": {
         "explain": "c_if() was removed in Qiskit 2.0; the line fails. Classically conditioned "
@@ -118,15 +83,6 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
                            "qc.h(0)\nqc.measure(0, 0)\njob = execute(qc, AerSimulator())\n",
         "fixed": _HEAD + "from qiskit_aer import AerSimulator\n\nqc = QuantumCircuit(1, 1)\n"
                          "qc.h(0)\nqc.measure(0, 0)\njob = AerSimulator().run(qc)\n",
-    },
-    "QS010": {
-        "explain": "Two identical self-inverse gates (h, x, cx, ...) in a row on the same wires "
-                   "cancel out, so together they do nothing. Usually one is a duplicate, or a "
-                   "different gate was meant.",
-        "limits": "Adjacent literal calls only; it can fire on circuits that are deliberately "
-                  "their own inverse (mirror circuits), so it is informational.",
-        "example": _HEAD + "qc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.h(0)\nqc.measure(0, 0)\n",
-        "fixed": _HEAD + "qc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.measure(0, 0)\n",
     },
     "QS011": {
         "explain": "A method, name or module that older Qiskit had and Qiskit 2.6.0 does not: "
@@ -160,6 +116,20 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
                            "control_state=1)\n",
         "fixed": _HEAD + "qc = QuantumCircuit(3)\nqc.x(0)\nqc.mcx([0, 1], 2, ctrl_state=1)\n",
     },
+    "QS014": {
+        "explain": "Rebuilding the circuit hits an error Qiskit itself raises when the program "
+                   "runs: a qubit index out of range, the same qubit twice, a gate given the "
+                   "wrong number of qubits. Unlike QS002/QS003 it sees indices computed in "
+                   "loops and helpers, and points at the line inside the helper.",
+        "limits": "Only Qiskit's own errors; other exceptions can come from what the static "
+                  "parser cannot model, so they are not reported.",
+        "example": _HEAD + "def entangle(qc, pair):\n    qc.h(pair[0])\n"
+                           "    qc.cx(pair[0], pair[1])\n    return qc\n\n"
+                           "qc = entangle(QuantumCircuit(2), [0, 2])\n",
+        "fixed": _HEAD + "def entangle(qc, pair):\n    qc.h(pair[0])\n"
+                         "    qc.cx(pair[0], pair[1])\n    return qc\n\n"
+                         "qc = entangle(QuantumCircuit(2), [0, 1])\n",
+    },
     # ----------------------------------------------------------- dependence
     "QD01": {
         "explain": "No measured bit depends on this gate: the dependence graph proves removing "
@@ -173,7 +143,8 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
     "QD02": {
         "explain": "A measurement writes a classical bit that a later measurement overwrites "
                    "before anything reads it, so the first result never reaches the output. "
-                   "Unlike QS007 it follows loops and if_test reads.",
+                   "It follows loops and if_test reads, and covers two measurements into one "
+                   "literal bit too.",
         "limits": "A bit read by an if_test in between is not overwritten.",
         "example": _HEAD + "qc = QuantumCircuit(2, 1)\nqc.h(0)\nqc.cx(0, 1)\n"
                            "for q in range(2):\n    qc.measure(q, 0)\n",
@@ -189,20 +160,6 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
         "fixed": _HEAD + "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.cx(0, 1)\n"
                          "qc.measure([0, 1], [0, 1])\n",
     },
-    "QD04": {
-        "explain": "Rebuilding the circuit hits an error Qiskit itself raises when the program "
-                   "runs: a qubit index out of range, the same qubit twice, a gate given the "
-                   "wrong number of qubits. Unlike QS002/QS003 it sees indices computed in "
-                   "loops and helpers, and points at the line inside the helper.",
-        "limits": "Only Qiskit's own errors; other exceptions can come from what the static "
-                  "parser cannot model, so they are not reported.",
-        "example": _HEAD + "def entangle(qc, pair):\n    qc.h(pair[0])\n"
-                           "    qc.cx(pair[0], pair[1])\n    return qc\n\n"
-                           "qc = entangle(QuantumCircuit(2), [0, 2])\n",
-        "fixed": _HEAD + "def entangle(qc, pair):\n    qc.h(pair[0])\n"
-                         "    qc.cx(pair[0], pair[1])\n    return qc\n\n"
-                         "qc = entangle(QuantumCircuit(2), [0, 1])\n",
-    },
     "QD05": {
         "explain": "A controlled gate whose control qubit is provably still |0> when it runs, "
                    "so the gate never acts. Typical causes: control and target swapped (a GHZ "
@@ -215,6 +172,43 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
                            "    qc.cx(i + 1, i)\nqc.measure(range(3), range(3))\n",
         "fixed": _HEAD + "qc = QuantumCircuit(3, 3)\nqc.h(0)\nfor i in range(2):\n"
                          "    qc.cx(i, i + 1)\nqc.measure(range(3), range(3))\n",
+    },
+    "QD06": {
+        "explain": "The rebuilt circuit (helpers and loops included) is never measured, yet it is sampled (run on a backend, "
+                   "execute, a Sampler): the counts come back empty. Students often build the "
+                   "gates and forget measure_all().",
+        "limits": "Quiet when the state is read without measuring (Statevector, Operator, an "
+                  "Estimator, a simulator's get_statevector()) or the circuit goes into a "
+                  "function of the file that may measure it.",
+        "example": _HEAD + "from qiskit_aer import AerSimulator\n\nqc = QuantumCircuit(2)\n"
+                           "qc.h(0)\nqc.cx(0, 1)\ncounts = AerSimulator().run(qc).result()"
+                           ".get_counts()\n",
+        "fixed": _HEAD + "from qiskit_aer import AerSimulator\n\nqc = QuantumCircuit(2)\n"
+                         "qc.h(0)\nqc.cx(0, 1)\nqc.measure_all()\ncounts = AerSimulator()"
+                         ".run(qc).result().get_counts()\n",
+    },
+    "QD07": {
+        "explain": "A declared qubit is never touched by any gate. Often harmless, a register "
+                   "sized for an earlier draft, but it can also mean a gate meant for that "
+                   "qubit names another one.",
+        "limits": "Barriers and delays do not count as a use; a qubit that is only "
+                  "measured is used (QD03 covers measuring an untouched qubit).",
+        "example": _HEAD + "qc = QuantumCircuit(3, 2)\nqc.h(0)\nqc.cx(0, 1)\n"
+                           "qc.measure([0, 1], [0, 1])\n",
+        "fixed": _HEAD + "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.cx(0, 1)\n"
+                         "qc.measure([0, 1], [0, 1])\n",
+    },
+    "QD08": {
+        "explain": "Two identical self-inverse gates (h, x, cx, ...) in a row on the same wires "
+                   "cancel out, so together they do nothing. Usually one is a duplicate, or a "
+                   "different gate was meant.",
+        "limits": "Pairs on the rebuilt circuit, so a loop that applies a gate twice counts; a "
+                  "barrier, or any other operation on those wires, in between keeps a pair "
+                  "apart. Both gates must come from the same code: a function handed its "
+                  "circuit (an oracle that uncomputes) is not judged, nor a caller's gate "
+                  "against a helper's, since those cancel only for some inputs.",
+        "example": _HEAD + "qc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.h(0)\nqc.measure(0, 0)\n",
+        "fixed": _HEAD + "qc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.measure(0, 0)\n",
     },
     # ---------------------------------------------------------------- LintQ
     "LQ00": {
@@ -295,7 +289,7 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
                    "to a second circuit by mistake, so the one that is printed, run or returned "
                    "is empty.",
         "limits": "LintQ's OversizedCircuit query, medium precision. Despite its message "
-                  "(\"some of its qubits\") it fires only when no qubit is used at all; QS006 "
+                  "(\"some of its qubits\") it fires only when no qubit is used at all; QD07 "
                   "and the dependence checks cover single idle qubits.",
         "example": _HEAD + "qc = QuantumCircuit(2)\ncircuit = QuantumCircuit(2)\ncircuit.h(0)\n"
                            "circuit.cx(0, 1)\nprint(qc)\n",

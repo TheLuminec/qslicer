@@ -241,7 +241,7 @@ def test_claim_uncomputation_instruction_3_is_uncomputed(example_results):
 @pytest.mark.slow
 def test_claim_linter_showcase_diagnostics(example_results):
     body = _ok(example_results, "linter_showcase")
-    assert {"QS005", "QS006", "QS010"} <= {d["code"] for d in body["diagnostics"]}
+    assert {"QD06", "QD07", "QD08"} <= {d["code"] for d in body["diagnostics"]}
 
 
 @pytest.mark.slow

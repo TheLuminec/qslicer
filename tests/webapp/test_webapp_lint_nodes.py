@@ -23,8 +23,8 @@ def names(data, ids):
 
 def test_cancelling_pair_marks_both_gates(client):
     data = analyze(client, "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.x(1)\nqc.x(1)\n"
-                           "qc.measure([0, 1], [0, 1])\n", ["quick/QS010"])
-    (pair,) = by_code(data, "QS010")
+                           "qc.measure([0, 1], [0, 1])\n", ["dependence/QD08"])
+    (pair,) = by_code(data, "QD08")
     assert names(data, pair["nodes"]) == [("x", 4), ("x", 5)]
 
 
@@ -52,8 +52,9 @@ def test_dead_gate_marks_that_instance(client):
 
 
 def test_findings_without_a_node_get_none(client):
-    data = analyze(client, "qc = QuantumCircuit(3)\nqc.h(0)\n", ["quick/QS005", "quick/QS006"])
-    assert by_code(data, "QS006")
+    data = analyze(client, "qc = QuantumCircuit(3)\nqc.h(0)\n",
+                   ["dependence/QD06", "dependence/QD07"])
+    assert by_code(data, "QD06") and by_code(data, "QD07")
     for finding in data["diagnostics"]:
         assert finding["nodes"] == []          # the constructor line made no instruction
 

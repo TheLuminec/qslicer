@@ -288,9 +288,11 @@ def run(source: str, filename: str = "", kind: str = "python-static",
 register(Linter(
     id="quick",
     label="Quick checks",
-    description="Reads the Python syntax tree only, so it sees literal arguments and nothing "
-                "computed. Never runs or interprets the program.",
+    description="Errors Python or Qiskit would raise: syntax, a missing circuit, indices outside "
+                "the registers, removed or unknown Qiskit APIs, and operations Qiskit rejects "
+                "while the static parser rebuilds the circuit.",
     rules=[Rule(code, *info) for code, info in lint.RULES.items()],
-    run=lambda context: lint.check_source(context.source),
+    # QS014 comes from the static parse, which the context shares with the dependence checks.
+    run=lambda context: lint.check_source(context.source) + lint.rejected_operation(context.failure()),
     languages=("python",),
 ))

@@ -9,7 +9,8 @@ def test_linters_endpoint_lists_rules_and_the_default(client):
     body = client.get("/api/linters").get_json()
     ids = [entry["id"] for entry in body["linters"]]
     assert "quick" in ids and "dependence" in ids
-    assert body["default"] and all(rule.startswith("quick/") for rule in body["default"])
+    linters_on = {rule.partition("/")[0] for rule in body["default"]}
+    assert linters_on == {"quick", "dependence"}
     assert body["plugin_errors"] == []
 
 
@@ -59,7 +60,8 @@ def test_analyze_honours_lint_rules(client):
                            lint_rules=["dependence"])
     assert body["ok"], body
     assert body["lint_rules"] == ["dependence/QD01", "dependence/QD02", "dependence/QD03",
-                                  "dependence/QD04", "dependence/QD05"]
+                                  "dependence/QD05", "dependence/QD06", "dependence/QD07",
+                                  "dependence/QD08"]
     # No quick checks were selected, so there is nothing to say about skipping them.
     assert all(d["code"] != "QS100" for d in body["diagnostics"])
 
@@ -80,8 +82,8 @@ def test_analyze_with_a_rule_off_does_not_report_it(client):
     _, on = post_analyze(client, source=source, filename="a.py", language="qiskit-static")
     _, off = post_analyze(client, source=source, filename="a.py", language="qiskit-static",
                           lint_rules=["quick/QS002"])
-    assert "QS005" in [d["code"] for d in on["diagnostics"]]
-    assert "QS005" not in [d["code"] for d in off["diagnostics"]]
+    assert "QD06" in [d["code"] for d in on["diagnostics"]]
+    assert "QD06" not in [d["code"] for d in off["diagnostics"]]
     assert all(d.get("tool") == "quick" for d in on["diagnostics"] if d["code"].startswith("QS0"))
 
 

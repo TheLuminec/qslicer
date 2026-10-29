@@ -282,15 +282,16 @@ of the real thing:
   consume it yet, so there is nothing server-side to call. Also waiting on the
   research; when the slicer grows real vertical and horizontal criteria, the UI
   hooks are already here.
-* **Quick checks.** Fourteen heuristics over the Python AST. They see only
-  literal arguments — anything built in a loop or passed through a helper is
-  invisible to them. Codes are `QS000`–`QS013`; the rules live in `lint.py`.
-  QS012 and QS013 look imported names, circuit methods and keyword arguments up
-  in the installed Qiskit (importing the library's modules, never the checked
-  file). They are the only linter on by
-  default. LintQ (the port, and the original through CodeQL where it is
-  installed) and the dependence checks are add-ons in `linter_plugins/`, picked
-  from the **Lint** menu.
+* **Quick checks** (`QS000`–`QS014`, `lint.py`): errors Python or Qiskit would
+  raise. Most read the Python AST, so they see only literal arguments; QS012
+  and QS013 look names and keyword arguments up in the installed Qiskit
+  (importing the library's modules, never the checked file), and QS014 reports
+  what Qiskit rejects while the static parser rebuilds the circuit.
+* **Dependence checks** (`QD01`–`QD08`, `linter_plugins/dependence_checks.py`):
+  quantum mistakes in the rebuilt circuit (loops unrolled, helpers followed)
+  and its dependence graph. Quick and dependence checks are on by default;
+  LintQ (the port, and the original through CodeQL where it is installed) is
+  an add-on picked from the **Lint** menu.
 * **Rule profiles.** The dropdown lists whatever `qdg.list_rule_profiles()`
   returns, which today is just `baseline`. Entanglement and phase rules exist in
   `scripts/Dependencies/rules.py` but ship disabled, so a profile that enables

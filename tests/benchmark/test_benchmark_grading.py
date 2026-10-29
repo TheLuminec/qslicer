@@ -252,10 +252,10 @@ def test_a_run_leaves_out_warnings_on_scaffolding(tmp_path):
 
     def fixed_warnings():
         benchmark._DATASETS.pop(path, None)
-        report = benchmark.run(["quick/QS005"], use_cache=False, dataset=path)
+        report = benchmark.run(["dependence/QD06"], use_cache=False, dataset=path)
         return report["totals"]["selection"]["warnings_fixed"]
 
-    assert fixed_warnings() == 1                     # QS005 on the scaffolding's circuit
+    assert fixed_warnings() == 1                     # QD06 on the scaffolding's circuit
     manifest["bugs"][0]["ignore_from_line"] = {"buggy": 3, "fixed": 3}
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(manifest, handle)
