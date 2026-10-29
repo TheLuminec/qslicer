@@ -449,3 +449,24 @@ def test_qs016_positive(line, what):
 ])
 def test_qs016_negative(line):
     assert "QS016" not in codes(check(f"qc = QuantumCircuit(2, 2)\nother = QuantumCircuit(2)\n{line}\n"))
+
+
+@pytest.mark.parametrize("body, line, message", [
+    ("qc = QuantumCircuit(2)\nqc.h(0)\nqc.measure(0, 0)\n", 4, "declares no classical bits"),
+    ("qc = QuantumCircuit(2)\nb = qc.clbits[0]\n", 3, "qc.clbits[0] does not exist"),
+    ("qc = QuantumCircuit(2, 1)\nwith qc.if_test((qc.clbits[1], 1)):\n    qc.x(0)\n", 3,
+     "declares 1 classical bit"),
+])
+def test_qs004_circuits_without_enough_classical_bits(body, line, message):
+    qs = only(check(body), "QS004")
+    assert len(qs) == 1 and qs[0]["line"] == line and message in qs[0]["message"]
+
+
+@pytest.mark.parametrize("body", [
+    "qc = QuantumCircuit(2)\nqc.measure_all()\nqc.measure(0, 0)\n",      # measure_all adds bits
+    "qc = QuantumCircuit(2)\nqc.add_bits([Clbit()])\nqc.measure(0, 0)\n",
+    "qc = QuantumCircuit(qr, cr)\nqc.measure(0, 0)\n",                     # registers: unknown
+    "qc = QuantumCircuit(2, 2)\nb = qc.clbits[-1]\n",
+])
+def test_qs004_unknown_or_enough_classical_bits(body):
+    assert "QS004" not in codes(check(body))

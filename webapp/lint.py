@@ -46,7 +46,8 @@ RULES = {
               "A literal qubit index falls outside the circuit's declared qubits."),
     "QS003": ("Repeated qubit", "error", "A multi-qubit gate names the same qubit twice."),
     "QS004": ("Classical bit out of range", "error",
-              "measure() writes a classical bit the circuit does not declare."),
+              "measure() writes, or qc.clbits[i] reads, a classical bit the circuit does not "
+              "declare (QuantumCircuit(n) declares none)."),
     "QS008": ("c_if() removed", "error", "c_if() was removed in Qiskit 2.0."),
     "QS009": ("execute() removed", "warning", "execute() was removed from qiskit."),
     "QS011": ("Removed Qiskit API", "error",
@@ -182,7 +183,11 @@ class _CircuitCollector(ast.NodeVisitor):
                         "name": target.id,
                         "node": node,
                         "num_qubits": _const_int(call.args[0]) if call.args else None,
-                        "num_clbits": _const_int(call.args[1]) if len(call.args) > 1 else None,
+                        # QuantumCircuit(3) has no classical bits; registers, or anything
+                        # but one literal size, leave it unknown.
+                        "num_clbits": (_const_int(call.args[1]) if len(call.args) > 1 else
+                                       0 if len(call.args) == 1 and not call.keywords
+                                       and _const_int(call.args[0]) is not None else None),
                     }
         self.generic_visit(node)
 
@@ -256,6 +261,7 @@ def check_source(source: str) -> List[Dict[str, Any]]:
     findings: List[Dict[str, Any]] = []
     findings += _check_has_circuit(tree, collector)
     findings += _check_indices(collector)
+    findings += _check_clbit_subscripts(tree, collector)
     findings += _check_removed_api(tree)
     findings += _check_removed_qiskit(tree, collector)
     findings += _check_unknown_qiskit_names(tree)
@@ -342,19 +348,53 @@ def _check_indices(collector: _CircuitCollector) -> List[Dict[str, Any]]:
                 "CircuitError at build time.",
             ))
 
+        num_clbits = _known_clbits(collector, call["owner"])
         for arg in cargs:
             indices = _qubit_args(arg)
             if indices is None:
                 continue
             for index in indices:
-                if circuit["num_clbits"] is not None and index >= circuit["num_clbits"]:
+                if num_clbits is not None and index >= num_clbits:
                     findings.append(_Finding(
                         "QS004", "error", node,
                         f"measure() writes to classical bit {index}, but {circuit['name']} "
-                        f"declares {circuit['num_clbits']}.",
+                        + (f"declares {num_clbits}." if num_clbits else
+                           "declares no classical bits."),
                         "Add classical bits when constructing the circuit: "
-                        f"QuantumCircuit({circuit['num_qubits']}, {index + 1}).",
+                        f"QuantumCircuit({circuit['num_qubits']}, {index + 1}), or use "
+                        "measure_all(), which adds its own.",
                     ))
+    return findings
+
+
+def _known_clbits(collector: _CircuitCollector, name: str) -> Optional[int]:
+    """A circuit's literal number of classical bits, unless something may add more."""
+    circuit = collector.circuits.get(name)
+    if circuit is None or any(call["owner"] == name and call["method"] in
+                              ("add_register", "add_bits", "measure_all", "measure_active")
+                              for call in collector.calls):
+        return None
+    return circuit["num_clbits"]
+
+
+def _check_clbit_subscripts(tree: ast.AST, collector: _CircuitCollector) -> List[Dict[str, Any]]:
+    """QS004 for qc.clbits[i] past the circuit's classical bits (an IndexError)."""
+    findings: List[Dict[str, Any]] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute)
+                and node.value.attr == "clbits" and isinstance(node.value.value, ast.Name)):
+            continue
+        name = node.value.value.id
+        num_clbits = _known_clbits(collector, name)
+        index = _const_int(node.slice)
+        if num_clbits is not None and index is not None and not -num_clbits <= index < num_clbits:
+            findings.append(_Finding(
+                "QS004", "error", node,
+                f"{name}.clbits[{index}] does not exist: {name} "
+                + (f"declares {num_clbits} classical bit(s)." if num_clbits else
+                   "declares no classical bits."),
+                f"Add classical bits when constructing the circuit: QuantumCircuit(n, {index + 1}).",
+            ))
     return findings
 
 
