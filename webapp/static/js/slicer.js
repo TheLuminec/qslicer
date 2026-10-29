@@ -538,10 +538,14 @@
         $('lint-picker').innerHTML = '<p class="placeholder">The linter list did not load; ' +
           'the default rules run.</p>';
       });
-    // Close the dropdown on an outside click, as a select would.
+    // Close the dropdown on an outside click, as a select would. The click's
+    // path, not its target: a "?" re-renders the picker while the click is
+    // still bubbling, so by now its target may no longer be in the page.
     document.addEventListener('click', function (event) {
       var dropdown = $('lint-dropdown');
-      if (dropdown.open && !dropdown.contains(event.target)) dropdown.open = false;
+      var inside = event.composedPath ? event.composedPath().indexOf(dropdown) !== -1
+        : dropdown.contains(event.target);
+      if (dropdown.open && !inside) dropdown.open = false;
     });
   }
 

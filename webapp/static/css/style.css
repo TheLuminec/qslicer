@@ -1024,6 +1024,40 @@ figcaption { font-size: 0.85rem; color: var(--text-faint); margin-top: 0.6rem; m
 .lint-code.sev-info { color: var(--info); }
 .lint-actions { display: flex; gap: 0.35rem; grid-column: 1 / -1; }
 
+/* Each rule's "?" opens its explanation, with a worked example, below the tree. */
+.lint-rules li { display: flex; align-items: baseline; gap: 0.3rem; }
+.lint-rules li > label { flex: 1; min-width: 0; }
+.lint-more {
+  flex: none; width: 1.25rem; height: 1.25rem; padding: 0; border-radius: 50%;
+  border: 1px solid var(--surface-3); background: transparent; color: var(--text-faint);
+  font-size: 0.72rem; font-weight: 700; line-height: 1; cursor: pointer;
+}
+.lint-more:hover, .lint-more:focus-visible { color: var(--text); border-color: var(--accent); }
+.lint-more.is-open { background: var(--accent); border-color: var(--accent); color: var(--bg-sunken); }
+.lint-doc {
+  grid-column: 1 / -1; background: var(--surface); border: 1px solid var(--line);
+  border-left: 3px solid var(--accent); border-radius: var(--radius-sm);
+  padding: 0.7rem 0.9rem; margin-top: 0.2rem;
+}
+.lint-doc[hidden] { display: none; }
+.lint-doc p { margin: 0.35rem 0; color: var(--text-dim); font-size: 0.85rem; max-width: 80ch; }
+.lint-doc-head { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+.lint-doc-head strong { color: var(--text); }
+.lint-doc-meta { font-size: 0.75rem; color: var(--text-faint); }
+.lint-doc-close {
+  margin-left: auto; border: 0; background: transparent; color: var(--text-faint);
+  font-size: 1.1rem; line-height: 1; cursor: pointer; padding: 0 0.2rem;
+}
+.lint-doc-close:hover { color: var(--text); }
+.lint-doc .lint-doc-limits { font-size: 0.8rem; }
+.lint-doc-examples {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.8rem;
+  margin-top: 0.5rem;
+}
+.lint-doc-examples h4 { margin: 0 0 0.3rem; color: var(--accent-2); font-size: 0.82rem; }
+.lint-doc-source { max-height: 18rem; }
+.lint-doc .lint-doc-note { font-size: 0.76rem; color: var(--text-faint); }
+
 /* ----------------------------------------------------------- benchmark -- */
 
 .bench { max-width: 1120px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }

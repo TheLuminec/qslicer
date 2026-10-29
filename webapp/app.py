@@ -19,6 +19,7 @@ JSON API
     POST /api/analyze           {source, filename, profile, language} -> graph payload
     POST /api/slice             {token, node_idx, direction, dep_types} -> slice
     GET  /api/linters           every linter, its rules, and the default selection
+    GET  /api/linters/rules/<id>  one rule explained, with what it reports on its example
     GET  /api/benchmark         a dataset (?dataset=<id>, default Bugs4Q): summary and bug list
     GET  /api/benchmark/bugs/<key>  one bug with both programs' sources (?dataset=<id>)
     POST /api/benchmark         {lint_rules, profile, dataset} -> graded report
@@ -40,6 +41,7 @@ import benchmark  # noqa: E402
 import examples  # noqa: E402
 import gates  # noqa: E402
 import linters  # noqa: E402
+import rule_docs  # noqa: E402
 from team import (  # noqa: E402
     COURSE, MEMBERS, MISSION, PROJECT_BLURB, VISION,
 )
@@ -257,6 +259,28 @@ def api_slice():
 def api_linters():
     return jsonify({"linters": linters.catalog(), "default": linters.default_selection(),
                     "plugin_errors": linters.plugin_errors()})
+
+
+@app.get("/api/linters/rules/<path:rule_id>")
+def api_linter_rule(rule_id):
+    """One rule in depth: its documentation, and what it reports on the example."""
+    entry = next((dict(rule, linter=linter["label"], linter_id=linter["id"])
+                  for linter in linters.catalog() for rule in linter["rules"]
+                  if rule["id"] == rule_id), None)
+    if entry is None:
+        abort(404, description=f"No lint rule named {rule_id!r}.")
+    docs = rule_docs.doc(entry["code"]) or {}
+    entry.update(explain=docs.get("explain"), limits=docs.get("limits"),
+                 example=docs.get("example"), fixed=docs.get("fixed"), findings=None)
+    # LintQ's original (CodeQL) shares its codes with the port, which gives its warnings.
+    runner = rule_id.replace("lintq-codeql/", "lintq/", 1)
+    if entry["example"] and linters.normalize_selection([runner]):
+        entry["findings"] = {
+            version: [d for d in linters.run(entry[version], "example.py", "python-static",
+                                             [runner]) if d.get("code") == entry["code"]]
+            for version in ("example", "fixed") if entry[version]}
+        entry["run_with"] = runner.partition("/")[0]
+    return jsonify(entry)
 
 
 @app.get("/api/benchmark")

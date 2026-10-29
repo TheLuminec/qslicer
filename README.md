@@ -124,6 +124,7 @@ The JSON API behind it:
 | `/api/analyze` | POST | `{source, filename, profile, language, lint_rules}` |
 | `/api/slice` | POST | `{token, node_idx, direction, dep_types}` |
 | `/api/linters` | GET | none |
+| `/api/linters/rules/<id>` | GET | none (one rule explained: what it checks, its limits, an example and its fix, with what the rule reports on each) |
 | `/api/benchmark` | GET | `?dataset=<id>` (optional; the dataset's bug list) |
 | `/api/benchmark/bugs/<key>` | GET | `?dataset=<id>` (optional) |
 | `/api/benchmark` | POST | `{lint_rules, profile, dataset}` |
@@ -159,7 +160,11 @@ A new linter is a module in `webapp/linter_plugins/` that defines `LINTER` or
 `LINTERS` (see `dependence_checks.py`, or `lintq.py` for one that wraps an
 external tool), or any importable module named in
 `QSLICER_LINTER_PLUGINS`. It then appears in the Lint menu, the benchmark and
-the command line with no other change.
+the command line with no other change. Each rule also needs an entry in
+`webapp/rule_docs.py` (what it checks, its limits, an example and its fix),
+which the **?** next to the rule in the Lint menu shows with the rule's real
+findings on both; `tests/webapp/test_webapp_rule_docs.py` fails until it is
+there, and whenever an example stops firing.
 
 The **Benchmark** page grades the current selection on a dataset of buggy and
 fixed programs: any folder under `benchmarks/` with a `manifest.json`. The
