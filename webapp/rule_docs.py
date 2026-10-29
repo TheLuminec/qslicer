@@ -223,6 +223,18 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
         "example": _HEAD + "qc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.h(0)\nqc.measure(0, 0)\n",
         "fixed": _HEAD + "qc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.measure(0, 0)\n",
     },
+    "QD09": {
+        "explain": "An if_test (or another classical condition) reads only bits that no earlier "
+                   "measurement wrote. Classical bits start at 0, so the branch is decided "
+                   "before the program runs. Usually the measurement comes after the if_test, "
+                   "or measures into a different bit than the condition reads.",
+        "limits": "A bit written anywhere inside an earlier control-flow block counts as "
+                  "written; a condition that reads at least one written bit is not judged.",
+        "example": _HEAD + "qc = QuantumCircuit(2, 1)\nqc.h(0)\n"
+                           "with qc.if_test((qc.clbits[0], 1)):\n    qc.x(1)\nqc.measure(0, 0)\n",
+        "fixed": _HEAD + "qc = QuantumCircuit(2, 1)\nqc.h(0)\nqc.measure(0, 0)\n"
+                         "with qc.if_test((qc.clbits[0], 1)):\n    qc.x(1)\n",
+    },
     # ---------------------------------------------------------------- LintQ
     "LQ00": {
         "explain": "LintQ skipped the program because it has very many quantum operations; its "

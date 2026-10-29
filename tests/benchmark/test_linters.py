@@ -43,7 +43,7 @@ def test_quick_checks_are_errors_and_dependence_checks_the_quantum_side():
     assert {code for code, severity in quick.items() if severity != "error"} == {"QS009", "QS015"}
     assert {"QS005", "QS006", "QS007", "QS010"}.isdisjoint(quick) and "QS014" in quick
     codes = [r.code for r in linters.get("dependence").rules]
-    assert codes == ["QD01", "QD02", "QD03", "QD05", "QD06", "QD07", "QD08"]
+    assert codes == ["QD01", "QD02", "QD03", "QD05", "QD06", "QD07", "QD08", "QD09"]
 
 
 def test_bare_linter_id_selects_all_its_rules_and_unknown_ids_drop():
@@ -437,3 +437,29 @@ def test_static_parse_time_limit():
 ])
 def test_qd08_needs_both_gates_from_the_same_code(body):
     assert dependence(py(body), "QD08") == []
+
+
+# QD09 condition never set ---------------------------------------------------
+
+@pytest.mark.parametrize("body, line", [
+    # The measurement comes after the if_test.
+    ("qc = QuantumCircuit(2, 1)\nqc.h(0)\nwith qc.if_test((qc.clbits[0], 1)):\n    qc.x(1)\n"
+     "qc.measure(0, 0)\n", 4),
+    # The measurement writes another bit.
+    ("qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.measure(0, 1)\nwith qc.if_test((qc.clbits[0], 1)):\n"
+     "    qc.x(1)\n", 5),
+])
+def test_condition_never_set(body, line):
+    found = dependence(py(body), "QD09")
+    assert [d["line"] for d in found] == [line] and found[0]["severity"] == "warning"
+
+
+@pytest.mark.parametrize("body", [
+    "qc = QuantumCircuit(2, 1)\nqc.h(0)\nqc.measure(0, 0)\nwith qc.if_test((qc.clbits[0], 1)):\n"
+    "    qc.x(1)\n",
+    # A bit written inside an earlier branch counts as written.
+    "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.measure(0, 0)\nwith qc.if_test((qc.clbits[0], 1)):\n"
+    "    qc.measure(1, 1)\nwith qc.if_test((qc.clbits[1], 1)):\n    qc.x(0)\n",
+])
+def test_qd09_negative(body):
+    assert dependence(py(body), "QD09") == []

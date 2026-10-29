@@ -46,6 +46,9 @@ RULES = [
     Rule("QD08", "Cancelling pair", "info",
          "Two identical self-inverse gates back to back on the same wires (loops and helpers "
          "included) cancel; a barrier in between keeps them apart."),
+    Rule("QD09", "Condition never set", "warning",
+         "An if_test (or other classical condition) reads only bits no earlier measurement "
+         "wrote: they are still 0, so the branch is decided before the program runs."),
 ]
 
 # QD05: how many leading qubits of a controlled gate are controls.
@@ -346,6 +349,33 @@ def _cancelling_pairs(program, source: str) -> List[Dict[str, Any]]:
     return findings
 
 
+def _conditions_never_set(program) -> List[Dict[str, Any]]:
+    """QD09: a condition none of whose bits an earlier measurement (or store) wrote.
+
+    Classical bits start at 0, so such a branch always goes the same way; usually
+    the measurement is missing, comes after the if_test, or writes another bit.
+    A control-flow block may write bits inside it, so its bits count as written
+    afterwards.
+    """
+    written: Set[int] = set()
+    findings = []
+    for idx in range(len(program)):
+        instruction = program[idx]
+        bits = list(instruction.metadata.get("condition_clbits") or [])
+        if bits and _line(instruction) and not any(bit in written for bit in bits):
+            findings.append(_finding(
+                "QD09", _line(instruction),
+                f"This condition reads classical bit(s) {bits}, which no earlier measurement "
+                "wrote: they are still 0, so the branch never changes.",
+                "Measure into those bits before the if_test, or check that the measurement "
+                "writes the bit the condition reads.",
+                nodes=[idx],
+            ))
+        if instruction.name in ("measure", "store") or bits:
+            written.update(instruction.clbits)
+    return findings
+
+
 def _merge(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """One finding per (code, line): a gate inside a loop is reported once, with a count."""
     merged: Dict[tuple, Dict[str, Any]] = {}
@@ -378,7 +408,8 @@ def run(context: LintContext) -> List[Dict[str, Any]]:
     return _merge(_dead_gates(program, qdg) + _overwritten_measurements(program)
                   + _constant_measurements(program) + _unset_controls(program, context.source)
                   + _no_measurement(program, context.source)
-                  + _idle_qubits(program, context.source) + _cancelling_pairs(program, context.source))
+                  + _idle_qubits(program, context.source) + _cancelling_pairs(program, context.source)
+                  + _conditions_never_set(program))
 
 
 LINTER = Linter(
