@@ -19,14 +19,14 @@ from qiskit import QuantumCircuit
 
 from Parsers.qiskitparser import QiskitParser
 from Dependencies.dependency_rules import DependencyType as D
-from qpdg import QPDG
+from qdg import QDG
 from slicer import QuantumSlicer, SlicingCriterion
 
 pytestmark = [pytest.mark.requirement("VV-03"), pytest.mark.requirement("VV-05")]
 
 
 @pytest.fixture(scope="module")
-def qpdg():
+def qdg():
     qc = QuantumCircuit(3, 1)
     qc.h(0)
     qc.cx(0, 1)
@@ -34,15 +34,15 @@ def qpdg():
     qc.measure(1, 0)
     with qc.if_test((qc.clbits[0], 1)):
         qc.x(2)
-    return QPDG(QiskitParser(qc).program)
+    return QDG(QiskitParser(qc).program)
 
 
-def backward(qpdg, idx, deps=None):
-    return QuantumSlicer.backward_slice(qpdg, SlicingCriterion(node_idx=idx, dep_types=deps))
+def backward(qdg, idx, deps=None):
+    return QuantumSlicer.backward_slice(qdg, SlicingCriterion(node_idx=idx, dep_types=deps))
 
 
-def forward(qpdg, idx, deps=None):
-    return QuantumSlicer.forward_slice(qpdg, SlicingCriterion(node_idx=idx, dep_types=deps))
+def forward(qdg, idx, deps=None):
+    return QuantumSlicer.forward_slice(qdg, SlicingCriterion(node_idx=idx, dep_types=deps))
 
 
 @pytest.mark.requirement("FR-12")
@@ -53,8 +53,8 @@ def forward(qpdg, idx, deps=None):
     (3, {0, 1, 3}),
     (4, {0, 1, 2, 3, 4}),
 ])
-def test_backward_slice(qpdg, idx, expected):
-    assert backward(qpdg, idx) == expected
+def test_backward_slice(qdg, idx, expected):
+    assert backward(qdg, idx) == expected
 
 
 @pytest.mark.requirement("FR-13")
@@ -64,39 +64,39 @@ def test_backward_slice(qpdg, idx, expected):
     (3, {3, 4}),
     (4, {4}),
 ])
-def test_forward_slice(qpdg, idx, expected):
-    assert forward(qpdg, idx) == expected
+def test_forward_slice(qdg, idx, expected):
+    assert forward(qdg, idx) == expected
 
 
 @pytest.mark.requirement("FR-14")
-def test_dep_type_filter_restricts_backward(qpdg):
-    assert backward(qpdg, 4, {D.DATA_QUBIT}) == {2, 4}
-    assert backward(qpdg, 4, {D.MEASUREMENT}) == {3, 4}
-    assert backward(qpdg, 4, {D.MEASUREMENT, D.DATA_QUBIT}) == {0, 1, 2, 3, 4}
+def test_dep_type_filter_restricts_backward(qdg):
+    assert backward(qdg, 4, {D.DATA_QUBIT}) == {2, 4}
+    assert backward(qdg, 4, {D.MEASUREMENT}) == {3, 4}
+    assert backward(qdg, 4, {D.MEASUREMENT, D.DATA_QUBIT}) == {0, 1, 2, 3, 4}
 
 
 @pytest.mark.requirement("FR-14")
-def test_dep_type_filter_restricts_forward(qpdg):
-    assert forward(qpdg, 0, {D.DATA_QUBIT}) == {0, 1, 3}
-    assert forward(qpdg, 0, {D.ENTANGLEMENT}) == {0}
+def test_dep_type_filter_restricts_forward(qdg):
+    assert forward(qdg, 0, {D.DATA_QUBIT}) == {0, 1, 3}
+    assert forward(qdg, 0, {D.ENTANGLEMENT}) == {0}
 
 
 @pytest.mark.requirement("FR-15")
 @pytest.mark.parametrize("deps", [None, {D.DATA_QUBIT}, {D.MEASUREMENT}, set()],
                          ids=["all", "qubit", "measurement", "none"])
-def test_slice_contains_criterion_and_only_connected_nodes(qpdg, deps):
+def test_slice_contains_criterion_and_only_connected_nodes(qdg, deps):
     sub = nx.DiGraph()
-    sub.add_nodes_from(qpdg.graph.nodes)
+    sub.add_nodes_from(qdg.graph.nodes)
     sub.add_edges_from(
-        (u, v) for u, v, d in qpdg.graph.edges(data=True)
+        (u, v) for u, v, d in qdg.graph.edges(data=True)
         if deps is None or d["dependency"] in deps
     )
-    for idx in qpdg.graph.nodes:
-        assert backward(qpdg, idx, deps) == nx.ancestors(sub, idx) | {idx}
-        assert forward(qpdg, idx, deps) == nx.descendants(sub, idx) | {idx}
+    for idx in qdg.graph.nodes:
+        assert backward(qdg, idx, deps) == nx.ancestors(sub, idx) | {idx}
+        assert forward(qdg, idx, deps) == nx.descendants(sub, idx) | {idx}
 
 
 @pytest.mark.requirement("NFR-08")
-def test_slices_are_deterministic(qpdg):
-    first = backward(qpdg, 4)
-    assert all(backward(qpdg, 4) == first for _ in range(3))
+def test_slices_are_deterministic(qdg):
+    first = backward(qdg, 4)
+    assert all(backward(qdg, 4) == first for _ in range(3))

@@ -10,7 +10,7 @@ from Parsers.openqasmparser import OpenQASMParser
 from Parsers.staticopenqasmparser import StaticOpenQASMParser
 from Parsers.staticqiskitparser import StaticParseError
 from Dependencies.dependency_rules import DependencyType
-from qpdg import QPDG
+from qdg import QDG
 from slicer import QuantumSlicer, SlicingCriterion
 
 EXAMPLES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
@@ -151,7 +151,7 @@ def test_parse_is_deterministic_and_reparse_does_not_duplicate():
 # --------------------------------------------------------------------------
 
 def backward(program, idx, deps=None):
-    return QuantumSlicer.backward_slice(QPDG(program), SlicingCriterion(node_idx=idx, dep_types=deps))
+    return QuantumSlicer.backward_slice(QDG(program), SlicingCriterion(node_idx=idx, dep_types=deps))
 
 
 def names(program):

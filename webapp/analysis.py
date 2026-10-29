@@ -58,7 +58,7 @@ try:
     from Parsers.openqasmparser import OpenQASMParser
     from Parsers.staticopenqasmparser import StaticOpenQASMParser
     from Parsers.staticqiskitparser import StaticParseError, StaticQiskitParser
-    from qpdg import QPDG, get_rule_profile, list_rule_profiles
+    from qdg import QDG, get_rule_profile, list_rule_profiles
     from slicer import QuantumSlicer, SlicingCriterion
 except Exception as exc:  # pragma: no cover - depends on the local environment
     _IMPORT_ERROR = f"{type(exc).__name__}: {exc}"
@@ -75,7 +75,7 @@ def backend_error() -> Optional[str]:
 # --------------------------------------------------------------------------
 # Analysis cache
 #
-# Slicing re-uses the QPDG that the analyze call already built, so picking a new
+# Slicing re-uses the QDG that the analyze call already built, so picking a new
 # criterion never re-executes the submitted program.
 # --------------------------------------------------------------------------
 
@@ -287,7 +287,7 @@ def analyze_source(
     language: Optional[str] = None,
     lint_rules: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """Lint, parse, build the QPDG, and describe everything as JSON-safe data.
+    """Lint, parse, build the QDG, and describe everything as JSON-safe data.
 
     ``language`` names the front end: ``"qiskit"``, ``"qiskit-static"``, ``"qasm"``
     or ``"qasm-static"`` (see INTERPRETERS). The page
@@ -384,11 +384,11 @@ def analyze_source(
         rules = get_rule_profile("baseline")
         result["profile"] = "baseline"
 
-    qpdg = QPDG(program, rules=rules)
+    qdg = QDG(program, rules=rules)
 
     # The front end is part of the key: the two Python routes must not share an entry.
     token = sha256(f"{filename}\x00{profile}\x00{kind}\x00{source}".encode("utf-8")).hexdigest()[:32]
-    _cache_put(token, {"qpdg": qpdg, "program": program})
+    _cache_put(token, {"qdg": qdg, "program": program})
 
     result.update({
         "ok": True,
@@ -400,7 +400,7 @@ def analyze_source(
         },
         "route": _ROUTES[kind].format(timeout=PARSE_TIMEOUT),
         "nodes": _describe_nodes(program),
-        "edges": _describe_edges(qpdg),
+        "edges": _describe_edges(qdg),
         "entanglement": _describe_entanglement(program),
         "rules": [rule.name for rule in rules],
     })
@@ -694,9 +694,9 @@ def _describe_location(location: Any) -> Dict[str, Any]:
     return {"line": location.line, "source": location.to_dict()}
 
 
-def _describe_edges(qpdg: Any) -> List[Dict[str, Any]]:
+def _describe_edges(qdg: Any) -> List[Dict[str, Any]]:
     edges = []
-    for source, target, key, data in qpdg.graph.edges(keys=True, data=True):
+    for source, target, key, data in qdg.graph.edges(keys=True, data=True):
         edges.append({
             "source": source,
             "target": target,
@@ -776,7 +776,7 @@ def slice_program(
     direction: str = "backward",
     dep_types: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """Run the real slicer over a cached QPDG.
+    """Run the real slicer over a cached QDG.
 
     ``dep_types`` is a list of DependencyType names; None or empty means follow
     every dependency, matching SlicingCriterion's default.
@@ -800,7 +800,7 @@ def slice_program(
             stale=True,
         )
 
-    qpdg = entry["qpdg"]
+    qdg = entry["qdg"]
     program = entry["program"]
     if not 0 <= node_idx < len(program):
         return _slice_error("out_of_range", f"Instruction {node_idx} is outside this program.")
@@ -814,9 +814,9 @@ def slice_program(
 
     criterion = SlicingCriterion(node_idx=node_idx, dep_types=selected)
     if direction == "forward":
-        indices = QuantumSlicer.forward_slice(qpdg, criterion)
+        indices = QuantumSlicer.forward_slice(qdg, criterion)
     else:
-        indices = QuantumSlicer.backward_slice(qpdg, criterion)
+        indices = QuantumSlicer.backward_slice(qdg, criterion)
 
     return {
         "ok": True,

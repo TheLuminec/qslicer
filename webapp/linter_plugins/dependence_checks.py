@@ -1,4 +1,4 @@
-"""Dependence checks: mistakes the QPDG can prove, as a linter add-on.
+"""Dependence checks: mistakes the QDG can prove, as a linter add-on.
 
 The slicer keeps every instruction that could change a measured bit. These
 checks report the instructions that provably cannot, on the circuit the static
@@ -68,7 +68,7 @@ def _finding(code: str, line: int, message: str, hint: str) -> Dict[str, Any]:
             "message": message, "hint": hint}
 
 
-def _dead_gates(program, qpdg) -> List[Dict[str, Any]]:
+def _dead_gates(program, qdg) -> List[Dict[str, Any]]:
     from slicer import QuantumSlicer, SlicingCriterion
 
     measurements = [i for i in range(len(program)) if program[i].name == "measure"]
@@ -77,7 +77,7 @@ def _dead_gates(program, qpdg) -> List[Dict[str, Any]]:
     live: Set[int] = set()
     for idx in measurements:
         if idx not in live:
-            live |= QuantumSlicer.backward_slice(qpdg, SlicingCriterion(node_idx=idx))
+            live |= QuantumSlicer.backward_slice(qdg, SlicingCriterion(node_idx=idx))
     findings = []
     for idx in range(len(program)):
         instruction = program[idx]
@@ -249,14 +249,14 @@ def run(context: LintContext) -> List[Dict[str, Any]]:
         return _rejected_operation(context.failure())
     if len(program) == 0:
         return []
-    from qpdg import QPDG, get_rule_profile
+    from qdg import QDG, get_rule_profile
 
     try:
         rules = get_rule_profile(context.profile)
     except ValueError:
         rules = get_rule_profile("baseline")
-    qpdg = QPDG(program, rules=rules)
-    return _merge(_dead_gates(program, qpdg) + _overwritten_measurements(program)
+    qdg = QDG(program, rules=rules)
+    return _merge(_dead_gates(program, qdg) + _overwritten_measurements(program)
                   + _constant_measurements(program) + _unset_controls(program, context.source))
 
 
@@ -264,7 +264,7 @@ LINTER = Linter(
     id="dependence",
     label="Dependence checks",
     description="Reads the circuit the static front end rebuilds and its dependence graph "
-                "(with the selected QPDG rules). Finds gates no measured bit depends on.",
+                "(with the selected QDG rules). Finds gates no measured bit depends on.",
     rules=RULES,
     run=run,
     languages=("python", "qasm"),

@@ -1,5 +1,5 @@
 /* ==========================================================================
-   QPDG graph view.
+   QDG graph view.
 
    Hand-rolled SVG rather than a charting library: the graph is small, the
    layout is fixed (instruction index across, qubit lane down), and this keeps

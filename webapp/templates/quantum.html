@@ -12,7 +12,7 @@
       <li><a href="#measurement">Measurement</a></li>
       <li><a href="#slicing">What slicing means</a></li>
       <li><a href="#dependencies">The dependency types</a></li>
-      <li><a href="#qpdg">How our slicer works</a></li>
+      <li><a href="#qdg">How our slicer works</a></li>
       <li><a href="#walkthrough">Walkthrough: teleportation</a></li>
       <li><a href="#inputs">Two ways in</a></li>
       <li><a href="#tools">Tools we use</a></li>
@@ -171,7 +171,7 @@
         </table>
       </div>
       <p>
-        Both reduce to <strong>graph reachability</strong> on the QPDG. A backward slice finds
+        Both reduce to <strong>graph reachability</strong> on the QDG. A backward slice finds
         the nodes that can reach <span data-math>s</span> along dependency edges; a forward
         slice finds the nodes reachable from it. That is literally what the slicer does: a
         graph walk over incoming or outgoing edges, filtered by the dependency types
@@ -286,7 +286,7 @@
       </div>
     </section>
 
-    <section id="qpdg">
+    <section id="qdg">
       <h2>How our slicer works</h2>
       <ol class="steps">
         <li>
@@ -301,7 +301,7 @@
           </p>
         </li>
         <li>
-          <h3>Build the QPDG</h3>
+          <h3>Build the QDG</h3>
           <p>
             Every instruction becomes a node. Then each dependency <em>rule</em> walks the
             program and emits labeled edges. Rules are independent and pluggable, which is
@@ -383,7 +383,7 @@
           <p>
             Measuring a qubit deactivates the group it belonged to and opens a new
             measurement group over the same qubits. The analyzer only reports groups; it does
-            not add edges to the QPDG. Entanglement edges come from the separate entanglement
+            not add edges to the QDG. Entanglement edges come from the separate entanglement
             rule, which ships disabled.
           </p>
           <aside class="callout callout-note">
@@ -500,7 +500,7 @@
           its syntax tree into the instruction list.</dd>
 
         <dt>NetworkX</dt>
-        <dd>Graph library. The QPDG is a <code>MultiDiGraph</code> &mdash; multi, because two
+        <dd>Graph library. The QDG is a <code>MultiDiGraph</code> &mdash; multi, because two
           instructions can be joined by several dependencies of different kinds at once.</dd>
 
         <dt>Matplotlib</dt>
@@ -515,7 +515,7 @@
           checks flag common Qiskit mistakes from the syntax tree and are
           on by default. LintQ (Paltenghi and Pradel, FSE 2024) comes as a port that matches the
           original's warnings and, where CodeQL is installed, as the original queries. The
-          dependence checks read the QPDG for gates no measured bit depends on, and are the
+          dependence checks read the QDG for gates no measured bit depends on, and are the
           only ones that also read OpenQASM. Pick them under <strong>Lint</strong> on the slicer
           page; the <a href="{{ url_for('benchmark') }}">Benchmark</a> page grades the same
           selection on the Bugs4Q bugs.</dd>

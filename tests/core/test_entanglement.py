@@ -5,7 +5,7 @@ from qiskit import QuantumCircuit
 
 from Parsers.qiskitparser import QiskitParser
 from entanglement import EntanglementAnalyzer, EntanglementGraph
-from qpdg import QPDG
+from qdg import QDG
 from slicer import QuantumSlicer, SlicingCriterion
 
 
@@ -74,6 +74,6 @@ def test_uncomputed_entangling_gate_excluded_from_backward_slice():
     qc.cx(0, 1)       # 1  entangle
     qc.cx(0, 1)       # 2  uncompute
     qc.measure(1, 0)  # 3  criterion: q1 is back to |0>
-    qpdg = QPDG(QiskitParser(qc).program)
-    sliced = QuantumSlicer.backward_slice(qpdg, SlicingCriterion(node_idx=3))
+    qdg = QDG(QiskitParser(qc).program)
+    sliced = QuantumSlicer.backward_slice(qdg, SlicingCriterion(node_idx=3))
     assert 1 not in sliced and 2 not in sliced

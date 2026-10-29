@@ -1,5 +1,5 @@
 """
-QPDG Visualizer - interactive matplotlib window for exploring quantum program slices.
+QDG Visualizer - interactive matplotlib window for exploring quantum program slices.
 
 Usage (from scripts/):
     python visualizer.py path/to/circuit.py [--profile PROFILE]
@@ -19,7 +19,7 @@ import networkx as nx
 from typing import Dict, List, Set, Tuple
 
 from Parsers.qiskitparser import QiskitParser
-from qpdg import QPDG, get_rule_profile, list_rule_profiles
+from qdg import QDG, get_rule_profile, list_rule_profiles
 from Dependencies.dependency_rules import DependencyRule, DependencyType
 from slicer import QuantumSlicer, SlicingCriterion
 
@@ -53,13 +53,13 @@ _CURVE_STYLES = [
 ]
 
 
-def _circuit_layout(qpdg: QPDG) -> Dict[int, Tuple[float, float]]:
+def _circuit_layout(qdg: QDG) -> Dict[int, Tuple[float, float]]:
     """
     Place each node at (instruction_index, average_qubit_index).
     Produces a left-to-right circuit-style layout.
     """
     pos = {}
-    for idx, node in qpdg.nodes.items():
+    for idx, node in qdg.nodes.items():
         qubits = node.instruction.qubits
         y = sum(qubits) / len(qubits) if qubits else -1.0
         pos[idx] = (float(idx), y)
@@ -67,21 +67,21 @@ def _circuit_layout(qpdg: QPDG) -> Dict[int, Tuple[float, float]]:
     return pos
 
 
-class QPDGVisualizer:
+class QDGVisualizer:
     """
-    Interactive QPDG viewer with Prev/Next node navigation and Bwd/Fwd toggle.
+    Interactive QDG viewer with Prev/Next node navigation and Bwd/Fwd toggle.
 
     criterion_idx : index of the currently selected instruction node
     mode          : 'backward' or 'forward'
     """
 
-    def __init__(self, qpdg: QPDG, title: str = "", fig=None, ax=None, show=True):
-        self.qpdg = qpdg
+    def __init__(self, qdg: QDG, title: str = "", fig=None, ax=None, show=True):
+        self.qdg = qdg
         self.title = title
-        self.node_count = len(qpdg.nodes)
+        self.node_count = len(qdg.nodes)
         self.criterion_idx = self.node_count - 1
         self.mode = "backward"
-        self.pos = _circuit_layout(qpdg)
+        self.pos = _circuit_layout(qdg)
 
         if fig is None or ax is None:
             self.fig, self.ax = plt.subplots(figsize=(13, 7))
@@ -127,8 +127,8 @@ class QPDGVisualizer:
     def _compute_slice(self) -> Set[int]:
         criterion = SlicingCriterion(node_idx=self.criterion_idx)
         if self.mode == "backward":
-            return QuantumSlicer.backward_slice(self.qpdg, criterion)
-        return QuantumSlicer.forward_slice(self.qpdg, criterion)
+            return QuantumSlicer.backward_slice(self.qdg, criterion)
+        return QuantumSlicer.forward_slice(self.qdg, criterion)
 
     def _draw(self):
         self.ax.clear()
@@ -137,7 +137,7 @@ class QPDGVisualizer:
 
         slice_nodes = self._compute_slice()
         node_colors = []
-        for idx in self.qpdg.graph.nodes():
+        for idx in self.qdg.graph.nodes():
             if idx == self.criterion_idx:
                 node_colors.append(_NODE_CRITERION)
             elif idx in slice_nodes:
@@ -146,13 +146,13 @@ class QPDGVisualizer:
                 node_colors.append(_NODE_OUT_SLICE)
 
         labels = {}
-        for idx, node in self.qpdg.nodes.items():
+        for idx, node in self.qdg.nodes.items():
             instruction = node.instruction
             q_str = str(instruction.qubits) if instruction.qubits else ""
             labels[idx] = f"{idx}: {instruction.name}\n{q_str}"
 
         nx.draw_networkx_nodes(
-            self.qpdg.graph,
+            self.qdg.graph,
             self.pos,
             ax=self.ax,
             node_color=node_colors,
@@ -161,7 +161,7 @@ class QPDGVisualizer:
             linewidths=0.8,
         )
         nx.draw_networkx_labels(
-            self.qpdg.graph,
+            self.qdg.graph,
             self.pos,
             labels=labels,
             ax=self.ax,
@@ -170,7 +170,7 @@ class QPDGVisualizer:
         )
 
         edge_groups: Dict[Tuple[int, int], List[DependencyType]] = {}
-        for source, target, data in self.qpdg.graph.edges(data=True):
+        for source, target, data in self.qdg.graph.edges(data=True):
             dependency = data.get("dependency")
             edge_groups.setdefault((source, target), []).append(dependency)
 
@@ -180,7 +180,7 @@ class QPDGVisualizer:
                 style = _CURVE_STYLES[idx % len(_CURVE_STYLES)]
                 alpha = 1.0 if (source in slice_nodes or target in slice_nodes) else 0.15
                 nx.draw_networkx_edges(
-                    self.qpdg.graph,
+                    self.qdg.graph,
                     self.pos,
                     ax=self.ax,
                     edgelist=[(source, target)],
@@ -194,7 +194,7 @@ class QPDGVisualizer:
                     min_target_margin=30,
                 )
 
-        criterion_node = self.qpdg.nodes[self.criterion_idx]
+        criterion_node = self.qdg.nodes[self.criterion_idx]
         instruction = criterion_node.instruction
         direction = "Backward" if self.mode == "backward" else "Forward"
         header = self.title + " - " if self.title else ""
@@ -228,17 +228,17 @@ class QPDGVisualizer:
         self.fig.canvas.draw_idle()
 
 
-def _load_qpdg(path: str, profile_name: str) -> QPDG:
+def _load_qdg(path: str, profile_name: str) -> QDG:
     parser = QiskitParser()
     parser.parse_file(path)
     if len(parser.program) == 0:
         raise ValueError(f"No instructions parsed from {path}")
-    return QPDG(parser.program, rules=get_rule_profile(profile_name))
+    return QDG(parser.program, rules=get_rule_profile(profile_name))
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Visualize a QPDG using one of the named dependency profiles.",
+        description="Visualize a QDG using one of the named dependency profiles.",
     )
     parser.add_argument(
         "--circuit_path",
@@ -254,6 +254,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 if __name__ == "__main__":
     args = _build_arg_parser().parse_args()
-    qpdg = _load_qpdg(args.circuit_path, args.profile)
+    qdg = _load_qdg(args.circuit_path, args.profile)
     title = f"{os.path.basename(args.circuit_path)} ({args.profile})"
-    QPDGVisualizer(qpdg, title=title)
+    QDGVisualizer(qdg, title=title)

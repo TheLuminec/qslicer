@@ -1386,7 +1386,7 @@
       }
       var base = (state.filename || 'circuit').replace(/\.(py|qasm3?)$/i, '');
       var suffix = state.criterion === null
-        ? 'qpdg'
+        ? 'qdg'
         : state.direction + '-slice-' + state.criterion;
       var url = URL.createObjectURL(blob);
       var link = document.createElement('a');

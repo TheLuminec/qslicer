@@ -33,7 +33,7 @@ MEMBERS = [
         "year": "Senior",
         "focus": "Definition of done, issue board",
         "bio": "Maintains the issues board and reviews work against the QA gates: unit tests, "
-               "wiki documentation, commented code, and integration with the QPDG pipeline. "
+               "wiki documentation, commented code, and integration with the QDG pipeline. "
                "Holds a veto on anything that does not meet them.",
         "links": {},
     },
@@ -43,7 +43,7 @@ MEMBERS = [
         "role": "R&D Developer",
         "year": "Senior",
         "focus": "Dependence graph and slicing",
-        "bio": "Works on QPDG construction and the slicing algorithms, and on keeping the "
+        "bio": "Works on QDG construction and the slicing algorithms, and on keeping the "
                "intermediate representation honest as new dependency rules land.",
         "links": {},
     },

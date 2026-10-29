@@ -2,7 +2,7 @@
 
     python webapp/tools_make_hero_figure.py > hero.svg
 
-The picture is the superdense-coding circuit's QPDG with a backward slice from
+The picture is the superdense-coding circuit's QDG with a backward slice from
 the final measurement, laid out by the same rules as static/js/graph.js, so the
 landing page shows what the slicer actually produces rather than a drawing of
 what it might.

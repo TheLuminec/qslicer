@@ -44,7 +44,7 @@ def print_report(report, show_bugs=True, out=sys.stdout):
           f"({', '.join(f'{n} {k}' for k, n in sorted(data['kinds'].items()))})", file=out)
     print(f"Rules: {len(report['selection'])} selected across "
           f"{', '.join(l['label'] for l in report['linters']) or 'no linter'}; "
-          f"QPDG profile {report['profile']}", file=out)
+          f"QDG profile {report['profile']}", file=out)
     if report["front_end"]:
         fe = report["front_end"]
         print(f"Static front end read {fe['read']} of {fe['attempted']} programs", file=out)
@@ -89,7 +89,7 @@ def main(argv=None):
                              f"(default: {benchmark.DEFAULT_DATASET})")
     parser.add_argument("--rules", help="comma-separated rule or linter ids (default: the "
                                         "site's default selection)")
-    parser.add_argument("--profile", default="baseline", help="QPDG rule profile")
+    parser.add_argument("--profile", default="baseline", help="QDG rule profile")
     parser.add_argument("--json", metavar="PATH", help="write the full report here")
     parser.add_argument("--no-external", action="store_true",
                         help="leave recorded external tools out of the comparison")

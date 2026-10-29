@@ -28,7 +28,7 @@ class DependencyType(Enum):
 
 
 class DependencyRule(ABC):
-    """Rule interface for emitting dependency edges into a QPDG."""
+    """Rule interface for emitting dependency edges into a QDG."""
 
     name = "dependency_rule"
 

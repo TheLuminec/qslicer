@@ -66,7 +66,7 @@ _GATES: Dict[str, Dict[str, Any]] = {
         "qubits": 1,
         "summary": r"Flips the phase of $|1>$.",
         "detail": r"Leaves Z-basis measurement probabilities untouched, which is why phase "
-                  r"dependencies need a rule of their own in the QPDG.",
+                  r"dependencies need a rule of their own in the QDG.",
         "matrix": r"\matrix{1 & 0 \\ 0 & -1}",
         "self_inverse": True,
         "phase": True,

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List, Optional, Set
 
-from qpdg import QPDG
+from qdg import QDG
 from Dependencies.dependency_rules import DependencyType
 
 
@@ -24,7 +24,7 @@ class SlicingCriterion:
 
 class QuantumSlicer:
     """
-    Computes backward and forward slices over a QPDG.
+    Computes backward and forward slices over a QDG.
 
     A backward slice from node n contains every instruction that n transitively
     depends on — i.e., all instructions whose output could affect the state
@@ -37,7 +37,7 @@ class QuantumSlicer:
     """
 
     @staticmethod
-    def backward_slice(qpdg: QPDG, criterion: SlicingCriterion) -> Set[int]:
+    def backward_slice(qdg: QDG, criterion: SlicingCriterion) -> Set[int]:
         """
         BFS backward through incoming edges from criterion.node_idx.
         Returns the set of instruction indices in the backward slice.
@@ -49,7 +49,7 @@ class QuantumSlicer:
             if current in visited:
                 continue
             visited.add(current)
-            for pred, _, edge_data in qpdg.graph.in_edges(current, data=True):
+            for pred, _, edge_data in qdg.graph.in_edges(current, data=True):
                 dep = edge_data.get('dependency')
                 if criterion.dep_types is None or dep in criterion.dep_types:
                     if pred not in visited:
@@ -57,7 +57,7 @@ class QuantumSlicer:
         return visited
 
     @staticmethod
-    def forward_slice(qpdg: QPDG, criterion: SlicingCriterion) -> Set[int]:
+    def forward_slice(qdg: QDG, criterion: SlicingCriterion) -> Set[int]:
         """
         BFS forward through outgoing edges from criterion.node_idx.
         Returns the set of instruction indices in the forward slice.
@@ -69,7 +69,7 @@ class QuantumSlicer:
             if current in visited:
                 continue
             visited.add(current)
-            for _, succ, edge_data in qpdg.graph.out_edges(current, data=True):
+            for _, succ, edge_data in qdg.graph.out_edges(current, data=True):
                 dep = edge_data.get('dependency')
                 if criterion.dep_types is None or dep in criterion.dep_types:
                     if succ not in visited:
