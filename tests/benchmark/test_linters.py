@@ -37,12 +37,13 @@ def test_default_selection_is_the_quick_and_dependence_checks():
 
 def test_quick_checks_are_errors_and_dependence_checks_the_quantum_side():
     # Quick checks: what Python or Qiskit would reject, so errors; the warnings are API
-    # misuse that still runs (QS009 execute(), QS015 deprecated APIs, QS016 a discarded
-    # result, QS017 an unpacked list in a fixed-size gate). The quantum-side rules live in
+    # misuse that still runs (QS009 execute(), QS005 deprecated APIs, QS006 a discarded
+    # result, QS007 an unpacked list in a fixed-size gate). The quantum-side rules live in
     # the dependence checks.
     quick = {r.code: r.severity for r in linters.get("quick").rules}
-    assert {code for code, severity in quick.items() if severity != "error"} == {"QS009", "QS015", "QS016", "QS017"}  # QS018 is an error
-    assert {"QS005", "QS006", "QS007", "QS010"}.isdisjoint(quick) and "QS014" in quick
+    assert {code for code, severity in quick.items() if severity != "error"} == {
+        "QS005", "QS006", "QS007", "QS009"}
+    assert list(quick) == [f"QS{n:03d}" for n in range(len(quick))]     # no gaps, in order
     codes = [r.code for r in linters.get("dependence").rules]
     assert codes == ["QD01", "QD02", "QD03", "QD05", "QD06", "QD07", "QD08", "QD09", "QD10"]
 
@@ -358,7 +359,7 @@ def test_qd07_negative(body):
     assert dependence(py(body), "QD07") == []
 
 
-# QD02 also covers two measurements into one literal bit (once QS007) ------------
+# QD02 also covers two measurements into one literal bit (the old quick QS007) ------
 
 def test_two_literal_measurements_into_one_bit():
     found = dependence(py("qc = QuantumCircuit(2, 1)\nqc.h(0)\nqc.measure(0, 0)\n"

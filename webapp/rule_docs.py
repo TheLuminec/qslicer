@@ -133,7 +133,7 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
                          "    qc.cx(pair[0], pair[1])\n    return qc\n\n"
                          "qc = entangle(QuantumCircuit(2), [0, 1])\n",
     },
-    "QS015": {
+    "QS005": {
         "explain": "A class, function, circuit method or keyword argument the installed Qiskit "
                    "marks deprecated: QFT, TwoLocal and other library circuits since Qiskit 2.1, "
                    "qc.mcx(mode=...), qc.duration. The code still runs, but tutorials written "
@@ -146,7 +146,7 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
         "fixed": _HEAD + "from qiskit.circuit.library import QFTGate\n\nqc = QuantumCircuit(3)\n"
                          "qc.append(QFTGate(3), [0, 1, 2])\n",
     },
-    "QS016": {
+    "QS006": {
         "explain": "A call that returns a new circuit is a statement on its own, so the new "
                    "circuit is thrown away and the original is unchanged: qc.inverse(), "
                    "qc.copy(), qc.decompose(), qc.assign_parameters(...) and qc.compose(...) "
@@ -160,7 +160,7 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
         "fixed": _HEAD + "qc = QuantumCircuit(2)\nqc.h(0)\nqc.cx(0, 1)\nqc = qc.inverse()\n"
                          "qc.measure_all()\n",
     },
-    "QS017": {
+    "QS007": {
         "explain": "A gate with a fixed number of qubits (cx, ccx, cswap, crx, ...) given an "
                    "unpacked list together with other qubits, such as ccx(*controls, target). "
                    "It works only while the list has exactly the right length: with three "
@@ -175,7 +175,7 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
                          "    qc.mcx(controls, target)\n    return qc\n\n"
                          "qc = mark(QuantumCircuit(3), [0, 1], 2)\n",
     },
-    "QS018": {
+    "QS010": {
         "explain": "result.get_statevector() (or get_unitary(), get_density_matrix()) after "
                    "running on an AerSimulator, but the circuit never saves that data: Aer "
                    "raises 'No statevector for experiment'. The old 'statevector_simulator' "

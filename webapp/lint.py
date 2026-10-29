@@ -48,8 +48,24 @@ RULES = {
     "QS004": ("Classical bit out of range", "error",
               "measure() writes, or qc.clbits[i] reads, a classical bit the circuit does not "
               "declare (QuantumCircuit(n) declares none)."),
+    "QS005": ("Deprecated Qiskit API", "warning",
+              "A class, function, circuit method or keyword argument the installed Qiskit marks "
+              "deprecated (QFT, TwoLocal, mcx(mode=...)): it still runs, but will be removed."),
+    "QS006": ("Result discarded", "warning",
+              "A call that returns a new circuit (qc.inverse(), qc.copy(), assign_parameters, "
+              "transpile, ...) used as a statement on its own: the result is thrown away and "
+              "the circuit is unchanged."),
+    "QS007": ("Unpacked list in a fixed-size gate", "warning",
+              "A gate with a fixed number of qubits given an unpacked list and more qubits, "
+              "such as ccx(*controls, target): with another list length it fails, or, for "
+              "ccx, silently takes the extra qubit as ctrl_state. mcx(controls, target) takes "
+              "any number."),
     "QS008": ("c_if() removed", "error", "c_if() was removed in Qiskit 2.0."),
     "QS009": ("execute() removed", "warning", "execute() was removed from qiskit."),
+    "QS010": ("Simulator result never saved", "error",
+              "result.get_statevector() (or get_unitary, get_density_matrix) on an AerSimulator "
+              "run, but nothing calls save_statevector() (save_unitary, save_density_matrix): "
+              "Aer raises 'No statevector for experiment'."),
     "QS011": ("Removed Qiskit API", "error",
               "A method, name or module that older Qiskit had and current Qiskit does not "
               "(u1, cu1, cnot, iden, bind_parameters, Aer, qiskit.extensions, ...)."),
@@ -64,26 +80,11 @@ RULES = {
     "QS014": ("Qiskit rejects an operation", "error",
               "Rebuilding the circuit hits an error Qiskit raises when the program runs: a qubit "
               "index out of range, the same qubit twice, the wrong number of arguments."),
-    "QS015": ("Deprecated Qiskit API", "warning",
-              "A class, function, circuit method or keyword argument the installed Qiskit marks "
-              "deprecated (QFT, TwoLocal, mcx(mode=...)): it still runs, but will be removed."),
-    "QS016": ("Result discarded", "warning",
-              "A call that returns a new circuit (qc.inverse(), qc.copy(), assign_parameters, "
-              "transpile, ...) used as a statement on its own: the result is thrown away and "
-              "the circuit is unchanged."),
-    "QS017": ("Unpacked list in a fixed-size gate", "warning",
-              "A gate with a fixed number of qubits given an unpacked list and more qubits, "
-              "such as ccx(*controls, target): with another list length it fails, or, for "
-              "ccx, silently takes the extra qubit as ctrl_state. mcx(controls, target) takes "
-              "any number."),
-    "QS018": ("Simulator result never saved", "error",
-              "result.get_statevector() (or get_unitary, get_density_matrix) on an AerSimulator "
-              "run, but nothing calls save_statevector() (save_unitary, save_density_matrix): "
-              "Aer raises 'No statevector for experiment'."),
 }
 # Quantum-side checks that read the rebuilt circuit (no measurement, idle qubits,
 # measurements overwritten, cancelling pairs) are dependence checks, QD01-QD08,
-# in linter_plugins/dependence_checks.py; QS005-QS007 and QS010 were these once.
+# in linter_plugins/dependence_checks.py. Until 2026-10-29 they were quick checks
+# QS005-QS007 and QS010; those codes now name newer quick checks.
 
 
 class _Finding(dict):
@@ -821,7 +822,7 @@ def _unknown_bit_attributes(tree: ast.AST, circuits: set, version: str) -> List[
     return findings
 
 
-# QS015: deprecations, read from the ".. deprecated::" notes Qiskit's deprecation
+# QS005: deprecations, read from the ".. deprecated::" notes Qiskit's deprecation
 # decorators add to docstrings, so the list follows the installed version.
 _DEPRECATED = re.compile(r"\.\. deprecated::\s*(\S+)\s*\n((?:[ \t]+\S.*\n?)+)")
 _DEPRECATION_CACHE: Dict[int, List[Dict[str, Any]]] = {}
@@ -851,7 +852,7 @@ def _deprecations(obj: Any) -> List[Dict[str, Any]]:
 
 
 def _check_deprecated_qiskit(tree: ast.AST, collector: _CircuitCollector) -> List[Dict[str, Any]]:
-    """QS015: imports of deprecated Qiskit names, deprecated QuantumCircuit members on
+    """QS005: imports of deprecated Qiskit names, deprecated QuantumCircuit members on
     known circuits, and deprecated keyword arguments of either."""
     findings: List[Dict[str, Any]] = []
     try:
@@ -863,7 +864,7 @@ def _check_deprecated_qiskit(tree: ast.AST, collector: _CircuitCollector) -> Lis
 
     def report(node, what, deprecation):
         findings.append(_Finding(
-            "QS015", "warning", node,
+            "QS005", "warning", node,
             f"{what} is deprecated as of Qiskit {deprecation['since']} (installed: {version}).",
             deprecation["hint"]))
 
@@ -910,7 +911,7 @@ def _check_deprecated_qiskit(tree: ast.AST, collector: _CircuitCollector) -> Lis
     return findings
 
 
-# QS016: QuantumCircuit methods that return a new circuit and leave the original as it
+# QS006: QuantumCircuit methods that return a new circuit and leave the original as it
 # is, with the inplace default that makes them do so (None: they have no inplace).
 _RETURNS_NEW = {
     "inverse": None, "copy": None, "copy_empty_like": None, "decompose": None,
@@ -922,7 +923,7 @@ _RETURNS_NEW = {
 
 
 def _check_discarded_results(tree: ast.AST, collector: _CircuitCollector) -> List[Dict[str, Any]]:
-    """QS016: a statement that is nothing but a call returning a new circuit, on a known
+    """QS006: a statement that is nothing but a call returning a new circuit, on a known
     circuit (or transpile()). Calls on what a gate returns (qc.s(0).inverse()) act in
     place and are not judged."""
     findings: List[Dict[str, Any]] = []
@@ -935,7 +936,7 @@ def _check_discarded_results(tree: ast.AST, collector: _CircuitCollector) -> Lis
         if (isinstance(func, ast.Name) and func.id == "transpile") or \
                 (isinstance(func, ast.Attribute) and func.attr == "transpile"):
             findings.append(_Finding(
-                "QS016", "warning", node,
+                "QS006", "warning", node,
                 "transpile() returns a new circuit, which is discarded here; the circuit "
                 "itself is unchanged.",
                 "Keep the result: tqc = transpile(qc, ...), and run or print tqc."))
@@ -952,7 +953,7 @@ def _check_discarded_results(tree: ast.AST, collector: _CircuitCollector) -> Lis
                 continue
         owner = func.value.id
         findings.append(_Finding(
-            "QS016", "warning", node,
+            "QS006", "warning", node,
             f"{owner}.{func.attr}() returns a new circuit, which is discarded here; {owner} "
             "itself is unchanged.",
             (f"Pass inplace=True, or keep the result: {owner} = {owner}.{func.attr}(...)."
@@ -961,13 +962,13 @@ def _check_discarded_results(tree: ast.AST, collector: _CircuitCollector) -> Lis
     return findings
 
 
-# QS017: gates with a fixed number of qubits (two or more).
+# QS007: gates with a fixed number of qubits (two or more).
 _MULTI_QUBIT_GATES = frozenset({name for name, n in _GATE_ARITY.items() if n > 1}
                                | {name for name, (_, n) in _PARAM_GATES.items() if n > 1})
 
 
 def _check_unpacked_fixed_gates(collector: _CircuitCollector) -> List[Dict[str, Any]]:
-    """QS017: qc.ccx(*controls, target) and the like on a known circuit. A bare
+    """QS007: qc.ccx(*controls, target) and the like on a known circuit. A bare
     qc.cx(*pair) is left alone: it is common, and fails loudly if the pair is not two."""
     findings: List[Dict[str, Any]] = []
     circuits = set(collector.circuits) | collector.circuit_params
@@ -976,7 +977,7 @@ def _check_unpacked_fixed_gates(collector: _CircuitCollector) -> List[Dict[str, 
         if (call["owner"] in circuits and call["method"] in _MULTI_QUBIT_GATES
                 and len(node.args) > 1 and any(isinstance(a, ast.Starred) for a in node.args)):
             findings.append(_Finding(
-                "QS017", "warning", node,
+                "QS007", "warning", node,
                 f"{call['method']}() acts on a fixed number of qubits, but takes an unpacked "
                 "list here, so how many it gets depends on the list's length.",
                 f"If the list can have another length, {call['method']}() fails"
@@ -985,7 +986,7 @@ def _check_unpacked_fixed_gates(collector: _CircuitCollector) -> List[Dict[str, 
     return findings
 
 
-# QS018: what each result getter needs saved, and backends that save it themselves.
+# QS010: what each result getter needs saved, and backends that save it themselves.
 _SAVED_BY = {"get_statevector": "save_statevector", "get_unitary": "save_unitary",
              "get_density_matrix": "save_density_matrix"}
 _SAVES_ITSELF = ("statevector_simulator", "unitary_simulator", "StatevectorSimulator",
@@ -993,7 +994,7 @@ _SAVES_ITSELF = ("statevector_simulator", "unitary_simulator", "StatevectorSimul
 
 
 def _check_unsaved_results(tree: ast.AST) -> List[Dict[str, Any]]:
-    """QS018: a result getter with no matching save_* anywhere in the file. Old-style
+    """QS010: a result getter with no matching save_* anywhere in the file. Old-style
     backends ('statevector_simulator', StatevectorSimulator) save on their own."""
     names, strings, getters = set(), [], []
     for node in ast.walk(tree):
@@ -1009,7 +1010,7 @@ def _check_unsaved_results(tree: ast.AST) -> List[Dict[str, Any]]:
     if any(auto in names or any(auto in text for text in strings) for auto in _SAVES_ITSELF):
         return []
     return [_Finding(
-        "QS018", "error", node,
+        "QS010", "error", node,
         f"{name}() needs the circuit to save that data, but nothing calls "
         f"{_SAVED_BY[name]}(): the simulator raises 'No {name[4:].replace('_', ' ')} for "
         "experiment'.",

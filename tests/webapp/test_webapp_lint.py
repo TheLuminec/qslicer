@@ -252,7 +252,8 @@ def test_qs009_negative():
     assert "QS009" not in codes(findings)
 
 
-# QS005-QS007 and QS010 are dependence checks now (QD06, QD07, QD02, QD08); their
+# The rules once coded QS005-QS007 and QS010 are dependence checks now (QD06, QD07,
+# QD02, QD08), and those codes name newer quick checks below; the old rules'
 # tests are in tests/benchmark/test_linters.py.
 
 
@@ -397,7 +398,7 @@ def test_qs013_negative(line):
     assert "QS013" not in codes(check(f"qc = QuantumCircuit(3, 3)\n{line}\nqc.measure_all()\n"))
 
 
-# QS015 deprecated Qiskit API ------------------------------------------------------
+# QS005 deprecated Qiskit API ------------------------------------------------------
 
 @pytest.mark.parametrize("line, what, hint", [
     ("from qiskit.circuit.library import QFT", "qiskit.circuit.library.QFT", "QFTGate"),
@@ -407,7 +408,7 @@ def test_qs013_negative(line):
     ("d = qc.duration", "QuantumCircuit.duration", "removed"),
 ])
 def test_qs015_positive(line, what, hint):
-    qs = only(check(f"qc = QuantumCircuit(3, 3)\n{line}\nqc.measure_all()\n"), "QS015")
+    qs = only(check(f"qc = QuantumCircuit(3, 3)\n{line}\nqc.measure_all()\n"), "QS005")
     assert len(qs) == 1 and qs[0]["line"] == 3 and qs[0]["severity"] == "warning"
     assert what in qs[0]["message"] and "deprecated as of Qiskit" in qs[0]["message"]
     assert hint in qs[0]["hint"]
@@ -420,10 +421,10 @@ def test_qs015_positive(line, what, hint):
     "values = []\nvalues.duration",                     # not a circuit
 ])
 def test_qs015_negative(line):
-    assert "QS015" not in codes(check(f"qc = QuantumCircuit(3, 3)\n{line}\nqc.measure_all()\n"))
+    assert "QS005" not in codes(check(f"qc = QuantumCircuit(3, 3)\n{line}\nqc.measure_all()\n"))
 
 
-# QS016 result discarded -------------------------------------------------------------
+# QS006 result discarded -------------------------------------------------------------
 
 @pytest.mark.parametrize("line, what", [
     ("qc.inverse()", "qc.inverse()"),
@@ -434,7 +435,7 @@ def test_qs015_negative(line):
     ("transpile(qc, basis_gates=['cx', 'u'])", "transpile()"),
 ])
 def test_qs016_positive(line, what):
-    qs = only(check(f"qc = QuantumCircuit(2, 2)\nother = QuantumCircuit(2)\n{line}\n"), "QS016")
+    qs = only(check(f"qc = QuantumCircuit(2, 2)\nother = QuantumCircuit(2)\n{line}\n"), "QS006")
     assert len(qs) == 1 and qs[0]["line"] == 4 and qs[0]["severity"] == "warning"
     assert what in qs[0]["message"] and "discarded" in qs[0]["message"]
 
@@ -448,7 +449,7 @@ def test_qs016_positive(line, what):
     "values = []\nvalues.copy()",             # not a circuit
 ])
 def test_qs016_negative(line):
-    assert "QS016" not in codes(check(f"qc = QuantumCircuit(2, 2)\nother = QuantumCircuit(2)\n{line}\n"))
+    assert "QS006" not in codes(check(f"qc = QuantumCircuit(2, 2)\nother = QuantumCircuit(2)\n{line}\n"))
 
 
 @pytest.mark.parametrize("body, line, message", [
@@ -472,11 +473,11 @@ def test_qs004_unknown_or_enough_classical_bits(body):
     assert "QS004" not in codes(check(body))
 
 
-# QS017 unpacked list in a fixed-size gate --------------------------------------------
+# QS007 unpacked list in a fixed-size gate --------------------------------------------
 
 @pytest.mark.parametrize("line", ["qc.ccx(*controls, 3)", "qc.cswap(*pair, 2)", "qc.crx(0.5, *pair)"])
 def test_qs017_positive(line):
-    qs = only(check(f"qc = QuantumCircuit(4)\ncontrols = [0, 1]\npair = [0, 1]\n{line}\n"), "QS017")
+    qs = only(check(f"qc = QuantumCircuit(4)\ncontrols = [0, 1]\npair = [0, 1]\n{line}\n"), "QS007")
     assert len(qs) == 1 and qs[0]["line"] == 5 and qs[0]["severity"] == "warning"
     assert "mcx" in qs[0]["hint"]
 
@@ -488,7 +489,7 @@ def test_qs017_positive(line):
     "qc.h(*pair)",                   # single-qubit: broadcasts over the list
 ])
 def test_qs017_negative(line):
-    assert "QS017" not in codes(check(f"qc = QuantumCircuit(4)\ncontrols = [0, 1]\npair = [0, 1]\n{line}\n"))
+    assert "QS007" not in codes(check(f"qc = QuantumCircuit(4)\ncontrols = [0, 1]\npair = [0, 1]\n{line}\n"))
 
 
 @pytest.mark.parametrize("line, message", [
@@ -512,7 +513,7 @@ def test_qs013_supported_operations_are_quiet(line):
     assert "QS013" not in codes(check(f"qc = QuantumCircuit(2, 2)\n{line}\n"))
 
 
-# QS018 simulator result never saved ---------------------------------------------------
+# QS010 simulator result never saved ---------------------------------------------------
 
 AER = "from qiskit_aer import AerSimulator\nqc = QuantumCircuit(1)\nqc.h(0)\nsim = AerSimulator()\n"
 
@@ -522,7 +523,7 @@ AER = "from qiskit_aer import AerSimulator\nqc = QuantumCircuit(1)\nqc.h(0)\nsim
     ("u = sim.run(qc).result().get_unitary()", "get_unitary"),
 ])
 def test_qs018_positive(line, getter):
-    qs = only(check(AER + line + "\n"), "QS018")
+    qs = only(check(AER + line + "\n"), "QS010")
     assert len(qs) == 1 and qs[0]["line"] == 6 and getter in qs[0]["message"]
 
 
@@ -532,4 +533,4 @@ def test_qs018_positive(line, getter):
     "sv = execute(qc, backend='local_statevector_simulator').result().get_statevector()",
 ])
 def test_qs018_negative(line):
-    assert "QS018" not in codes(check(AER + line + "\n"))
+    assert "QS010" not in codes(check(AER + line + "\n"))
