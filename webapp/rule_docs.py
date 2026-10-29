@@ -157,6 +157,21 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
         "fixed": _HEAD + "qc = QuantumCircuit(2)\nqc.h(0)\nqc.cx(0, 1)\nqc = qc.inverse()\n"
                          "qc.measure_all()\n",
     },
+    "QS017": {
+        "explain": "A gate with a fixed number of qubits (cx, ccx, cswap, crx, ...) given an "
+                   "unpacked list together with other qubits, such as ccx(*controls, target). "
+                   "It works only while the list has exactly the right length: with three "
+                   "controls Qiskit raises, or, for ccx, quietly reads the extra qubit as "
+                   "ctrl_state. mcx(controls, target) takes any number of controls.",
+        "limits": "Only on circuits the file builds or receives as parameters annotated "
+                  "QuantumCircuit; a bare cx(*pair) is not reported.",
+        "example": _HEAD + "def mark(qc: QuantumCircuit, controls, target):\n"
+                           "    qc.ccx(*controls, target)\n    return qc\n\n"
+                           "qc = mark(QuantumCircuit(3), [0, 1], 2)\n",
+        "fixed": _HEAD + "def mark(qc: QuantumCircuit, controls, target):\n"
+                         "    qc.mcx(controls, target)\n    return qc\n\n"
+                         "qc = mark(QuantumCircuit(3), [0, 1], 2)\n",
+    },
     # ----------------------------------------------------------- dependence
     "QD01": {
         "explain": "No measured bit depends on this gate: the dependence graph proves removing "

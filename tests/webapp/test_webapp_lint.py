@@ -470,3 +470,22 @@ def test_qs004_circuits_without_enough_classical_bits(body, line, message):
 ])
 def test_qs004_unknown_or_enough_classical_bits(body):
     assert "QS004" not in codes(check(body))
+
+
+# QS017 unpacked list in a fixed-size gate --------------------------------------------
+
+@pytest.mark.parametrize("line", ["qc.ccx(*controls, 3)", "qc.cswap(*pair, 2)", "qc.crx(0.5, *pair)"])
+def test_qs017_positive(line):
+    qs = only(check(f"qc = QuantumCircuit(4)\ncontrols = [0, 1]\npair = [0, 1]\n{line}\n"), "QS017")
+    assert len(qs) == 1 and qs[0]["line"] == 5 and qs[0]["severity"] == "warning"
+    assert "mcx" in qs[0]["hint"]
+
+
+@pytest.mark.parametrize("line", [
+    "qc.cx(*pair)",                  # a bare unpacked pair fails loudly if it is not two
+    "qc.mcx(controls, 3)",
+    "qc.ccx(0, 1, 2)",
+    "qc.h(*pair)",                   # single-qubit: broadcasts over the list
+])
+def test_qs017_negative(line):
+    assert "QS017" not in codes(check(f"qc = QuantumCircuit(4)\ncontrols = [0, 1]\npair = [0, 1]\n{line}\n"))

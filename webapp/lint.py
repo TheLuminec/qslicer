@@ -70,6 +70,11 @@ RULES = {
               "A call that returns a new circuit (qc.inverse(), qc.copy(), assign_parameters, "
               "transpile, ...) used as a statement on its own: the result is thrown away and "
               "the circuit is unchanged."),
+    "QS017": ("Unpacked list in a fixed-size gate", "warning",
+              "A gate with a fixed number of qubits given an unpacked list and more qubits, "
+              "such as ccx(*controls, target): with another list length it fails, or, for "
+              "ccx, silently takes the extra qubit as ctrl_state. mcx(controls, target) takes "
+              "any number."),
 }
 # Quantum-side checks that read the rebuilt circuit (no measurement, idle qubits,
 # measurements overwritten, cancelling pairs) are dependence checks, QD01-QD08,
@@ -268,6 +273,7 @@ def check_source(source: str) -> List[Dict[str, Any]]:
     findings += _check_unknown_qiskit_api(tree, collector)
     findings += _check_deprecated_qiskit(tree, collector)
     findings += _check_discarded_results(tree, collector)
+    findings += _check_unpacked_fixed_gates(collector)
 
     findings.sort(key=lambda f: (f["line"], f["column"], f["code"]))
     return findings
@@ -894,4 +900,28 @@ def _check_discarded_results(tree: ast.AST, collector: _CircuitCollector) -> Lis
             (f"Pass inplace=True, or keep the result: {owner} = {owner}.{func.attr}(...)."
              if inplace_default is not None else
              f"Keep the result: {owner} = {owner}.{func.attr}(...), or name the new circuit.")))
+    return findings
+
+
+# QS017: gates with a fixed number of qubits (two or more).
+_MULTI_QUBIT_GATES = frozenset({name for name, n in _GATE_ARITY.items() if n > 1}
+                               | {name for name, (_, n) in _PARAM_GATES.items() if n > 1})
+
+
+def _check_unpacked_fixed_gates(collector: _CircuitCollector) -> List[Dict[str, Any]]:
+    """QS017: qc.ccx(*controls, target) and the like on a known circuit. A bare
+    qc.cx(*pair) is left alone: it is common, and fails loudly if the pair is not two."""
+    findings: List[Dict[str, Any]] = []
+    circuits = set(collector.circuits) | collector.circuit_params
+    for call in collector.calls:
+        node = call["node"]
+        if (call["owner"] in circuits and call["method"] in _MULTI_QUBIT_GATES
+                and len(node.args) > 1 and any(isinstance(a, ast.Starred) for a in node.args)):
+            findings.append(_Finding(
+                "QS017", "warning", node,
+                f"{call['method']}() acts on a fixed number of qubits, but takes an unpacked "
+                "list here, so how many it gets depends on the list's length.",
+                f"If the list can have another length, {call['method']}() fails"
+                + (" or silently reads the extra qubit as ctrl_state" if call["method"] == "ccx"
+                   else "") + ". mcx(controls, target) takes any number of controls."))
     return findings
