@@ -78,6 +78,10 @@
       state.filename = '';
     });
     code.addEventListener('scroll', syncEditorScroll);
+    ['mouseup', 'keyup', 'select', 'input'].forEach(function (type) {
+      code.addEventListener(type, dropLintMarkIfMoved);
+    });
+    document.addEventListener('selectionchange', dropLintMarkIfMoved);
     $('gutter').addEventListener('click', function (event) {
       var row = event.target.closest('.gutter-line');
       if (!row) return;
@@ -602,6 +606,7 @@
   }
 
   function handleAnalysis(data) {
+    state.lintMark = null;
     renderDiagnostics(data.diagnostics || [], data.error);
     $('console-out').textContent = data.stdout ? data.stdout : '(no output)';
     $('console-error').textContent = data.error
@@ -759,8 +764,23 @@
     graph.reveal(item.nodes);
     markPickedInTable(item.nodes);
     applySourceMarks();
+    // The marks last as long as the line the finding selected stays selected.
+    var code = $('code');
+    state.lintMark = { start: code.selectionStart, end: code.selectionEnd };
     setStatus(item.code + ' is about node' + (item.nodes.length === 1 ? '' : 's') + ' #' +
       item.nodes.join(', #') + ', marked in the graph. Click a gate to slice from it.');
+  }
+
+  /* Once the editor's selection moves off the finding's line (a click in the
+     editor, typing, the arrow keys), its node marks go too. */
+  function dropLintMarkIfMoved() {
+    var mark = state.lintMark;
+    var code = $('code');
+    if (!mark || (code.selectionStart === mark.start && code.selectionEnd === mark.end)) return;
+    state.lintMark = null;
+    graph.setMarked(null);
+    markPickedInTable([]);
+    setStatus('Click a gate to slice from it.');
   }
 
   function jumpToLine(line) {
@@ -841,6 +861,7 @@
       .filter(function (node) { return spanLines(node).indexOf(line) !== -1; })
       .map(function (node) { return node.id; });
     state.source.picked = line;
+    state.lintMark = null;          // a picked line owns the marks now
     graph.setMarked(ids);
     markPickedInTable(ids);
     applySourceMarks();
