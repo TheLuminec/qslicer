@@ -489,3 +489,24 @@ def test_qs017_positive(line):
 ])
 def test_qs017_negative(line):
     assert "QS017" not in codes(check(f"qc = QuantumCircuit(4)\ncontrols = [0, 1]\npair = [0, 1]\n{line}\n"))
+
+
+@pytest.mark.parametrize("line, message", [
+    ("from qiskit.quantum_info import Operator\nop = Operator([[1, 0], [0, 1]])\nop[0, 0] = 0",
+     "Operator objects do not support item assignment"),
+    ("from qiskit.quantum_info import Statevector\nsv = Statevector([1, 0])\nsv[1] += 1",
+     "Statevector objects do not support item assignment"),
+    ("i = qc.clbits[0].index", "Clbit has no attribute index"),
+])
+def test_qs013_unsupported_operations_on_qiskit_objects(line, message):
+    qs = only(check(f"qc = QuantumCircuit(2, 2)\n{line}\n"), "QS013")
+    assert len(qs) == 1 and message in qs[0]["message"]
+
+
+@pytest.mark.parametrize("line", [
+    "from qiskit.quantum_info import SparsePauliOp\nop = SparsePauliOp('ZZ')\nop[0] = SparsePauliOp('XX')",
+    "import numpy as np\nm = np.eye(2)\nm[0, 0] = 0",
+    "i = qc.find_bit(qc.clbits[0]).index",
+])
+def test_qs013_supported_operations_are_quiet(line):
+    assert "QS013" not in codes(check(f"qc = QuantumCircuit(2, 2)\n{line}\n"))

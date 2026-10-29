@@ -111,7 +111,10 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
                    "(clbits), qc.num_qbits, qc.mcx(..., control_state=1) (ctrl_state). Each "
                    "fails when the line runs; the hint gives the closest real name.",
         "limits": "Only circuits the file builds or receives as parameters annotated "
-                  "QuantumCircuit, and calls of names imported from Qiskit.",
+                  "QuantumCircuit, and calls of names imported from Qiskit. It also reports "
+                  "item assignment on objects whose class does not allow it (op[0, 0] = 1 on "
+                  "an Operator or Statevector) and attributes of bits (qc.clbits[0].index; "
+                  "use qc.find_bit(bit).index).",
         "example": _HEAD + "qc = QuantumCircuit(3)\nqc.x(0)\nqc.mcx([0, 1], 2, "
                            "control_state=1)\n",
         "fixed": _HEAD + "qc = QuantumCircuit(3)\nqc.x(0)\nqc.mcx([0, 1], 2, ctrl_state=1)\n",

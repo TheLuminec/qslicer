@@ -59,7 +59,8 @@ RULES = {
     "QS013": ("Unknown Qiskit method or argument", "error",
               "A QuantumCircuit method or attribute, or a keyword argument of a circuit method "
               "or an imported Qiskit class, that the installed Qiskit does not have "
-              "(qc.mcx(..., control_state=1): the keyword is ctrl_state)."),
+              "(qc.mcx(..., control_state=1): the keyword is ctrl_state), item assignment on "
+              "an Operator or Statevector, or an attribute of a bit (qc.clbits[0].index)."),
     "QS014": ("Qiskit rejects an operation", "error",
               "Rebuilding the circuit hits an error Qiskit raises when the program runs: a qubit "
               "index out of range, the same qubit twice, the wrong number of arguments."),
@@ -760,6 +761,58 @@ def _check_unknown_qiskit_api(tree: ast.AST, collector: _CircuitCollector) -> Li
                 findings.append(_Finding(
                     "QS013", "error", node,
                     f"{node.func.id}() takes no argument {keyword} in Qiskit {version}.", hint))
+    findings += _unsupported_item_assignment(tree, imported, version)
+    findings += _unknown_bit_attributes(tree, circuits, version)
+    return findings
+
+
+def _unsupported_item_assignment(tree: ast.AST, imported: Dict[str, Any],
+                                 version: str) -> List[Dict[str, Any]]:
+    """QS013 for op[i, j] = v on an object of an imported Qiskit class that does not support
+    item assignment (Operator, Statevector, DensityMatrix): a TypeError."""
+    findings: List[Dict[str, Any]] = []
+    instances: Dict[str, Any] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call) \
+                and isinstance(node.value.func, ast.Name) and node.value.func.id in imported \
+                and isinstance(imported[node.value.func.id], type):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    instances[target.id] = imported[node.value.func.id]
+    for node in ast.walk(tree):
+        targets = node.targets if isinstance(node, ast.Assign) else (
+            [node.target] if isinstance(node, ast.AugAssign) else [])
+        for target in targets:
+            if isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name) \
+                    and target.value.id in instances \
+                    and not hasattr(instances[target.value.id], "__setitem__"):
+                cls = instances[target.value.id].__name__
+                findings.append(_Finding(
+                    "QS013", "error", node,
+                    f"{cls} objects do not support item assignment in Qiskit {version}.",
+                    f"Build the matrix or vector first (with numpy), then make the {cls} from "
+                    f"it; {target.value.id}.data is a read-only view."))
+    return findings
+
+
+def _unknown_bit_attributes(tree: ast.AST, circuits: set, version: str) -> List[Dict[str, Any]]:
+    """QS013 for qc.qubits[i].index and the like: Qiskit 2 bits have no public attributes."""
+    from qiskit.circuit import Clbit, Qubit
+    findings: List[Dict[str, Any]] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Subscript)
+                and isinstance(node.value.value, ast.Attribute)
+                and node.value.value.attr in ("qubits", "clbits")
+                and isinstance(node.value.value.value, ast.Name)
+                and node.value.value.value.id in circuits and not node.attr.startswith("_")):
+            continue
+        kind = Qubit if node.value.value.attr == "qubits" else Clbit
+        if not hasattr(kind, node.attr):
+            owner = node.value.value.value.id
+            findings.append(_Finding(
+                "QS013", "error", node,
+                f"{kind.__name__} has no attribute {node.attr} in Qiskit {version}.",
+                f"Ask the circuit instead: {owner}.find_bit(bit).index gives a bit's index."))
     return findings
 
 
