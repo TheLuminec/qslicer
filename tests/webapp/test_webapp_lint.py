@@ -395,3 +395,29 @@ def test_qs013_reads_parameters_annotated_quantumcircuit():
 ])
 def test_qs013_negative(line):
     assert "QS013" not in codes(check(f"qc = QuantumCircuit(3, 3)\n{line}\nqc.measure_all()\n"))
+
+
+# QS015 deprecated Qiskit API ------------------------------------------------------
+
+@pytest.mark.parametrize("line, what, hint", [
+    ("from qiskit.circuit.library import QFT", "qiskit.circuit.library.QFT", "QFTGate"),
+    ("from qiskit.circuit.library import TwoLocal, QFTGate", "TwoLocal", "n_local"),
+    ("qc.mcx([0, 1], 2, mode='noancilla')", "The argument mode of QuantumCircuit.mcx()",
+     "MCXGate"),
+    ("d = qc.duration", "QuantumCircuit.duration", "removed"),
+])
+def test_qs015_positive(line, what, hint):
+    qs = only(check(f"qc = QuantumCircuit(3, 3)\n{line}\nqc.measure_all()\n"), "QS015")
+    assert len(qs) == 1 and qs[0]["line"] == 3 and qs[0]["severity"] == "warning"
+    assert what in qs[0]["message"] and "deprecated as of Qiskit" in qs[0]["message"]
+    assert hint in qs[0]["hint"]
+
+
+@pytest.mark.parametrize("line", [
+    "from qiskit.circuit.library import QFTGate, MCXGate, n_local",
+    "qc.mcx([0, 1], 2)",
+    "n = qc.num_qubits",
+    "values = []\nvalues.duration",                     # not a circuit
+])
+def test_qs015_negative(line):
+    assert "QS015" not in codes(check(f"qc = QuantumCircuit(3, 3)\n{line}\nqc.measure_all()\n"))

@@ -130,6 +130,19 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
                          "    qc.cx(pair[0], pair[1])\n    return qc\n\n"
                          "qc = entangle(QuantumCircuit(2), [0, 1])\n",
     },
+    "QS015": {
+        "explain": "A class, function, circuit method or keyword argument the installed Qiskit "
+                   "marks deprecated: QFT, TwoLocal and other library circuits since Qiskit 2.1, "
+                   "qc.mcx(mode=...), qc.duration. The code still runs, but tutorials written "
+                   "this way will break when it is removed; the hint gives Qiskit's replacement.",
+        "limits": "Read from the deprecation notes in the installed Qiskit, so the list follows "
+                  "its version; imports from qiskit packages, members of known circuits, and "
+                  "keyword arguments of either.",
+        "example": _HEAD + "from qiskit.circuit.library import QFT\n\nqc = QuantumCircuit(3)\n"
+                           "qc.compose(QFT(3), inplace=True)\n",
+        "fixed": _HEAD + "from qiskit.circuit.library import QFTGate\n\nqc = QuantumCircuit(3)\n"
+                         "qc.append(QFTGate(3), [0, 1, 2])\n",
+    },
     # ----------------------------------------------------------- dependence
     "QD01": {
         "explain": "No measured bit depends on this gate: the dependence graph proves removing "

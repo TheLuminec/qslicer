@@ -62,6 +62,9 @@ RULES = {
     "QS014": ("Qiskit rejects an operation", "error",
               "Rebuilding the circuit hits an error Qiskit raises when the program runs: a qubit "
               "index out of range, the same qubit twice, the wrong number of arguments."),
+    "QS015": ("Deprecated Qiskit API", "warning",
+              "A class, function, circuit method or keyword argument the installed Qiskit marks "
+              "deprecated (QFT, TwoLocal, mcx(mode=...)): it still runs, but will be removed."),
 }
 # Quantum-side checks that read the rebuilt circuit (no measurement, idle qubits,
 # measurements overwritten, cancelling pairs) are dependence checks, QD01-QD08,
@@ -253,6 +256,7 @@ def check_source(source: str) -> List[Dict[str, Any]]:
     findings += _check_removed_qiskit(tree, collector)
     findings += _check_unknown_qiskit_names(tree)
     findings += _check_unknown_qiskit_api(tree, collector)
+    findings += _check_deprecated_qiskit(tree, collector)
 
     findings.sort(key=lambda f: (f["line"], f["column"], f["code"]))
     return findings
@@ -705,4 +709,93 @@ def _check_unknown_qiskit_api(tree: ast.AST, collector: _CircuitCollector) -> Li
                 findings.append(_Finding(
                     "QS013", "error", node,
                     f"{node.func.id}() takes no argument {keyword} in Qiskit {version}.", hint))
+    return findings
+
+
+# QS015: deprecations, read from the ".. deprecated::" notes Qiskit's deprecation
+# decorators add to docstrings, so the list follows the installed version.
+_DEPRECATED = re.compile(r"\.\. deprecated::\s*(\S+)\s*\n((?:[ \t]+\S.*\n?)+)")
+_DEPRECATION_CACHE: Dict[int, List[Dict[str, Any]]] = {}
+
+
+def _deprecations(obj: Any) -> List[Dict[str, Any]]:
+    """``[{since, argument, text, hint}]`` for an object (argument is None when the
+    whole object is deprecated rather than one of its keyword arguments)."""
+    if id(obj) not in _DEPRECATION_CACHE:
+        docs = [getattr(obj, "__doc__", None)]
+        if isinstance(obj, type):
+            docs.append(getattr(obj.__init__, "__doc__", None))
+        found = []
+        for doc in filter(None, docs):
+            for since, body in _DEPRECATED.findall(doc):
+                text = " ".join(body.split())
+                argument = re.search(r"argument ``(\w+)`` is deprecated", text)
+                advice = re.search(r"(?:\('|\b)((?:Use|Instead)\b.*?)(?:',\))?$", text)
+                removal = re.search(r"It will be removed[^.]*\.(?:\d+\.)*", text)
+                found.append({"since": since, "argument": argument.group(1) if argument else None,
+                              "text": text,
+                              "hint": advice.group(1) if advice else
+                              (removal.group(0) + " " if removal else "")
+                              + "The Qiskit release notes name its replacement."})
+        _DEPRECATION_CACHE[id(obj)] = found
+    return _DEPRECATION_CACHE[id(obj)]
+
+
+def _check_deprecated_qiskit(tree: ast.AST, collector: _CircuitCollector) -> List[Dict[str, Any]]:
+    """QS015: imports of deprecated Qiskit names, deprecated QuantumCircuit members on
+    known circuits, and deprecated keyword arguments of either."""
+    findings: List[Dict[str, Any]] = []
+    try:
+        import qiskit
+        from qiskit import QuantumCircuit
+        version = qiskit.__version__
+    except Exception:                            # noqa: BLE001 -- no Qiskit: nothing to check
+        return findings
+
+    def report(node, what, deprecation):
+        findings.append(_Finding(
+            "QS015", "warning", node,
+            f"{what} is deprecated as of Qiskit {deprecation['since']} (installed: {version}).",
+            deprecation["hint"]))
+
+    def whole(obj):
+        return next((d for d in _deprecations(obj) if d["argument"] is None), None)
+
+    def keywords(obj, call, label):
+        for d in _deprecations(obj):
+            if d["argument"] and any(k.arg == d["argument"] for k in call.keywords):
+                report(call, f"The argument {d['argument']} of {label}", d)
+
+    imported: Dict[str, Any] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and not node.level \
+                and _QISKIT_MODULE.match(node.module) and not _removed_module(node.module):
+            module = _qiskit_module(node.module)
+            for alias in node.names:
+                obj = getattr(module, alias.name, None) if module and alias.name != "*" else None
+                if obj is None:
+                    continue
+                imported[alias.asname or alias.name] = obj
+                deprecation = whole(obj)
+                if deprecation:
+                    report(node, f"{node.module}.{alias.name}", deprecation)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
+                and node.func.id in imported:
+            keywords(imported[node.func.id], node, f"{node.func.id}()")
+
+    circuits = set(collector.circuits) | collector.circuit_params
+    reported = set()
+    for use in collector.attributes:
+        member = getattr(QuantumCircuit, use["attr"], None)
+        if use["owner"] not in circuits or member is None or use["attr"].startswith("_"):
+            continue
+        deprecation = whole(member)
+        if deprecation and (use["node"].lineno, use["attr"]) not in reported:
+            reported.add((use["node"].lineno, use["attr"]))
+            report(use["node"], f"QuantumCircuit.{use['attr']}", deprecation)
+    for call in collector.calls:
+        member = getattr(QuantumCircuit, call["method"], None)
+        if call["owner"] in circuits and member is not None:
+            keywords(member, call["node"], f"QuantumCircuit.{call['method']}()")
     return findings
