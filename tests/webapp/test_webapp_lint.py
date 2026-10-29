@@ -44,8 +44,11 @@ def test_every_finding_has_the_documented_shape():
         qc.c_if(0, 1)
         """)
     assert findings
+    required = {"code", "severity", "line", "column", "message", "hint"}
     for f in findings:
-        assert set(f) == {"code", "severity", "line", "column", "message", "hint"}
+        assert required <= set(f) <= required | {"lines"}
+        if "lines" in f:           # every source line a finding concerns, its own included
+            assert f["line"] in f["lines"] and all(isinstance(n, int) and n >= 1 for n in f["lines"])
         assert f["severity"] in ("error", "warning", "info")
         assert isinstance(f["line"], int) and f["line"] >= 1
         assert isinstance(f["column"], int) and f["column"] >= 1

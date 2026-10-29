@@ -12,7 +12,7 @@ This module is also the reference for writing an add-on: define ``LINTER``,
 give each rule a code, and return diagnostics from ``run``.
 """
 
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, Iterable, List, Set
 
 from linters import Linter, LintContext, Rule
 
@@ -62,10 +62,16 @@ def _line(instruction) -> int:
     return getattr(location, "line", 0) or 0
 
 
-def _finding(code: str, line: int, message: str, hint: str) -> Dict[str, Any]:
+def _finding(code: str, line: int, message: str, hint: str,
+             nodes: Iterable[int] = ()) -> Dict[str, Any]:
+    """A finding; ``nodes`` are the instructions it is about (indices into the rebuilt
+    circuit, which are also the slicer's graph node ids), for the graph to mark."""
     severity = next(rule.severity for rule in RULES if rule.code == code)
-    return {"code": code, "severity": severity, "line": line, "column": 0,
-            "message": message, "hint": hint}
+    finding = {"code": code, "severity": severity, "line": line, "column": 0,
+               "message": message, "hint": hint}
+    if nodes:
+        finding["nodes"] = list(nodes)
+    return finding
 
 
 def _dead_gates(program, qdg) -> List[Dict[str, Any]]:
@@ -88,12 +94,13 @@ def _dead_gates(program, qdg) -> List[Dict[str, Any]]:
             f"{instruction.name} on qubit(s) {list(instruction.qubits)} cannot affect any "
             "measured bit.",
             "Either it is left over, or a measurement that should follow it is missing.",
+            nodes=[idx],
         ))
     return findings
 
 
 def _overwritten_measurements(program) -> List[Dict[str, Any]]:
-    pending: Dict[int, Any] = {}     # clbit -> the measurement whose result nothing read yet
+    pending: Dict[int, int] = {}     # clbit -> the measurement whose result nothing read yet
     findings = []
     for idx in range(len(program)):
         instruction = program[idx]
@@ -107,10 +114,11 @@ def _overwritten_measurements(program) -> List[Dict[str, Any]]:
                 findings.append(_finding(
                     "QD02", _line(instruction),
                     f"Classical bit {clbit} is overwritten here; the measurement at line "
-                    f"{_line(earlier) or '?'} never reaches the output.",
+                    f"{_line(program[earlier]) or '?'} never reaches the output.",
                     "Measure into a different classical bit if both results are wanted.",
+                    nodes=[earlier, idx],
                 ))
-            pending[clbit] = instruction
+            pending[clbit] = idx
     return findings
 
 
@@ -127,6 +135,7 @@ def _constant_measurements(program) -> List[Dict[str, Any]]:
                     f"Qubit(s) {untouched} are measured before any gate acts on them; the "
                     "result is always 0.",
                     "A preparation gate may be missing, or the wrong qubit is measured.",
+                    nodes=[idx],
                 ))
         elif instruction.name == "reset":
             touched.difference_update(instruction.qubits)
@@ -179,7 +188,7 @@ def _unset_controls(program, source: str) -> List[Dict[str, Any]]:
     lines = source.splitlines()
     given = _lines_given_a_circuit(source)
     zero: Set[int] = set(q for i in range(len(program)) for q in program[i].qubits)
-    idle: Dict[int, List[tuple]] = {}         # line -> (gate, unset controls) per idle instance
+    idle: Dict[int, List[tuple]] = {}   # line -> (gate, unset controls, index) per idle instance
     acting: Set[int] = set()                  # lines with at least one gate that can act
     for idx in range(len(program)):
         instruction = program[idx]
@@ -190,7 +199,7 @@ def _unset_controls(program, source: str) -> List[Dict[str, Any]]:
         text = lines[line - 1] if 0 < line <= len(lines) else ""
         unset = [q for q in _controls(instruction) if q in zero]
         if unset and not conditioned and "ctrl_state" not in text:
-            idle.setdefault(line, []).append((name, unset))
+            idle.setdefault(line, []).append((name, unset, idx))
             continue                          # the gate does nothing, so no state changes
         if _controls(instruction):
             acting.add(line)
@@ -204,7 +213,7 @@ def _unset_controls(program, source: str) -> List[Dict[str, Any]]:
     for line, instances in idle.items():
         if not line or line in acting or line in given:
             continue
-        name, unset = instances[0]
+        name, unset, _ = instances[0]
         findings.append(_finding(
             "QD05", line,
             f"{name} never acts: its control qubit(s) {unset} are always |0> here"
@@ -212,6 +221,7 @@ def _unset_controls(program, source: str) -> List[Dict[str, Any]]:
                if len(instances) > 1 else "."),
             "Control and target may be swapped, or the gate that should put the control "
             "into superposition (h) or |1> (x) is missing or comes after this one.",
+            nodes=[idx for _, _, idx in instances],
         ))
     return findings
 
@@ -223,7 +233,11 @@ def _merge(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     for finding in findings:
         key = (finding["code"], finding["line"])
         counts[key] = counts.get(key, 0) + 1
-        merged.setdefault(key, finding)
+        if key in merged:
+            nodes = merged[key].setdefault("nodes", [])
+            nodes.extend(n for n in finding.get("nodes", []) if n not in nodes)
+        else:
+            merged[key] = finding
     for key, finding in merged.items():
         if counts[key] > 1:
             finding["message"] += f" ({counts[key]} instances from this line)"

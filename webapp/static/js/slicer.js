@@ -412,6 +412,12 @@
     $('zoom-fit').addEventListener('click', function () { graph.fit(); });
     $('layout-reset').addEventListener('click', function () { graph.resetLayout(); });
     $('download-png').addEventListener('click', downloadPng);
+    $('lint-markers').addEventListener('click', function () {
+      var on = !this.classList.contains('active');
+      this.classList.toggle('active', on);
+      this.setAttribute('aria-pressed', String(on));
+      graph.setShowLint(on);
+    });
   }
 
   function setDirection(direction) {
@@ -711,6 +717,8 @@
         '<span class="diag-code">' + escapeHtml(item.code) + '</span>' +
         (item.line ? '<span class="diag-loc">line ' + item.line +
           (item.column ? ':' + item.column : '') + '</span>' : '') +
+        (item.nodes && item.nodes.length ? '<span class="diag-nodes" title="Graph nodes this is about">#' +
+          item.nodes.join(', #') + '</span>' : '') +
         '<span class="diag-message">' + escapeHtml(item.message) + '</span>';
       li.appendChild(head);
 
@@ -732,11 +740,27 @@
         trace.textContent = item.traceback.join('\n');
         li.appendChild(trace);
       }
-      if (item.line) {
-        li.addEventListener('click', function () { jumpToLine(item.line); });
+      if (item.line || (item.nodes && item.nodes.length)) {
+        li.addEventListener('click', function () {
+          if (item.line) jumpToLine(item.line);
+          if (item.nodes && item.nodes.length) markLintNodes(item);
+        });
       }
       list.appendChild(li);
     });
+  }
+
+  /* A finding's nodes: marked in the graph and the instruction table, and
+     brought into view, as clicking a line number marks the nodes it made. */
+  function markLintNodes(item) {
+    if (!state.payload) return;
+    state.source.picked = null;
+    graph.setMarked(item.nodes);
+    graph.reveal(item.nodes);
+    markPickedInTable(item.nodes);
+    applySourceMarks();
+    setStatus(item.code + ' is about node' + (item.nodes.length === 1 ? '' : 's') + ' #' +
+      item.nodes.join(', #') + ', marked in the graph. Click a gate to slice from it.');
   }
 
   function jumpToLine(line) {

@@ -59,6 +59,8 @@
     this.range = null;         // [from, to] inclusive, or null
     this.hoveredId = null;
     this.marked = null;        // Set of ids picked from the source, or null
+    this.lint = {};            // id -> the lint diagnostics about that node
+    this.showLint = true;      // draw lint markers on the nodes
 
     this.root = el('g', { class: 'graph-root' });
     this.defs = el('defs');
@@ -104,6 +106,7 @@
     this.selectedQubit = null;
     this.range = null;
     this.marked = null;
+    this.lint = lintByNode(data.diagnostics);
     this._computeLayout();
     this.render();
     this.fit(READABLE_SCALE);
@@ -126,6 +129,27 @@
   QGraph.prototype.setMarked = function (ids) {
     this.marked = ids && ids.length ? new Set(ids) : null;
     this.render();
+  };
+
+  /* Lint markers on the nodes the diagnostics are about, or none. */
+  QGraph.prototype.setShowLint = function (on) {
+    this.showLint = !!on;
+    this.render();
+  };
+
+  /* Pan so the given nodes are in view, keeping the zoom. */
+  QGraph.prototype.reveal = function (ids) {
+    var self = this;
+    var boxes = (ids || []).map(function (id) { return self._pos(id); }).filter(Boolean);
+    if (!boxes.length) return;
+    var xs = boxes.map(function (b) { return b.x; });
+    var ys = boxes.map(function (b) { return b.y; });
+    var cx = (Math.min.apply(null, xs) + Math.max.apply(null, xs)) / 2;
+    var cy = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
+    var rect = this.svg.getBoundingClientRect();
+    this.transform.x = rect.width / 2 - cx * this.transform.k;
+    this.transform.y = rect.height / 2 - cy * this.transform.k;
+    this._applyTransform();
   };
 
   QGraph.prototype.setActiveDeps = function (names) {
@@ -301,6 +325,8 @@
       if (self.selectedQubit !== null && node.qubits.indexOf(self.selectedQubit) !== -1) {
         classes.push('qubit-selected');
       }
+      var lint = self.showLint ? self.lint[node.id] : null;
+      if (lint) classes.push('lint-' + worstSeverity(lint));
 
       var g = el('g', {
         class: classes.join(' '),
@@ -346,6 +372,21 @@
         var where = el('text', { class: 'node-line', x: 0, y: pos.h / 2 + 11 });
         where.textContent = 'L' + node.line;
         g.appendChild(where);
+      }
+
+      // A badge on the corner of a node some lint rule is about.
+      if (lint) {
+        var severity = worstSeverity(lint);
+        var badge = el('g', { class: 'lint-badge sev-' + severity,
+                              transform: 'translate(' + (pos.w / 2) + ',' + (-pos.h / 2) + ')' });
+        badge.appendChild(el('circle', { r: 6.5 }));
+        var mark = el('text', { x: 0, y: 3.2 });
+        mark.textContent = severity === 'info' ? 'i' : '!';
+        badge.appendChild(mark);
+        badge.appendChild(el('title')).textContent = lint.map(function (d) {
+          return d.code + ': ' + d.message;
+        }).join('\n');
+        g.appendChild(badge);
       }
 
       self._wireNode(g, node);
@@ -450,8 +491,32 @@
     if (!gate.known) {
       parts.push('<div class="tip-note">No reference entry for this gate yet.</div>');
     }
+    var lint = this.showLint ? this.lint[node.id] : null;
+    if (lint) {
+      parts.push('<div class="tip-lint">' + lint.map(function (d) {
+        return '<p class="sev-' + escapeHtml(d.severity) + '"><strong>' + escapeHtml(d.code) +
+          '</strong> ' + escapeHtml(d.message) + '</p>';
+      }).join('') + '</div>');
+    }
     return parts.join('');
   };
+
+  /* id -> diagnostics, from each diagnostic's ``nodes`` (set by the analysis). */
+  function lintByNode(diagnostics) {
+    var byNode = {};
+    (diagnostics || []).forEach(function (d) {
+      (d.nodes || []).forEach(function (id) { (byNode[id] = byNode[id] || []).push(d); });
+    });
+    return byNode;
+  }
+
+  var SEVERITY_RANK = { error: 3, warning: 2, info: 1 };
+
+  function worstSeverity(diagnostics) {
+    return diagnostics.reduce(function (worst, d) {
+      return (SEVERITY_RANK[d.severity] || 0) > (SEVERITY_RANK[worst] || 0) ? d.severity : worst;
+    }, 'info');
+  }
 
   /* ------------------------------------------------------- pan / zoom --- */
 
@@ -574,7 +639,15 @@
     '.node.cat-structural .node-shape { fill: #6C7086; }',
     '.node.in-slice .node-shape { fill: #4a90d9; stroke: #cdd6f4; }',
     '.node.criterion .node-shape { fill: #ff6b35; stroke: #ffffff; stroke-width: 2.5; }',
-    '.node.dimmed { opacity: 0.22; }'
+    '.node.dimmed { opacity: 0.22; }',
+    '.node.lint-error .node-shape { stroke: #f38ba8; stroke-width: 2.5; stroke-dasharray: 5 3; }',
+    '.node.lint-warning .node-shape { stroke: #f9e2af; stroke-width: 2.5; stroke-dasharray: 5 3; }',
+    '.node.lint-info .node-shape { stroke: #89dceb; stroke-width: 2; stroke-dasharray: 5 3; }',
+    '.lint-badge circle { stroke: #11111b; stroke-width: 1.5; }',
+    '.lint-badge.sev-error circle { fill: #f38ba8; }',
+    '.lint-badge.sev-warning circle { fill: #f9e2af; }',
+    '.lint-badge.sev-info circle { fill: #89dceb; }',
+    '.lint-badge text { fill: #11111b; font-size: 9px; font-weight: 700; font-family: sans-serif; text-anchor: middle; }'
   ].join('\n');
 
   QGraph.prototype.toPngBlob = function (filename, callback) {

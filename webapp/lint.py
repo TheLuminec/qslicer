@@ -8,7 +8,8 @@ Anything computed in a loop, passed through a helper, or built from a variable
 is invisible to it -- those cases are left to the real analysis pass.
 
 Each finding is a dict with: code, severity (error/warning/info), line, column,
-message and hint.
+message and hint, and, when it is about more than its own line, ``lines``: every
+source line it concerns (the slicer marks the graph nodes they produced).
 """
 
 import ast
@@ -432,13 +433,15 @@ def _check_duplicate_clbits(collector: _CircuitCollector) -> List[Dict[str, Any]
             continue
         for index in indices:
             if index in seen:
-                findings.append(_Finding(
+                finding = _Finding(
                     "QS007", "warning", call["node"],
                     f"Classical bit {index} is written by more than one measurement "
                     f"(first at line {getattr(seen[index], 'lineno', '?')}).",
                     "The later measurement overwrites the earlier outcome. That is legal, and "
                     "sometimes deliberate, but it also hides a dependency.",
-                ))
+                )
+                finding["lines"] = [seen[index].lineno, call["node"].lineno]
+                findings.append(finding)
             seen[index] = call["node"]
     return findings
 
@@ -758,12 +761,14 @@ def _check_self_inverse_pairs(collector: _CircuitCollector) -> List[Dict[str, An
         args = [_qubit_args(arg) for arg in call["node"].args]
         signature = (method, tuple(tuple(a) for a in args if a is not None))
         if previous is not None and previous["signature"] == signature and signature[1]:
-            findings.append(_Finding(
+            finding = _Finding(
                 "QS010", "info", call["node"],
                 f"{method}() repeats the identical call from line "
                 f"{previous['node'].lineno}; the pair cancels.",
                 "The entanglement analyzer reads this as an uncomputation. If that is what you "
                 "meant, fine -- if not, one of the two is probably a typo.",
-            ))
+            )
+            finding["lines"] = [previous["node"].lineno, call["node"].lineno]   # the whole pair
+            findings.append(finding)
         previous = {"signature": signature, "node": call["node"]}
     return findings

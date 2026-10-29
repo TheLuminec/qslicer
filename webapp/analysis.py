@@ -408,7 +408,33 @@ def analyze_source(
     # The Follow chips are built from this, so a rule set that never emits
     # phase edges never offers to follow them.
     result["dependency_types"] = _offered_dependencies(rules, result["edges"])
+    attach_lint_nodes(result["diagnostics"], result["nodes"])
     return result
+
+
+def attach_lint_nodes(diagnostics: List[Dict[str, Any]], nodes: List[Dict[str, Any]]) -> None:
+    """Give each diagnostic ``nodes``: the graph nodes it is about, for the graph to mark.
+
+    A linter that reads the rebuilt circuit names its instructions, whose
+    indices are the node ids; those are kept when one of them really comes
+    from the diagnostic's line (the linters parse the source themselves, so
+    this guards against a different reading). Otherwise the diagnostic's
+    ``lines`` (or its ``line``) pick every node whose source span covers them,
+    as clicking a line number in the editor does. A diagnostic with no line
+    (an empty file, a skipped linter) gets no nodes.
+    """
+    def covers(node: Dict[str, Any], line: int) -> bool:
+        source = node.get("source") or {}
+        return bool(source) and source["line"] <= line <= source.get("end_line", source["line"])
+
+    for diagnostic in diagnostics:
+        named = [n for n in diagnostic.get("nodes", []) if isinstance(n, int) and 0 <= n < len(nodes)]
+        if named and any(covers(nodes[n], diagnostic.get("line") or 0) for n in named):
+            diagnostic["nodes"] = named
+            continue
+        lines = diagnostic.get("lines") or ([diagnostic["line"]] if diagnostic.get("line") else [])
+        diagnostic["nodes"] = [node["id"] for node in nodes
+                               if any(covers(node, line) for line in lines)]
 
 
 class _ParseFailure(Exception):

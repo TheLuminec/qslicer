@@ -716,6 +716,24 @@ body.splitting-rows .row-splitter::after { background: var(--accent); }
 #graph .node.hovered .node-shape { stroke: #fff; stroke-width: 2.5; }
 #graph .node.qubit-selected .node-shape { stroke: var(--criterion); stroke-width: 2.5; }
 #graph .node .node-line { fill: var(--text-faint); font-size: 9px; font-family: var(--mono); text-anchor: middle; pointer-events: none; }
+/* Lint markers: a dashed outline in the worst severity, and a corner badge. */
+#graph .node.lint-error .node-shape { stroke: var(--err); stroke-width: 2.5; stroke-dasharray: 5 3; }
+#graph .node.lint-warning .node-shape { stroke: var(--warn); stroke-width: 2.5; stroke-dasharray: 5 3; }
+#graph .node.lint-info .node-shape { stroke: var(--info); stroke-width: 2; stroke-dasharray: 5 3; }
+#graph .lint-badge circle { stroke: #11111b; stroke-width: 1.5; }
+#graph .lint-badge.sev-error circle { fill: var(--err); }
+#graph .lint-badge.sev-warning circle { fill: var(--warn); }
+#graph .lint-badge.sev-info circle { fill: var(--info); }
+#graph .lint-badge text {
+  fill: #11111b; font-size: 9px; font-weight: 700; font-family: var(--sans); text-anchor: middle;
+  pointer-events: none;
+}
+.tooltip .tip-lint { margin-top: 0.5rem; padding-top: 0.45rem; border-top: 1px solid var(--surface-3); }
+.tooltip .tip-lint p { margin: 0 0 0.25rem; font-size: 0.8rem; }
+.tooltip .tip-lint .sev-error strong { color: var(--err); }
+.tooltip .tip-lint .sev-warning strong { color: var(--warn); }
+.tooltip .tip-lint .sev-info strong { color: var(--info); }
+.diag-nodes { font-family: var(--mono); font-size: 0.74rem; color: var(--text-faint); }
 #graph .node.marked .node-shape { stroke: var(--accent); stroke-width: 3; }
 #graph .node.marked .node-line { fill: var(--accent); font-weight: 700; }
 

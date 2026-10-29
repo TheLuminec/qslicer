@@ -108,6 +108,14 @@ On the slicer page:
   criterion. Click a gutter line number to see which nodes that line produced.
 - **Lint** picks the linters and individual rules that run on Analyze. The
   choice is remembered in the browser and shared with the Benchmark page.
+  The **?** next to a rule explains it with a worked example.
+- **Lint markers on the graph.** A node a finding is about gets a dashed
+  outline in the finding's severity and a corner badge; its tooltip lists the
+  findings. A finding about several gates marks them all (both gates of a
+  cancelling pair, both measurements of an overwritten bit), and one from the
+  dependence checks marks exactly the instructions it means, even inside a
+  loop. Clicking a finding marks its nodes and brings them into view; **Lint
+  markers** in the toolbar hides them.
 - **Instructions tab** lists every instruction with its line; **Console** shows
   the last error; **diagnostics** list lint findings and parser warnings, each
   jumping to its line.
