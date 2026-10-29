@@ -510,3 +510,26 @@ def test_qs013_unsupported_operations_on_qiskit_objects(line, message):
 ])
 def test_qs013_supported_operations_are_quiet(line):
     assert "QS013" not in codes(check(f"qc = QuantumCircuit(2, 2)\n{line}\n"))
+
+
+# QS018 simulator result never saved ---------------------------------------------------
+
+AER = "from qiskit_aer import AerSimulator\nqc = QuantumCircuit(1)\nqc.h(0)\nsim = AerSimulator()\n"
+
+
+@pytest.mark.parametrize("line, getter", [
+    ("sv = sim.run(qc).result().get_statevector()", "get_statevector"),
+    ("u = sim.run(qc).result().get_unitary()", "get_unitary"),
+])
+def test_qs018_positive(line, getter):
+    qs = only(check(AER + line + "\n"), "QS018")
+    assert len(qs) == 1 and qs[0]["line"] == 6 and getter in qs[0]["message"]
+
+
+@pytest.mark.parametrize("line", [
+    "qc.save_statevector()\nsv = sim.run(qc).result().get_statevector()",
+    "sv = execute(qc, Aer.get_backend('statevector_simulator')).result().get_statevector()",
+    "sv = execute(qc, backend='local_statevector_simulator').result().get_statevector()",
+])
+def test_qs018_negative(line):
+    assert "QS018" not in codes(check(AER + line + "\n"))

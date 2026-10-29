@@ -41,7 +41,7 @@ def test_quick_checks_are_errors_and_dependence_checks_the_quantum_side():
     # result, QS017 an unpacked list in a fixed-size gate). The quantum-side rules live in
     # the dependence checks.
     quick = {r.code: r.severity for r in linters.get("quick").rules}
-    assert {code for code, severity in quick.items() if severity != "error"} == {"QS009", "QS015", "QS016", "QS017"}
+    assert {code for code, severity in quick.items() if severity != "error"} == {"QS009", "QS015", "QS016", "QS017"}  # QS018 is an error
     assert {"QS005", "QS006", "QS007", "QS010"}.isdisjoint(quick) and "QS014" in quick
     codes = [r.code for r in linters.get("dependence").rules]
     assert codes == ["QD01", "QD02", "QD03", "QD05", "QD06", "QD07", "QD08", "QD09", "QD10"]

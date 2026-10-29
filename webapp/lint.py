@@ -76,6 +76,10 @@ RULES = {
               "such as ccx(*controls, target): with another list length it fails, or, for "
               "ccx, silently takes the extra qubit as ctrl_state. mcx(controls, target) takes "
               "any number."),
+    "QS018": ("Simulator result never saved", "error",
+              "result.get_statevector() (or get_unitary, get_density_matrix) on an AerSimulator "
+              "run, but nothing calls save_statevector() (save_unitary, save_density_matrix): "
+              "Aer raises 'No statevector for experiment'."),
 }
 # Quantum-side checks that read the rebuilt circuit (no measurement, idle qubits,
 # measurements overwritten, cancelling pairs) are dependence checks, QD01-QD08,
@@ -275,6 +279,7 @@ def check_source(source: str) -> List[Dict[str, Any]]:
     findings += _check_deprecated_qiskit(tree, collector)
     findings += _check_discarded_results(tree, collector)
     findings += _check_unpacked_fixed_gates(collector)
+    findings += _check_unsaved_results(tree)
 
     findings.sort(key=lambda f: (f["line"], f["column"], f["code"]))
     return findings
@@ -978,3 +983,36 @@ def _check_unpacked_fixed_gates(collector: _CircuitCollector) -> List[Dict[str, 
                 + (" or silently reads the extra qubit as ctrl_state" if call["method"] == "ccx"
                    else "") + ". mcx(controls, target) takes any number of controls."))
     return findings
+
+
+# QS018: what each result getter needs saved, and backends that save it themselves.
+_SAVED_BY = {"get_statevector": "save_statevector", "get_unitary": "save_unitary",
+             "get_density_matrix": "save_density_matrix"}
+_SAVES_ITSELF = ("statevector_simulator", "unitary_simulator", "StatevectorSimulator",
+                 "UnitarySimulator")
+
+
+def _check_unsaved_results(tree: ast.AST) -> List[Dict[str, Any]]:
+    """QS018: a result getter with no matching save_* anywhere in the file. Old-style
+    backends ('statevector_simulator', StatevectorSimulator) save on their own."""
+    names, strings, getters = set(), [], []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            name = _callee_name(node.func)
+            names.add(name)
+            if name in _SAVED_BY:
+                getters.append((name, node))
+        elif isinstance(node, ast.Name):
+            names.add(node.id)
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            strings.append(node.value)
+    if any(auto in names or any(auto in text for text in strings) for auto in _SAVES_ITSELF):
+        return []
+    return [_Finding(
+        "QS018", "error", node,
+        f"{name}() needs the circuit to save that data, but nothing calls "
+        f"{_SAVED_BY[name]}(): the simulator raises 'No {name[4:].replace('_', ' ')} for "
+        "experiment'.",
+        f"Call qc.{_SAVED_BY[name]}() before running (or use quantum_info's "
+        "Statevector(qc) without a simulator).")
+        for name, node in getters if _SAVED_BY[name] not in names]

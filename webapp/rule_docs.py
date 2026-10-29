@@ -175,6 +175,20 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
                          "    qc.mcx(controls, target)\n    return qc\n\n"
                          "qc = mark(QuantumCircuit(3), [0, 1], 2)\n",
     },
+    "QS018": {
+        "explain": "result.get_statevector() (or get_unitary(), get_density_matrix()) after "
+                   "running on an AerSimulator, but the circuit never saves that data: Aer "
+                   "raises 'No statevector for experiment'. The old 'statevector_simulator' "
+                   "backend saved it automatically, so code copied from older tutorials hits "
+                   "this; qc.save_statevector() before running fixes it.",
+        "limits": "Looks for the matching save_* call anywhere in the file; backends that save "
+                  "by themselves ('statevector_simulator', StatevectorSimulator) are fine.",
+        "example": _HEAD + "from qiskit_aer import AerSimulator\n\nqc = QuantumCircuit(1)\n"
+                           "qc.h(0)\nstate = AerSimulator().run(qc).result().get_statevector()\n",
+        "fixed": _HEAD + "from qiskit_aer import AerSimulator\n\nqc = QuantumCircuit(1)\n"
+                         "qc.h(0)\nqc.save_statevector()\n"
+                         "state = AerSimulator().run(qc).result().get_statevector()\n",
+    },
     # ----------------------------------------------------------- dependence
     "QD01": {
         "explain": "No measured bit depends on this gate: the dependence graph proves removing "
