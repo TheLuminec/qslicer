@@ -36,11 +36,11 @@ def test_default_selection_is_the_quick_and_dependence_checks():
 
 
 def test_quick_checks_are_errors_and_dependence_checks_the_quantum_side():
-    # Quick checks: what Python or Qiskit would reject, so errors (the warnings are QS009,
-    # execute(), and QS015, deprecated APIs that still run); the quantum-side rules live in
-    # the dependence checks.
+    # Quick checks: what Python or Qiskit would reject, so errors; the warnings are API
+    # misuse that still runs (QS009 execute(), QS015 deprecated APIs, QS016 a discarded
+    # result). The quantum-side rules live in the dependence checks.
     quick = {r.code: r.severity for r in linters.get("quick").rules}
-    assert {code for code, severity in quick.items() if severity != "error"} == {"QS009", "QS015"}
+    assert {code for code, severity in quick.items() if severity != "error"} == {"QS009", "QS015", "QS016"}
     assert {"QS005", "QS006", "QS007", "QS010"}.isdisjoint(quick) and "QS014" in quick
     codes = [r.code for r in linters.get("dependence").rules]
     assert codes == ["QD01", "QD02", "QD03", "QD05", "QD06", "QD07", "QD08", "QD09"]

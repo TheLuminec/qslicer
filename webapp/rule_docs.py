@@ -143,6 +143,20 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
         "fixed": _HEAD + "from qiskit.circuit.library import QFTGate\n\nqc = QuantumCircuit(3)\n"
                          "qc.append(QFTGate(3), [0, 1, 2])\n",
     },
+    "QS016": {
+        "explain": "A call that returns a new circuit is a statement on its own, so the new "
+                   "circuit is thrown away and the original is unchanged: qc.inverse(), "
+                   "qc.copy(), qc.decompose(), qc.assign_parameters(...) and qc.compose(...) "
+                   "without inplace=True, or transpile(...). The program then runs, prints or "
+                   "measures the circuit as it was.",
+        "limits": "Only calls on a circuit the file builds or receives as a parameter "
+                  "annotated QuantumCircuit, and transpile(); qc.s(0).inverse() inverts the gate "
+                  "in place and is fine.",
+        "example": _HEAD + "qc = QuantumCircuit(2)\nqc.h(0)\nqc.cx(0, 1)\nqc.inverse()\n"
+                           "qc.measure_all()\n",
+        "fixed": _HEAD + "qc = QuantumCircuit(2)\nqc.h(0)\nqc.cx(0, 1)\nqc = qc.inverse()\n"
+                         "qc.measure_all()\n",
+    },
     # ----------------------------------------------------------- dependence
     "QD01": {
         "explain": "No measured bit depends on this gate: the dependence graph proves removing "

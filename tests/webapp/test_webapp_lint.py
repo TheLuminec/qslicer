@@ -421,3 +421,31 @@ def test_qs015_positive(line, what, hint):
 ])
 def test_qs015_negative(line):
     assert "QS015" not in codes(check(f"qc = QuantumCircuit(3, 3)\n{line}\nqc.measure_all()\n"))
+
+
+# QS016 result discarded -------------------------------------------------------------
+
+@pytest.mark.parametrize("line, what", [
+    ("qc.inverse()", "qc.inverse()"),
+    ("qc.copy()", "qc.copy()"),
+    ("qc.compose(other)", "qc.compose()"),
+    ("qc.assign_parameters({})", "qc.assign_parameters()"),
+    ("qc.measure_all(inplace=False)", "qc.measure_all()"),
+    ("transpile(qc, basis_gates=['cx', 'u'])", "transpile()"),
+])
+def test_qs016_positive(line, what):
+    qs = only(check(f"qc = QuantumCircuit(2, 2)\nother = QuantumCircuit(2)\n{line}\n"), "QS016")
+    assert len(qs) == 1 and qs[0]["line"] == 4 and qs[0]["severity"] == "warning"
+    assert what in qs[0]["message"] and "discarded" in qs[0]["message"]
+
+
+@pytest.mark.parametrize("line", [
+    "qc = qc.inverse()",
+    "qc.compose(other, inplace=True)",
+    "qc.measure_all()",                       # inplace by default
+    "qc.s(0).inverse()",                      # inverts the gate in place
+    "print(qc.inverse())",
+    "values = []\nvalues.copy()",             # not a circuit
+])
+def test_qs016_negative(line):
+    assert "QS016" not in codes(check(f"qc = QuantumCircuit(2, 2)\nother = QuantumCircuit(2)\n{line}\n"))

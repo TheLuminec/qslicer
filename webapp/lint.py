@@ -65,6 +65,10 @@ RULES = {
     "QS015": ("Deprecated Qiskit API", "warning",
               "A class, function, circuit method or keyword argument the installed Qiskit marks "
               "deprecated (QFT, TwoLocal, mcx(mode=...)): it still runs, but will be removed."),
+    "QS016": ("Result discarded", "warning",
+              "A call that returns a new circuit (qc.inverse(), qc.copy(), assign_parameters, "
+              "transpile, ...) used as a statement on its own: the result is thrown away and "
+              "the circuit is unchanged."),
 }
 # Quantum-side checks that read the rebuilt circuit (no measurement, idle qubits,
 # measurements overwritten, cancelling pairs) are dependence checks, QD01-QD08,
@@ -257,6 +261,7 @@ def check_source(source: str) -> List[Dict[str, Any]]:
     findings += _check_unknown_qiskit_names(tree)
     findings += _check_unknown_qiskit_api(tree, collector)
     findings += _check_deprecated_qiskit(tree, collector)
+    findings += _check_discarded_results(tree, collector)
 
     findings.sort(key=lambda f: (f["line"], f["column"], f["code"]))
     return findings
@@ -798,4 +803,55 @@ def _check_deprecated_qiskit(tree: ast.AST, collector: _CircuitCollector) -> Lis
         member = getattr(QuantumCircuit, call["method"], None)
         if call["owner"] in circuits and member is not None:
             keywords(member, call["node"], f"QuantumCircuit.{call['method']}()")
+    return findings
+
+
+# QS016: QuantumCircuit methods that return a new circuit and leave the original as it
+# is, with the inplace default that makes them do so (None: they have no inplace).
+_RETURNS_NEW = {
+    "inverse": None, "copy": None, "copy_empty_like": None, "decompose": None,
+    "reverse_bits": None, "reverse_ops": None, "power": None, "repeat": None, "control": None,
+    "to_gate": None, "to_instruction": None, "assign_parameters": False, "compose": False,
+    "tensor": False, "measure_all": True, "measure_active": True,
+    "remove_final_measurements": True,
+}
+
+
+def _check_discarded_results(tree: ast.AST, collector: _CircuitCollector) -> List[Dict[str, Any]]:
+    """QS016: a statement that is nothing but a call returning a new circuit, on a known
+    circuit (or transpile()). Calls on what a gate returns (qc.s(0).inverse()) act in
+    place and are not judged."""
+    findings: List[Dict[str, Any]] = []
+    circuits = set(collector.circuits) | collector.circuit_params
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)):
+            continue
+        call = node.value
+        func = call.func
+        if (isinstance(func, ast.Name) and func.id == "transpile") or \
+                (isinstance(func, ast.Attribute) and func.attr == "transpile"):
+            findings.append(_Finding(
+                "QS016", "warning", node,
+                "transpile() returns a new circuit, which is discarded here; the circuit "
+                "itself is unchanged.",
+                "Keep the result: tqc = transpile(qc, ...), and run or print tqc."))
+            continue
+        if not (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)
+                and func.value.id in circuits and func.attr in _RETURNS_NEW):
+            continue
+        inplace_default = _RETURNS_NEW[func.attr]
+        inplace = next((k.value for k in call.keywords if k.arg == "inplace"), None)
+        if inplace_default is not None:
+            on = inplace.value if isinstance(inplace, ast.Constant) else (
+                inplace_default if inplace is None else None)
+            if on is not False:                  # in place, or cannot tell
+                continue
+        owner = func.value.id
+        findings.append(_Finding(
+            "QS016", "warning", node,
+            f"{owner}.{func.attr}() returns a new circuit, which is discarded here; {owner} "
+            "itself is unchanged.",
+            (f"Pass inplace=True, or keep the result: {owner} = {owner}.{func.attr}(...)."
+             if inplace_default is not None else
+             f"Keep the result: {owner} = {owner}.{func.attr}(...), or name the new circuit.")))
     return findings
