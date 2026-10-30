@@ -571,3 +571,48 @@ def test_qs015_positive(line):
 ])
 def test_qs015_negative(body):
     assert "QS015" not in codes(check(body))
+
+
+# QS016 counts from a circuit that never measures -----------------------------------
+
+AER_IMPORT = "from qiskit_aer import AerSimulator\n"
+
+
+@pytest.mark.parametrize("body, line", [
+    ("def sample():\n    qc = QuantumCircuit(2)\n    qc.h(0)\n"
+     "    return AerSimulator().run(qc).result().get_counts()\n", 6),
+    ("def sample():\n    qc = QuantumCircuit(1)\n    qc.initialize([0, 1], 0)\n"
+     "    result = AerSimulator().run(qc, shots=10).result()\n    return result.get_counts(qc)\n", 6),
+    # called by the file: its own circuit is still never measured
+    ("def sample():\n    qc = QuantumCircuit(1)\n"
+     "    return AerSimulator().run(qc).result().get_counts()\n\ncounts = sample()\n", 5),
+    ("def read(qc: QuantumCircuit) -> dict:\n"
+     "    return AerSimulator().run(qc).result().get_counts()\n", 4),
+])
+def test_qs016_positive(body, line):
+    qs = only(check(AER_IMPORT + body), "QS016")
+    assert len(qs) == 1 and qs[0]["line"] == line and qs[0]["severity"] == "warning"
+    assert "No counts for experiment" in qs[0]["message"]
+
+
+@pytest.mark.parametrize("body", [
+    "def sample():\n    qc = QuantumCircuit(1, 1)\n    qc.measure(0, 0)\n"
+    "    return AerSimulator().run(qc).result().get_counts()\n",
+    "def sample():\n    qc = QuantumCircuit(1)\n    qc.measure_all()\n"
+    "    return AerSimulator().run(qc).result().get_counts()\n",
+    # measured somewhere else: transpile, a helper, a composed circuit
+    "def sample():\n    qc = QuantumCircuit(1)\n    tqc = transpile(qc)\n"
+    "    return AerSimulator().run(tqc).result().get_counts()\n",
+    "def sample():\n    qc = QuantumCircuit(1)\n    add_measurements(qc)\n"
+    "    return AerSimulator().run(qc).result().get_counts()\n",
+    "def sample(other: QuantumCircuit):\n    qc = QuantumCircuit(1)\n    qc.compose(other, inplace=True)\n"
+    "    return AerSimulator().run(qc).result().get_counts()\n",
+    # a given circuit the file's own caller may have measured
+    "def read(qc: QuantumCircuit) -> dict:\n    return AerSimulator().run(qc).result().get_counts()\n\n"
+    "qc = QuantumCircuit(1, 1)\nqc.measure(0, 0)\ncounts = read(qc)\n",
+    # no counts read
+    "def state():\n    qc = QuantumCircuit(1)\n    qc.save_statevector()\n"
+    "    return AerSimulator().run(qc).result().get_statevector()\n",
+])
+def test_qs016_negative(body):
+    assert "QS016" not in codes(check(AER_IMPORT + body))

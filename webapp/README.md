@@ -282,7 +282,7 @@ of the real thing:
   consume it yet, so there is nothing server-side to call. Also waiting on the
   research; when the slicer grows real vertical and horizontal criteria, the UI
   hooks are already here.
-* **Quick checks** (`QS000`–`QS015`, `lint.py`): errors Python or Qiskit would
+* **Quick checks** (`QS000`–`QS016`, `lint.py`): errors Python or Qiskit would
   raise. Most read the Python AST, so they see only literal arguments; QS012
   and QS013 look names and keyword arguments up in the installed Qiskit
   (importing the library's modules, never the checked file), and QS014 reports

@@ -85,6 +85,9 @@ RULES = {
               "literal or from the qubit index, but never checks the circuit has classical "
               "bits or adds them: given QuantumCircuit(n), which declares none, Qiskit raises "
               "CircuitError."),
+    "QS016": ("Counts from a circuit that never measures", "warning",
+              "A function runs a circuit (its own, or one it is given) and reads get_counts(), "
+              "but nothing measures that circuit: Aer raises 'No counts for experiment'."),
 }
 # Quantum-side checks that read the rebuilt circuit (no measurement, idle qubits,
 # measurements overwritten, cancelling pairs) are dependence checks, QD01-QD08,
@@ -287,6 +290,7 @@ def check_source(source: str) -> List[Dict[str, Any]]:
     findings += _check_unpacked_fixed_gates(collector)
     findings += _check_unsaved_results(tree)
     findings += _check_assumed_clbits(tree)
+    findings += _check_unmeasured_counts(tree)
 
     findings.sort(key=lambda f: (f["line"], f["column"], f["code"]))
     return findings
@@ -1068,4 +1072,51 @@ def _check_assumed_clbits(tree: ast.AST) -> List[Dict[str, Any]]:
                 "Add them when missing (if qc.num_clbits == 0: "
                 "qc.add_register(ClassicalRegister(qc.num_qubits))), or take the classical bit "
                 "as an argument."))
+    return findings
+
+
+# QS016: circuit methods that measure, and ones that may bring measurements in.
+_MEASURES = frozenset({"measure", "measure_all", "measure_active"})
+_MAY_MEASURE = frozenset({"append", "compose", "extend", "for_loop", "while_loop", "if_test"})
+
+
+def _check_unmeasured_counts(tree: ast.AST) -> List[Dict[str, Any]]:
+    """QS016: a circuit a function builds, or is given, goes only to .run() (and its own
+    gate methods), get_counts() is read, and nothing measures it. A given circuit is only
+    judged when the file never calls the function (a caller may have measured it), and a
+    circuit passed anywhere else (transpile, a helper) may be measured there."""
+    called = {node.func.id for node in ast.walk(tree)
+              if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
+    findings: List[Dict[str, Any]] = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        calls = [node for node in ast.walk(fn) if isinstance(node, ast.Call)]
+        if not any(_callee_name(call.func) == "get_counts" for call in calls):
+            continue
+        own = {target.id for node in ast.walk(fn) if isinstance(node, ast.Assign)
+               and isinstance(node.value, ast.Call) and _callee_name(node.value.func) == "QuantumCircuit"
+               for target in node.targets if isinstance(target, ast.Name)}
+        given = {a.arg for a in fn.args.posonlyargs + fn.args.args + fn.args.kwonlyargs
+                 if a.annotation is not None and "QuantumCircuit" in ast.unparse(a.annotation)}
+        if fn.name in called:
+            given = set()
+        for name in sorted(own | given):
+            methods = {call.func.attr for call in calls if isinstance(call.func, ast.Attribute)
+                       and isinstance(call.func.value, ast.Name) and call.func.value.id == name}
+            if methods & (_MEASURES | _MAY_MEASURE):
+                continue
+            takers = [call for call in calls if any(
+                isinstance(n, ast.Name) and n.id == name
+                for arg in call.args + [k.value for k in call.keywords] for n in ast.walk(arg))]
+            runs = [call for call in takers if _callee_name(call.func) == "run"]
+            if not runs or any(_callee_name(call.func) not in ("run", "get_counts") for call in takers):
+                continue
+            whose = "it builds" if name in own else "it is given"
+            findings.append(_Finding(
+                "QS016", "warning", runs[0],
+                f"{name}, the circuit {whose}, is run and its counts read, but nothing measures "
+                "it: Aer raises 'No counts for experiment'.",
+                f"Measure before running: {name}.measure_all(), or {name}.measure(qubits, "
+                "clbits) into classical bits the circuit has."))
     return findings

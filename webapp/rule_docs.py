@@ -207,6 +207,24 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
                          "        qc.add_register(ClassicalRegister(qc.num_qubits))\n"
                          "    qc.h(q)\n    qc.measure(q, q)\n    return qc\n",
     },
+    "QS016": {
+        "explain": "A function runs a circuit on a simulator and reads get_counts(), but no "
+                   "line measures that circuit, so there are no counts: Aer raises 'No counts "
+                   "for experiment'. Models often write the comment '# Measure the qubits' "
+                   "and then no measure() under it.",
+        "limits": "Looks at circuits a function builds, or is given, that only go to .run() "
+                  "and their own gate methods. A circuit passed to anything else (transpile, "
+                  "a helper) may be measured there; append and compose may bring "
+                  "measurements in; a given circuit is judged only when the file never calls "
+                  "the function.",
+        "example": _HEAD + "from qiskit_aer import AerSimulator\n\n"
+                           "def sample_bell():\n    qc = QuantumCircuit(2)\n    qc.h(0)\n"
+                           "    qc.cx(0, 1)\n    return AerSimulator().run(qc).result().get_counts()\n",
+        "fixed": _HEAD + "from qiskit_aer import AerSimulator\n\n"
+                         "def sample_bell():\n    qc = QuantumCircuit(2)\n    qc.h(0)\n"
+                         "    qc.cx(0, 1)\n    qc.measure_all()\n"
+                         "    return AerSimulator().run(qc).result().get_counts()\n",
+    },
     # ----------------------------------------------------------- dependence
     "QD01": {
         "explain": "No measured bit depends on this gate: the dependence graph proves removing "

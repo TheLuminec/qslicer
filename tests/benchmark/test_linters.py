@@ -39,10 +39,11 @@ def test_quick_checks_are_errors_and_dependence_checks_the_quantum_side():
     # Quick checks: what Python or Qiskit would reject, so errors; the warnings are API
     # misuse that still runs (QS009 execute(), QS005 deprecated APIs, QS006 a discarded
     # result, QS007 an unpacked list in a fixed-size gate, QS015 a classical bit assumed
-    # on a given circuit). The quantum-side rules live in the dependence checks.
+    # on a given circuit, QS016 counts from a circuit that may never be measured). The
+    # quantum-side rules live in the dependence checks.
     quick = {r.code: r.severity for r in linters.get("quick").rules}
     assert {code for code, severity in quick.items() if severity != "error"} == {
-        "QS005", "QS006", "QS007", "QS009", "QS015"}
+        "QS005", "QS006", "QS007", "QS009", "QS015", "QS016"}
     assert list(quick) == [f"QS{n:03d}" for n in range(len(quick))]     # no gaps, in order
     codes = [r.code for r in linters.get("dependence").rules]
     assert codes == ["QD01", "QD02", "QD03", "QD05", "QD06", "QD07", "QD08", "QD09", "QD10"]
