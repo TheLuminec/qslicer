@@ -80,6 +80,11 @@ RULES = {
     "QS014": ("Qiskit rejects an operation", "error",
               "Rebuilding the circuit hits an error Qiskit raises when the program runs: a qubit "
               "index out of range, the same qubit twice, the wrong number of arguments."),
+    "QS015": ("Classical bit assumed on a given circuit", "warning",
+              "A function measures into a classical bit of a circuit it is given, picked by a "
+              "literal or from the qubit index, but never checks the circuit has classical "
+              "bits or adds them: given QuantumCircuit(n), which declares none, Qiskit raises "
+              "CircuitError."),
 }
 # Quantum-side checks that read the rebuilt circuit (no measurement, idle qubits,
 # measurements overwritten, cancelling pairs) are dependence checks, QD01-QD08,
@@ -281,6 +286,7 @@ def check_source(source: str) -> List[Dict[str, Any]]:
     findings += _check_discarded_results(tree, collector)
     findings += _check_unpacked_fixed_gates(collector)
     findings += _check_unsaved_results(tree)
+    findings += _check_assumed_clbits(tree)
 
     findings.sort(key=lambda f: (f["line"], f["column"], f["code"]))
     return findings
@@ -1017,3 +1023,49 @@ def _check_unsaved_results(tree: ast.AST) -> List[Dict[str, Any]]:
         f"Call qc.{_SAVED_BY[name]}() before running (or use quantum_info's "
         "Statevector(qc) without a simulator).")
         for name, node in getters if _SAVED_BY[name] not in names]
+
+
+# QS015: anything in a function that checks for, adds or names classical bits.
+_CLBIT_GUARDS = ("add_register", "add_bits", "num_clbits", "clbits", "cregs", "measure_all",
+                 "ClassicalRegister", "Clbit")
+
+
+def _check_assumed_clbits(tree: ast.AST) -> List[Dict[str, Any]]:
+    """QS015: measure() into a given circuit's classical bit chosen by a literal or the
+    qubit index, in a function that never checks or adds classical bits. Functions the
+    file calls are left to the rebuilt circuit (QS014), and a bit the caller passes in
+    (measure(qubit, clbit)) is the caller's to get right."""
+    called = {node.func.id for node in ast.walk(tree)
+              if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
+    findings: List[Dict[str, Any]] = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) or fn.name in called:
+            continue
+        if any(guard in ast.unparse(fn) for guard in _CLBIT_GUARDS):
+            continue
+        params = fn.args.posonlyargs + fn.args.args + fn.args.kwonlyargs
+        stored = {node.id for node in ast.walk(fn)
+                  if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)}
+        loop_vars = {node.id for loop in ast.walk(fn) if isinstance(loop, (ast.For, ast.comprehension))
+                     for node in ast.walk(loop.target) if isinstance(node, ast.Name)}
+        circuits = {a.arg for a in params if a.annotation is not None
+                    and "QuantumCircuit" in ast.unparse(a.annotation)} - stored
+        for node in ast.walk(fn):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "measure" and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id in circuits and len(node.args) == 2):
+                continue
+            qubit, clbit = node.args
+            qubit_names = {n.id for n in ast.walk(qubit) if isinstance(n, ast.Name)}
+            clbit_names = {n.id for n in ast.walk(clbit) if isinstance(n, ast.Name)}
+            if clbit_names - qubit_names - loop_vars - {"range", "len"}:
+                continue                       # the bit comes from somewhere else
+            findings.append(_Finding(
+                "QS015", "warning", node,
+                f"measure() writes classical bit {ast.unparse(clbit)} of {node.func.value.id}, "
+                "a circuit this function is given, but nothing here checks it has classical "
+                "bits: given QuantumCircuit(n), which declares none, Qiskit raises CircuitError.",
+                "Add them when missing (if qc.num_clbits == 0: "
+                "qc.add_register(ClassicalRegister(qc.num_qubits))), or take the classical bit "
+                "as an argument."))
+    return findings

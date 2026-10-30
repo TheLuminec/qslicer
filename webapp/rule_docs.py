@@ -189,6 +189,24 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
                          "qc.h(0)\nqc.save_statevector()\n"
                          "state = AerSimulator().run(qc).result().get_statevector()\n",
     },
+    "QS015": {
+        "explain": "A function measures into a classical bit of the circuit it is given, by a "
+                   "literal index or the qubit's own index (measure(q, q)), but never checks "
+                   "the circuit has classical bits. A caller's QuantumCircuit(n) declares "
+                   "none, and Qiskit raises CircuitError: 'Index 0 out of range for size 0'.",
+        "limits": "Only functions the file does not call (calls are judged on the rebuilt "
+                  "circuit, by QS014), and only bits picked by a literal, the qubit argument or "
+                  "a loop variable: a bit the caller passes in is the caller's to get right. "
+                  "Any add_register, add_bits, num_clbits or ClassicalRegister in the function "
+                  "counts as a check.",
+        "example": _HEAD + "def measure_qubit(qc: QuantumCircuit, q: int) -> QuantumCircuit:\n"
+                           "    qc.h(q)\n    qc.measure(q, q)\n    return qc\n",
+        "fixed": _HEAD + "from qiskit import ClassicalRegister\n\n"
+                         "def measure_qubit(qc: QuantumCircuit, q: int) -> QuantumCircuit:\n"
+                         "    if qc.num_clbits == 0:\n"
+                         "        qc.add_register(ClassicalRegister(qc.num_qubits))\n"
+                         "    qc.h(q)\n    qc.measure(q, q)\n    return qc\n",
+    },
     # ----------------------------------------------------------- dependence
     "QD01": {
         "explain": "No measured bit depends on this gate: the dependence graph proves removing "

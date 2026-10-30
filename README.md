@@ -482,7 +482,7 @@ approximations are accepted. Specifically:
   criterion.
 - **Qubit-wise (horizontal) slices** are computed in the browser;
   `SlicingCriterion.qubits` is not consumed by the slicer yet.
-- **Quick checks** (`QS000`–`QS014`) read only Python source and are not
+- **Quick checks** (`QS000`–`QS015`) read only Python source and are not
   LintQ; OpenQASM input gets none. The dependence checks (`QD01`–`QD08`)
   need a circuit the static parser can rebuild, so a program it cannot read
   gets none of them.

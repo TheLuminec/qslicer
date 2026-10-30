@@ -407,7 +407,7 @@ def test_qs013_negative(line):
      "MCXGate"),
     ("d = qc.duration", "QuantumCircuit.duration", "removed"),
 ])
-def test_qs015_positive(line, what, hint):
+def test_qs005_positive(line, what, hint):
     qs = only(check(f"qc = QuantumCircuit(3, 3)\n{line}\nqc.measure_all()\n"), "QS005")
     assert len(qs) == 1 and qs[0]["line"] == 3 and qs[0]["severity"] == "warning"
     assert what in qs[0]["message"] and "deprecated as of Qiskit" in qs[0]["message"]
@@ -420,7 +420,7 @@ def test_qs015_positive(line, what, hint):
     "n = qc.num_qubits",
     "values = []\nvalues.duration",                     # not a circuit
 ])
-def test_qs015_negative(line):
+def test_qs005_negative(line):
     assert "QS005" not in codes(check(f"qc = QuantumCircuit(3, 3)\n{line}\nqc.measure_all()\n"))
 
 
@@ -434,7 +434,7 @@ def test_qs015_negative(line):
     ("qc.measure_all(inplace=False)", "qc.measure_all()"),
     ("transpile(qc, basis_gates=['cx', 'u'])", "transpile()"),
 ])
-def test_qs016_positive(line, what):
+def test_qs006_positive(line, what):
     qs = only(check(f"qc = QuantumCircuit(2, 2)\nother = QuantumCircuit(2)\n{line}\n"), "QS006")
     assert len(qs) == 1 and qs[0]["line"] == 4 and qs[0]["severity"] == "warning"
     assert what in qs[0]["message"] and "discarded" in qs[0]["message"]
@@ -448,7 +448,7 @@ def test_qs016_positive(line, what):
     "print(qc.inverse())",
     "values = []\nvalues.copy()",             # not a circuit
 ])
-def test_qs016_negative(line):
+def test_qs006_negative(line):
     assert "QS006" not in codes(check(f"qc = QuantumCircuit(2, 2)\nother = QuantumCircuit(2)\n{line}\n"))
 
 
@@ -476,7 +476,7 @@ def test_qs004_unknown_or_enough_classical_bits(body):
 # QS007 unpacked list in a fixed-size gate --------------------------------------------
 
 @pytest.mark.parametrize("line", ["qc.ccx(*controls, 3)", "qc.cswap(*pair, 2)", "qc.crx(0.5, *pair)"])
-def test_qs017_positive(line):
+def test_qs007_positive(line):
     qs = only(check(f"qc = QuantumCircuit(4)\ncontrols = [0, 1]\npair = [0, 1]\n{line}\n"), "QS007")
     assert len(qs) == 1 and qs[0]["line"] == 5 and qs[0]["severity"] == "warning"
     assert "mcx" in qs[0]["hint"]
@@ -488,7 +488,7 @@ def test_qs017_positive(line):
     "qc.ccx(0, 1, 2)",
     "qc.h(*pair)",                   # single-qubit: broadcasts over the list
 ])
-def test_qs017_negative(line):
+def test_qs007_negative(line):
     assert "QS007" not in codes(check(f"qc = QuantumCircuit(4)\ncontrols = [0, 1]\npair = [0, 1]\n{line}\n"))
 
 
@@ -522,7 +522,7 @@ AER = "from qiskit_aer import AerSimulator\nqc = QuantumCircuit(1)\nqc.h(0)\nsim
     ("sv = sim.run(qc).result().get_statevector()", "get_statevector"),
     ("u = sim.run(qc).result().get_unitary()", "get_unitary"),
 ])
-def test_qs018_positive(line, getter):
+def test_qs010_positive(line, getter):
     qs = only(check(AER + line + "\n"), "QS010")
     assert len(qs) == 1 and qs[0]["line"] == 6 and getter in qs[0]["message"]
 
@@ -532,5 +532,42 @@ def test_qs018_positive(line, getter):
     "sv = execute(qc, Aer.get_backend('statevector_simulator')).result().get_statevector()",
     "sv = execute(qc, backend='local_statevector_simulator').result().get_statevector()",
 ])
-def test_qs018_negative(line):
+def test_qs010_negative(line):
     assert "QS010" not in codes(check(AER + line + "\n"))
+
+
+# QS015 classical bit assumed on a given circuit ------------------------------------
+
+@pytest.mark.parametrize("line", [
+    "qc.measure(q, 0)",
+    "qc.measure(q, q)",
+    "qc.measure([q, 1], [q, 1])",
+    "for i in range(2):\n            qc.measure(i, i)",
+])
+def test_qs015_positive(line):
+    qs = only(check(f"""
+    def measure(qc: QuantumCircuit, q: int):
+        qc.h(q)
+        {line}
+        return qc
+    """), "QS015")
+    assert len(qs) == 1 and qs[0]["line"] in (5, 6) and qs[0]["severity"] == "warning"
+    assert "a circuit this function is given" in qs[0]["message"]
+
+
+@pytest.mark.parametrize("body", [
+    # the caller picks the classical bit
+    "def measure(qc: QuantumCircuit, q: int, c: int):\n    qc.measure(q, c)\n",
+    # the function checks or adds classical bits
+    "def measure(qc: QuantumCircuit, q: int):\n    if qc.num_clbits == 0:\n"
+    "        qc.add_register(ClassicalRegister(1))\n    qc.measure(q, 0)\n",
+    "def measure(qc: QuantumCircuit, q: int):\n    qc.add_bits([Clbit()])\n    qc.measure(q, 0)\n",
+    # the circuit is the function's own
+    "def measure(qc: QuantumCircuit, q: int):\n    qc = QuantumCircuit(2, 2)\n    qc.measure(q, 0)\n",
+    # called in the file: the rebuilt circuit decides (QS014)
+    "def measure(qc: QuantumCircuit, q: int):\n    qc.measure(q, 0)\n\nmeasure(QuantumCircuit(1, 1), 0)\n",
+    # not annotated as a circuit
+    "def measure(qc, q):\n    qc.measure(q, 0)\n",
+])
+def test_qs015_negative(body):
+    assert "QS015" not in codes(check(body))
