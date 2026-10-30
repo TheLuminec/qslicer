@@ -154,14 +154,18 @@ def _overwritten_measurements(program) -> List[Dict[str, Any]]:
     return findings
 
 
-def _constant_measurements(program) -> List[Dict[str, Any]]:
+def _constant_measurements(program, source: str) -> List[Dict[str, Any]]:
+    """QD03: a measurement of a qubit no gate has acted on yet. Not judged inside a
+    function that receives its circuit: there the caller prepares the qubit, and the
+    rebuilt circuit only shows one caller (often a test passing |0>)."""
+    given = _lines_given_a_circuit(source)
     touched: Set[int] = set()
     findings = []
     for idx in range(len(program)):
         instruction = program[idx]
         if instruction.name == "measure":
             untouched = [q for q in instruction.qubits if q not in touched]
-            if untouched and _line(instruction):
+            if untouched and _line(instruction) and _line(instruction) not in given:
                 findings.append(_finding(
                     "QD03", _line(instruction),
                     f"Qubit(s) {untouched} are measured before any gate acts on them; the "
@@ -496,7 +500,7 @@ def run(context: LintContext) -> List[Dict[str, Any]]:
         rules = get_rule_profile("baseline")
     qdg = QDG(program, rules=rules)
     return _merge(_dead_gates(program, qdg) + _overwritten_measurements(program)
-                  + _constant_measurements(program) + _unset_controls(program, context.source)
+                  + _constant_measurements(program, context.source) + _unset_controls(program, context.source)
                   + _no_measurement(program, context.source)
                   + _idle_qubits(program, context.source) + _cancelling_pairs(program, context.source)
                   + _conditions_never_set(program) + _no_effect_gates(program))

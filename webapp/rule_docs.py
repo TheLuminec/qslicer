@@ -232,7 +232,8 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
         "explain": "A qubit is measured before any gate acts on it, so it is still |0> and the "
                    "result is always 0. Usually a preparation gate is missing or the wrong "
                    "qubit is measured.",
-        "limits": "Reset counts as returning a qubit to |0>.",
+        "limits": "Reset counts as returning a qubit to |0>. A measurement inside a function "
+                  "that is given its circuit is not judged: the caller prepares that qubit.",
         "example": _HEAD + "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.measure([0, 1], [0, 1])\n",
         "fixed": _HEAD + "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.cx(0, 1)\n"
                          "qc.measure([0, 1], [0, 1])\n",

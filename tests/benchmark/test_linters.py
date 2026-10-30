@@ -185,6 +185,18 @@ def test_constant_measurement():
     assert [d["line"] for d in dependence(source, "QD03")] == [6]
 
 
+def test_constant_measurement_leaves_a_given_circuit_to_its_caller():
+    # A kata test passes |0>; the solution measuring it is not wrong for that.
+    source = py("""
+        def measure_qubit(qc: QuantumCircuit, q: int):
+            qc.measure(q, 0)
+            return qc
+
+        qc = measure_qubit(QuantumCircuit(1, 1), 0)
+    """)
+    assert dependence(source, "QD03") == []
+
+
 def test_qubit_index_out_of_range_inside_a_function():
     source = py("""
         def entangle(qc, qs):
