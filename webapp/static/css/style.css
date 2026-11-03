@@ -705,6 +705,16 @@ a.diag-code:hover { color: var(--accent); }
 #graph .edge { fill: none; stroke-width: 1.4; opacity: 0.55; }
 #graph .edge.dimmed { opacity: 0.08; }
 #graph .edge.in-slice { opacity: 1; stroke-width: 2.4; }
+/* Classical bits: a double wire per clbit under the qubits. MEASUREMENT and
+   DATA_CLASSICAL edges are routed along the bit they carry (DATA_CLASSICAL
+   dashed); a dot is a write and a ring a read that no drawn edge accounts for. */
+#graph .edge.dep-data_classical { stroke-dasharray: 5 3; }
+#graph .cwire-line { stroke: var(--surface-3); stroke-width: 0.9; }
+#graph .cwire-label { fill: var(--text-faint); font-size: 10px; font-family: var(--mono); }
+#graph .clbit-tick line { stroke: var(--text-faint); stroke-width: 1.1; stroke-dasharray: 2 3; }
+#graph .clbit-tick.write circle { fill: var(--text-faint); }
+#graph .clbit-tick.read circle { fill: var(--bg-sunken); stroke: var(--text-faint); stroke-width: 1.3; }
+#graph .clbit-tick.dimmed { opacity: 0.22; }
 
 #graph .node { cursor: pointer; }
 #graph .node .node-shape {

@@ -159,7 +159,7 @@ all of its rules); `lint_rules` omitted means the default selection.
 | Linter | Id | Reads | Default |
 |---|---|---|---|
 | Quick checks | `quick` | errors Python or Qiskit would raise (`webapp/lint.py`): syntax, a missing circuit, indices outside the registers, removed or unknown Qiskit APIs, and operations Qiskit rejects while the static parser rebuilds the circuit (QS014) | on |
-| Dependence checks | `dependence` | quantum mistakes in the rebuilt circuit and its QDG: dead gates, overwritten and constant measurements, controls never set, missing measurements, idle qubits and cancelling pairs (QD01-QD08) | on |
+| Dependence checks | `dependence` | quantum mistakes in the rebuilt circuit and its QDG: dead gates, overwritten and constant measurements, controls never set, missing measurements, idle qubits, cancelling pairs, conditions never set and gates with no effect (QD01-QD03, QD05-QD10; QD04 became QS014) | on |
 | LintQ | `lintq` | LintQ's ten queries, reimplemented on the syntax tree (`scripts/Linters/lintq_port.py`) | off |
 | LintQ (original, CodeQL) | `lintq-codeql` | LintQ's own CodeQL queries, where `QSLICER_CODEQL` and `QSLICER_LINTQ` are set | off |
 
@@ -487,7 +487,7 @@ approximations are accepted. Specifically:
 - **Qubit-wise (horizontal) slices** are computed in the browser;
   `SlicingCriterion.qubits` is not consumed by the slicer yet.
 - **Quick checks** (`QS000`–`QS016`) read only Python source and are not
-  LintQ; OpenQASM input gets none. The dependence checks (`QD01`–`QD08`)
+  LintQ; OpenQASM input gets none. The dependence checks (`QD01`–`QD03`, `QD05`–`QD10`)
   need a circuit the static parser can rebuild, so a program it cannot read
   gets none of them.
 - **Large circuits** (several hundred instructions and up) draw slowly, since

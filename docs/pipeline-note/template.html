@@ -1,0 +1,486 @@
+<title>Quantum Slicer Pipeline</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<style>
+/* Layout: a technical note. Prose in a ~68ch column; figures break out to the full
+   container width, each in its own horizontal scroller. Lanes of the system figure
+   are tinted by path: indigo = analysis, amber = lint, green = benchmark. */
+:root {
+  --bg: #f5f6f8; --panel: #ffffff; --panel-off: #f0f1f4;
+  --ink: #161a21; --ink-2: #3d4552; --ink-3: #6b7482; --ink-4: #a7aeb9;
+  --rule: #d6dae1; --rule-2: #b9bfc9;
+  --accent: #3346c8; --on-accent: #ffffff; --slice-fill: #e3e7ff;
+  --dq: #2d3542; --me: #c0265f; --dc: #0d7d74;
+  --warn: #a86300; --err: #c23b2e; --info: #2a6db0;
+  --lane-a: #eceff8; --lane-l: #f8f1e6; --lane-b: #e8f2f0; --lane-w: #eef0f3;
+  --meas-fill: #eef0f4; --cond-fill: #e7f4f2;
+  --code-bg: #eef0f5; --hl: #fff1cf;
+  --f-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --f-serif: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1218; --panel: #161b23; --panel-off: #1a1f28;
+    --ink: #e6e9ef; --ink-2: #b4bcc8; --ink-3: #8790a0; --ink-4: #5a6270;
+    --rule: #2b323d; --rule-2: #414a58;
+    --accent: #8f9dff; --on-accent: #0f1218; --slice-fill: #252c58;
+    --dq: #c9d0db; --me: #f0729c; --dc: #3cc2b5;
+    --warn: #e8a33d; --err: #f07b6f; --info: #6aa8ea;
+    --lane-a: #151a28; --lane-l: #1e1a13; --lane-b: #121f1d; --lane-w: #181b21;
+    --meas-fill: #1d222c; --cond-fill: #14221f;
+    --code-bg: #131821; --hl: #2c2614;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1218; --panel: #161b23; --panel-off: #1a1f28;
+  --ink: #e6e9ef; --ink-2: #b4bcc8; --ink-3: #8790a0; --ink-4: #5a6270;
+  --rule: #2b323d; --rule-2: #414a58;
+  --accent: #8f9dff; --on-accent: #0f1218; --slice-fill: #252c58;
+  --dq: #c9d0db; --me: #f0729c; --dc: #3cc2b5;
+  --warn: #e8a33d; --err: #f07b6f; --info: #6aa8ea;
+  --lane-a: #151a28; --lane-l: #1e1a13; --lane-b: #121f1d; --lane-w: #181b21;
+  --meas-fill: #1d222c; --cond-fill: #14221f;
+  --code-bg: #131821; --hl: #2c2614;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--f-serif); font-size: 17px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 80px;
+}
+.wrap { max-width: 1560px; margin: 0 auto; }
+.prose { max-width: 70ch; }
+h1, h2, h3, .eyebrow, .cap-n, table, .chip, figcaption, .legend, .facts { font-family: var(--f-sans); }
+h1 { font-size: clamp(30px, 4.4vw, 46px); line-height: 1.1; font-weight: 600; letter-spacing: -0.015em; margin: 10px 0 18px; text-wrap: balance; max-width: 22ch; }
+h2 { font-size: 24px; font-weight: 600; margin: 64px 0 12px; text-wrap: balance; display: flex; gap: 14px; align-items: baseline; }
+h2 .sn { font-family: var(--f-mono); font-size: 15px; color: var(--ink-3); font-weight: 500; }
+h3 { font-size: 17px; font-weight: 600; margin: 32px 0 6px; }
+p { margin: 0 0 14px; }
+.eyebrow { font-size: 12px; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.eyebrow span { white-space: nowrap; }
+.lede { font-size: 20px; line-height: 1.55; color: var(--ink-2); max-width: 64ch; }
+code, .m { font-family: var(--f-mono); font-size: .84em; }
+p code, li code, td code { background: var(--code-bg); padding: 0 3px; border-radius: 3px; font-size: .8em; }
+.ir td code { font-size: inherit; background: none; padding: 0; }
+a { color: var(--accent); }
+ul, ol { padding-left: 22px; margin: 0 0 14px; }
+li { margin-bottom: 6px; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 48px 0; }
+
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0; margin: 30px 0 8px; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+.facts div { padding: 14px 16px 14px 0; min-width: 0; }
+.facts dt { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.facts dd { margin: 4px 0 0; font-size: 15px; color: var(--ink); line-height: 1.35; }
+.facts dd b { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+figure { margin: 34px 0 30px; }
+.scroller { overflow-x: auto; border: 1px solid var(--rule); background: var(--panel); border-radius: 10px; padding: 14px; }
+.scroller > svg { display: block; width: 100%; height: auto; }
+.scroller.wide > svg { min-width: 1400px; }
+.scroller.mid > svg { min-width: 980px; }
+.scroller.grade > svg { max-width: 1160px; margin: 0 auto; }
+.scroller.qd > svg { min-width: 760px; max-width: 1180px; margin: 0 auto; }
+figcaption { font-size: 14px; line-height: 1.55; color: var(--ink-2); max-width: 92ch; margin-top: 12px; }
+.cap-n { font-weight: 600; color: var(--ink); margin-right: 6px; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 13px; color: var(--ink-2); margin: 12px 0 0; align-items: center; }
+.legend svg { vertical-align: middle; margin-right: 6px; }
+.sw-dq { stroke: var(--dq); } .sw-me { stroke: var(--me); } .sw-dc { stroke: var(--dc); stroke-dasharray: 4 3; }
+.sw-node { fill: var(--panel); stroke: var(--ink-2); } .sw-in { fill: var(--slice-fill); stroke: var(--accent); }
+.sw-lint { fill: var(--panel); stroke: var(--warn); stroke-dasharray: 4 2.5; stroke-width: 1.8; }
+
+/* math block */
+.math { font-family: var(--f-serif); background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 18px; margin: 16px 0 18px; overflow-x: auto; line-height: 1.9; }
+.math div { white-space: nowrap; }
+.math var, var { font-style: italic; }
+.math .lbl { font-family: var(--f-sans); font-size: 12px; color: var(--ink-3); letter-spacing: .04em; margin-right: 10px; display: inline-block; min-width: 9ch; }
+
+/* tables */
+.tbl { overflow-x: auto; margin: 18px 0 8px; }
+table { border-collapse: collapse; font-size: 13.5px; width: 100%; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 600; font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); border-bottom: 1px solid var(--rule-2); white-space: nowrap; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.c { text-align: center; }
+tr.grp td { background: var(--code-bg); font-weight: 600; color: var(--ink); font-size: 12.5px; letter-spacing: .03em; }
+.tcap { font-family: var(--f-sans); font-size: 14px; color: var(--ink-2); margin: 28px 0 0; max-width: 92ch; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--ink-2); }
+.dot.lt { background: transparent; border: 1.5px solid var(--ink-3); }
+.sev { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 99px; border: 1px solid currentColor; text-transform: lowercase; }
+.sev.error { color: var(--err); } .sev.warning { color: var(--warn); } .sev.info { color: var(--info); }
+.k { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.k.dq { background: var(--dq); } .k.me { background: var(--me); } .k.dc { background: var(--dc); } .k.off { background: var(--ink-4); }
+.muted { color: var(--ink-3); }
+.bar { display: inline-block; height: 8px; background: var(--accent); border-radius: 2px; vertical-align: middle; margin-right: 8px; }
+
+/* worked example */
+.ex-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 980px) { .ex-grid { grid-template-columns: minmax(0, 1fr); } }
+.listing { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 10px 0; overflow-x: auto; font-family: var(--f-mono); font-size: 12.5px; line-height: 1.75; }
+.ln { display: grid; grid-template-columns: 34px max-content 1fr; gap: 12px; padding: 0 12px 0 0; min-width: max-content; }
+.ln.hl { background: var(--hl); }
+.ln .no { color: var(--ink-4); text-align: right; user-select: none; }
+.ln code { font-size: inherit; white-space: pre; background: none; padding: 0; color: var(--ink); }
+.tags { display: flex; gap: 6px; flex-wrap: nowrap; justify-content: flex-end; font-family: var(--f-sans); font-size: 11px; align-items: center; }
+.tag-n { color: var(--accent); font-family: var(--f-mono); font-weight: 600; }
+.tag-v { color: var(--ink-3); margin-left: 4px; }
+.tag-l { color: var(--warn); border: 1px solid currentColor; border-radius: 99px; padding: 0 6px; font-weight: 600; line-height: 1.5; }
+.ir { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; overflow-x: auto; }
+.ir table { font-size: 12.5px; }
+.ir td { font-family: var(--f-mono); font-size: 12px; padding: 5px 10px; }
+.ir tr.sl td:first-child { color: var(--accent); font-weight: 600; }
+.panel-l { font-family: var(--f-sans); font-size: 13px; font-weight: 600; color: var(--ink); margin: 18px 0 6px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.panel-l span { font-weight: 400; color: var(--ink-3); }
+
+.note { font-family: var(--f-sans); font-size: 14.5px; line-height: 1.55; border-left: 3px solid var(--warn); background: var(--panel); padding: 12px 16px; margin: 18px 0; max-width: 78ch; border-radius: 0 8px 8px 0; }
+.note b { font-weight: 600; }
+
+/* ---------- SVG vocabulary (figures are inline, so page CSS styles them) ---------- */
+.fig-svg text, .qdg text { font-family: var(--f-sans); }
+.band { stroke: none; } .band-a { fill: var(--lane-a); } .band-l { fill: var(--lane-l); } .band-b { fill: var(--lane-b); } .band-w { fill: var(--lane-w); }
+.bandt { font-size: 11px; font-weight: 600; letter-spacing: .1em; fill: var(--ink-2); }
+.bands { font-size: 11px; fill: var(--ink-3); }
+.colh { font-size: 10.5px; font-weight: 600; letter-spacing: .09em; fill: var(--ink-3); }
+.box { fill: var(--panel); stroke: var(--rule-2); stroke-width: 1; }
+.box-key { stroke: var(--ink-2); stroke-width: 1.3; }
+.box-group { fill: none; stroke: var(--rule-2); stroke-dasharray: 4 3; }
+.box-off { fill: var(--panel-off); stroke-dasharray: 4 3; }
+.box-warn { stroke: var(--warn); stroke-width: 1.3; }
+.box-loc { stroke: var(--accent); stroke-width: 1.6; }
+.box-lint { stroke: var(--warn); stroke-dasharray: none; stroke-width: 1.2; }
+.bh { font-size: 12.5px; font-weight: 600; fill: var(--ink); }
+.sub { font-size: 11px; fill: var(--ink-3); }
+.t { font-size: 12px; fill: var(--ink-2); }
+.t.b { fill: var(--ink); font-weight: 500; }
+.off { fill: var(--ink-3); }
+.fig-svg .m, .qdg .m { font-family: var(--f-mono); font-size: 11px; fill: var(--ink); }
+.fig-svg .m.off { fill: var(--ink-3); }
+.tm { font-size: 11.5px; font-style: italic; fill: var(--accent); }
+.ar { fill: none; stroke: var(--ink-2); stroke-width: 1.3; }
+.ar-l { fill: none; stroke: var(--accent); stroke-width: 1.25; stroke-dasharray: 5 4; }
+.ar-loc { fill: none; stroke: var(--accent); stroke-width: 1.8; }
+.ar-r { fill: none; stroke: var(--ink-3); stroke-width: 1.1; stroke-dasharray: 3 3; }
+.ar-alt { fill: none; stroke: var(--warn); stroke-width: 1.3; stroke-dasharray: 6 3; }
+.ahp { fill: var(--ink-2); } .ahp-l { fill: var(--accent); } .ahp-r { fill: var(--ink-3); } .ahp-b { fill: var(--warn); }
+.al { font-size: 11px; fill: var(--ink-3); paint-order: stroke; stroke: var(--panel); stroke-width: 4px; stroke-linejoin: round; }
+.al.alt { fill: var(--warn); font-weight: 600; }
+.al.loc { fill: var(--accent); font-weight: 600; }
+.step { fill: var(--accent); }
+.stepn { font-size: 11px; font-weight: 600; fill: var(--on-accent); }
+.k-dq { fill: var(--dq); } .k-me { fill: var(--me); } .k-dc { fill: var(--dc); } .k-off { fill: var(--ink-4); }
+.kl { font-family: var(--f-mono); font-size: 10px; font-weight: 600; }
+.k-dqt { fill: var(--dq); } .k-met { fill: var(--me); } .k-dct { fill: var(--dc); } .k-offt { fill: var(--ink-3); }
+.bus { fill: none; stroke: var(--ink-2); stroke-width: 1.3; }
+.doc { fill: var(--panel); stroke: var(--ink-2); stroke-width: 1.2; }
+.docfold { fill: none; stroke: var(--ink-2); stroke-width: 1.2; }
+.life { stroke: var(--rule-2); stroke-dasharray: 3 4; }
+.secband { fill: var(--lane-a); }
+.sect { font-size: 11px; font-weight: 600; letter-spacing: .07em; fill: var(--ink-2); }
+.set1 { fill: var(--lane-b); stroke: var(--rule-2); }
+.set2 { fill: var(--lane-l); stroke: var(--rule-2); }
+.set3 { fill: var(--panel); stroke: var(--accent); stroke-width: 1.5; }
+.big { font-size: 22px; font-weight: 600; fill: var(--ink); font-variant-numeric: tabular-nums; }
+
+.qdg { display: block; width: 100%; height: auto; }
+.qdg .wire { stroke: var(--rule-2); stroke-width: 1; }
+.qdg .cwire { stroke: var(--rule-2); stroke-width: .8; }
+.qdg .lane { font-family: var(--f-mono); font-size: 11px; fill: var(--ink-3); }
+.qdg .conn { stroke: var(--ink-2); stroke-width: 1.2; }
+.qdg circle.dot { fill: var(--ink-2); }
+.qdg .out { opacity: .26; }
+.qdg .node { fill: var(--panel); stroke: var(--ink-2); stroke-width: 1.2; }
+.qdg .node.meas { fill: var(--meas-fill); }
+.qdg .node.cond { fill: var(--cond-fill); }
+.qdg .node.in { fill: var(--slice-fill); stroke: var(--accent); stroke-width: 1.6; }
+.qdg .node.lint { stroke: var(--warn); stroke-dasharray: 4 2.5; stroke-width: 1.9; }
+.qdg .critring { fill: none; stroke: var(--accent); stroke-width: 1.4; }
+.qdg .nlab { font-family: var(--f-mono); font-size: 11.5px; font-weight: 500; fill: var(--ink); }
+.qdg .nid { font-family: var(--f-mono); font-size: 10px; fill: var(--ink-3); }
+.qdg .edge { fill: none; stroke-width: 1.5; }
+.qdg .e-dq { stroke: var(--dq); } .qdg .e-me { stroke: var(--me); } .qdg .e-dc { stroke: var(--dc); stroke-dasharray: 4 3; }
+.qdg .a-dq { fill: var(--dq); } .qdg .a-me { fill: var(--me); } .qdg .a-dc { fill: var(--dc); }
+.qdg .faded { opacity: .14; }
+.qdg .lintbadge { font-family: var(--f-mono); font-size: 11px; font-weight: 600; fill: var(--warn); }
+.qdg .crittag { font-size: 10.5px; fill: var(--accent); }
+
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 640px) { body { font-size: 16px; } .lede { font-size: 18px; } h2 { margin-top: 48px; } }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow"><span>Technical note</span><span>slicing-for-quantum-programs @ {{COMMIT}}</span><span>branch {{BRANCH}}</span><span>Qiskit {{QISKIT}}</span><span>{{DATE}}</span></div>
+  <h1>How the Quantum Slicer slices and lints a program</h1>
+  <p class="lede">The tool reads a Qiskit or OpenQASM program without running it, rebuilds its circuit as a flat list of instructions that each know their source line, connects them in a Quantum Dependence Graph, and answers slicing questions as graph reachability. The same static reading feeds pluggable linters, whose findings are drawn back onto the graph. This note follows each stage as the code implements it, and every number in the worked example and the benchmark comes from running the code at this commit.</p>
+  <dl class="facts">
+    <div><dt>Front ends</dt><dd><b>2</b> static interpreters: Python <code>ast</code>, OpenQASM 2/3</dd></div>
+    <div><dt>Dependency rules</dt><dd><b>4</b> in the baseline profile, <b>3</b> emit edges; 2 more ship off</dd></div>
+    <div><dt>Linters</dt><dd><b>{{LINTERS}}</b> registered, <b>{{LINTERS_ON}}</b> on by default; <b>{{RULE_CODES}}</b> rule codes</dd></div>
+    <div><dt>Bugs4Q</dt><dd><b>{{B_DETECTED}}</b> of {{B_BUGS}} bugs detected with quick + dependence + LintQ</dd></div>
+  </dl>
+</header>
+
+<section>
+<h2><span class="sn">1</span>The pipeline at a glance</h2>
+<div class="prose">
+<p>Figure 1 shows the three paths through the system. The <strong>analysis path</strong> turns source text into an intermediate representation (IR), builds the dependence graph and serves slices. The <strong>lint path</strong> runs first, on its own static parse, and its findings are joined to the graph at the end. The <strong>benchmark path</strong> runs the same linters over pairs of buggy and fixed programs and grades them against the fix.</p>
+<p>Everything after the IR is independent of the source language. Neither front end imports, evaluates or executes the submitted program, and the web API refuses the old route that did (<code>language="qiskit"</code> returns <code>execution_disabled</code>).</p>
+</div>
+
+<figure>
+  <div class="scroller wide">{{FIG_SYSTEM}}</div>
+  <div class="legend">
+    <span><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" style="stroke:var(--ink-2);stroke-width:1.4"/></svg>call or data, in request order</span>
+    <span><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" style="stroke:var(--accent);stroke-width:1.8"/></svg>source locations used by the lint path</span>
+    <span><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" style="stroke:var(--accent);stroke-width:1.3;stroke-dasharray:5 4"/></svg>shared code reused</span>
+    <span><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" style="stroke:var(--ink-3);stroke-width:1.2;stroke-dasharray:3 3"/></svg>result returned</span>
+    <span><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" style="stroke:var(--warn);stroke-width:1.3;stroke-dasharray:6 3"/></svg>diagnostics back to the request (QS000 gate)</span>
+  </div>
+  <figcaption><span class="cap-n">Figure 1.</span>System overview, with linting on. The web layer on the left is the only entry point: the browser sends one request, <code>app.py</code> validates it and hands it to <code>analyze_source</code>, which runs the numbered steps in order. <b>1</b> The lint path's <code>LintContext</code> asks the same static front ends for the program under a 5 s limit, and the selected linters run on it. <b>2</b> Their diagnostics come back to <code>analyze_source</code>; a syntax error ends the request there. <b>3</b> <code>_parse_source</code> sends the source to the front end its language names, which lowers it through the shared circuit model into the IR. <b>4</b> The rules build the QDG. <b>5</b> It is cached under a token. <b>6</b> The response is described from the IR and the QDG. <b>7</b> <code>attach_lint_nodes</code> marks the nodes each finding is about, using the source spans of the nodes. A slice request goes from <code>slice_program</code> straight to the cached QDG along the second top lane and never re-parses; both responses return along the top lane.</figcaption>
+</figure>
+</section>
+
+<section>
+<h2><span class="sn">2</span>Front ends: rebuilding the circuit without running it</h2>
+<div class="prose">
+<p>Both front ends are interpreters over a syntax tree. They differ in where the tree comes from and what language they interpret, and they share everything from the circuit model onward.</p>
+
+<h3>2.1 Qiskit (Python)</h3>
+<p><code>StaticQiskitParser.parse()</code> calls <code>ast.parse</code>, then runs <code>_Interpreter</code>, a tree-walking evaluator that dispatches each statement to <code>_exec_&lt;Node&gt;</code> and each expression to <code>_eval_&lt;Node&gt;</code>. It evaluates over a value domain it controls completely: plain Python data; its own model of Qiskit objects (<code>StaticCircuit</code>, <code>StaticRegister</code>, <code>StaticBit</code>, <code>StaticGate</code>); <code>Symbol</code> for parameters and arithmetic over them; <code>_ModuleRef</code> for an import, which is recorded and never performed; <code>_Native</code> for the built-ins and library functions it implements itself; and <code>Unknown</code> for anything only a real run could produce.</p>
+<p><code>Unknown</code> carries only the source text it stands for. Every operation that needs a concrete value raises internally, and the enclosing expression becomes another <code>Unknown</code>. That is why a script that simulates and plots its circuit still parses: the results half turns into unknowns. An unknown only stops the parse where the circuit needs it:</p>
+</div>
+<div class="tbl prose"><table>
+<thead><tr><th>Where an Unknown lands</th><th>Outcome</th></tr></thead>
+<tbody>
+<tr><td>A gate parameter</td><td>Kept as a symbolic <code>Symbol</code>, with a warning. Parameters create no dependencies.</td></tr>
+<tr><td>A qubit or clbit index, register or circuit size</td><td><code>StaticParseError</code> with the line.</td></tr>
+<tr><td>The condition of a loop or <code>if</code> whose body cannot touch a circuit</td><td>The block is skipped, names it would assign become <code>Unknown</code>, and a QS200 warning is shown.</td></tr>
+<tr><td>The condition of a loop or <code>if</code> whose body can touch a circuit</td><td><code>StaticParseError</code> with the line.</td></tr>
+</tbody></table></div>
+<div class="prose">
+<p>Python <code>for</code>, <code>while</code> and <code>if</code> statements run concretely, so loops are unrolled and helper functions are followed; the call line of every file-defined function is pushed onto a <code>via</code> stack. Qiskit calls go through <code>call_method</code> and <code>circuit_method</code> to modelled handlers, and every instruction is placed through <code>place()</code>, which applies Qiskit's argument broadcasting. The interpreter refuses <code>eval</code>, <code>exec</code>, <code>compile</code> and any attribute starting with <code>_</code>, and bounds its own work: 2,000,000 statements and loop iterations, 200,000 instructions, call depth 40, 1,000,000 elements in any collection it builds, 100,000 bits per register, and a wall-clock limit (20 s for the analysis, 5 s for linting).</p>
+<p>A script may build several circuits. <code>_choose_circuit</code> takes the module-level <code>StaticCircuit</code> with the most top-level instructions, the same rule as the older executing parser; calls such as <code>execute</code> or <code>transpile</code> play no part, since unmodelled calls return <code>Unknown</code>.</p>
+
+<h3>2.2 OpenQASM 2 and 3</h3>
+<p><code>StaticOpenQASMParser</code> takes its syntax from the OpenQASM project's ANTLR reference parser (<code>openqasm3.parse</code>), so syntax coverage tracks the specification and every statement carries a span. Its own <code>_QasmInterpreter</code> supplies the meaning. <code>for</code> loops are unrolled and subroutines inlined, with the call line added to <code>via</code>. A branch whose condition is known at compile time is simply taken. A branch on measured bits becomes one <code>if_else</code>, <code>switch_case</code> or <code>while_loop</code> instruction, shaped as Qiskit builds it, that lists the clbits its condition reads. A run-time value copied into bits becomes a <code>store</code> instruction that reads the source bits, so a dependency survives the copy. It always builds exactly one circuit.</p>
+
+<h3>2.3 One circuit model, one lowering</h3>
+<p>The model is shared in code, not just in spirit: the OpenQASM parser imports <code>StaticCircuit</code>, <code>StaticInstruction</code>, <code>broadcast</code> and <code>circuit_to_program</code> from the Qiskit parser's module. <code>circuit_to_program(circuit, frontend)</code> is the only way into the IR. It maps every bit object to a flat integer index, turns an instruction's <code>condition_bits</code> into <code>metadata["condition_clbits"]</code>, and passes the source location through.</p>
+</div>
+</section>
+
+<section>
+<h2><span class="sn">3</span>The intermediate representation</h2>
+<div class="prose">
+<p>A <code>QuantumProgram</code> is a register size pair and an ordered list of instructions. Each <code>QuantumInstruction</code> has a <code>name</code>, integer <code>qubits</code> and <code>clbits</code>, <code>params</code>, <code>metadata</code> and a <code>location</code>. A <code>SourceLocation</code> holds start and end line and column and a <code>via</code> tuple of call-site lines, outermost first. The web app turns it into a node's <code>line</code> and <code>source</code> span, which is what links the graph and the editor in both directions.</p>
+<p>Three properties of the IR matter for everything downstream:</p>
+<ul>
+<li><strong>It is flat and unrolled.</strong> A loop body that runs <var>k</var> times yields <var>k</var> instructions sharing one source span, so each iteration is its own graph node.</li>
+<li><strong>Control flow on run-time values is one opaque node.</strong> An <code>if_else</code> keeps its bodies as circuit objects inside <code>params</code>; its <code>qubits</code> are the qubits its bodies use, and its <code>clbits</code> list the condition's bits first. The dependence rules never look inside a body.</li>
+<li><strong>Classical conditions are explicit.</strong> <code>metadata["condition_clbits"]</code> is the only thing the classical rules read.</li>
+</ul>
+</div>
+</section>
+
+<section>
+<h2><span class="sn">4</span>Building the Quantum Dependence Graph</h2>
+<div class="prose">
+<p><code>QDG(program, rules)</code> adds one node per instruction, keyed by its index, then lets each rule make one pass over the program in order. Every rule that emits edges keeps a single "last writer" map from a wire to the index of the instruction that last touched it. Writing <var>Q</var>(<var>i</var>) for the qubits of instruction <var>i</var>, <var>C</var>(<var>i</var>) for its clbits and <var>R</var>(<var>i</var>) for its condition clbits, the three active rules produce:</p>
+</div>
+<div class="math">
+  <div><span class="lbl">DATA_QUBIT</span><var>u</var> → <var>v</var> &nbsp;iff&nbsp; ∃ <var>q</var> ∈ <var>Q</var>(<var>v</var>) : <var>u</var> = max { <var>w</var> &lt; <var>v</var> : <var>q</var> ∈ <var>Q</var>(<var>w</var>) }</div>
+  <div><span class="lbl">MEASUREMENT</span><var>u</var> → <var>v</var> &nbsp;iff&nbsp; ∃ <var>c</var> ∈ <var>R</var>(<var>v</var>) : <var>u</var> = max { <var>w</var> &lt; <var>v</var> : <var>w</var> is a measurement ∧ <var>c</var> ∈ <var>C</var>(<var>w</var>) }</div>
+  <div><span class="lbl">DATA_CLASSICAL</span><var>u</var> → <var>v</var> &nbsp;iff&nbsp; ∃ <var>c</var> ∈ <var>R</var>(<var>v</var>) : <var>u</var> = max { <var>w</var> &lt; <var>v</var> : <var>c</var> ∈ <var>C</var>(<var>w</var>) }</div>
+</div>
+
+<p class="tcap"><span class="cap-n">Table 1.</span>Dependency rules (<code>scripts/Dependencies/rules.py</code>). The baseline profile is the only profile; the last two rules exist but are commented out of it.</p>
+<div class="tbl"><table>
+<thead><tr><th>Rule</th><th>State kept</th><th>On instruction <var>i</var></th><th>Edge type</th><th>Baseline</th></tr></thead>
+<tbody>
+<tr><td><code>DataQubitRule</code></td><td><code>last_def[q]</code></td><td>edge from <code>last_def[q]</code> for every <var>q</var> ∈ <var>Q</var>(<var>i</var>), then <code>last_def[q] = i</code></td><td><span class="k dq"></span>DATA_QUBIT</td><td>on</td></tr>
+<tr><td><code>MeasurementRule</code></td><td><code>last_measured[c]</code></td><td>a <code>measure</code> sets it for its clbits; every <var>c</var> ∈ <var>R</var>(<var>i</var>) draws an edge from it</td><td><span class="k me"></span>MEASUREMENT</td><td>on</td></tr>
+<tr><td><code>DataClassicalRule</code></td><td><code>last_write[c]</code></td><td>every <var>c</var> ∈ <var>R</var>(<var>i</var>) draws an edge from it, then any instruction with clbits sets it</td><td><span class="k dc"></span>DATA_CLASSICAL</td><td>on</td></tr>
+<tr><td><code>ControlClassicalRule</code></td><td>none</td><td>returns without emitting anything</td><td><span class="k off"></span>CONTROL_CLASSICAL</td><td>on, empty</td></tr>
+<tr><td><code>EntanglementRule</code></td><td><code>entangle_source[q]</code></td><td>links an entangling gate to later operations on its qubits; a measurement clears the qubit</td><td><span class="k off"></span>ENTANGLEMENT</td><td>off</td></tr>
+<tr><td><code>PhaseRule</code></td><td><code>phase_source[q]</code></td><td>links a phase-changing gate to later operations on its qubits</td><td><span class="k off"></span>PHASE</td><td>off</td></tr>
+</tbody></table></div>
+
+<div class="prose">
+<p>Several properties follow directly from this construction.</p>
+<ul>
+<li><strong>The QDG is a DAG in program order.</strong> Every edge goes from a lower index to a higher one, so program order is a topological order.</li>
+<li><strong>Construction is linear.</strong> Each rule does constant work per operand, so a program with <var>n</var> instructions and at most <var>k</var> operands each yields at most <var>nk</var> edges per rule.</li>
+<li><strong>Edges are typed and attributed.</strong> The graph is a <code>networkx.MultiDiGraph</code>; each edge carries <code>dependency</code> and <code>rule</code>. Parallel edges are expected: an instruction conditioned on a fresh measurement gets both a MEASUREMENT and a DATA_CLASSICAL edge from it (n6→n7 in Figure 2).</li>
+<li><strong>The approximation errs toward larger slices.</strong> Every qubit operand counts as both a use and a definition, so a control qubit, a barrier and a measurement all become writers of their wires. An <code>if_else</code> lists its condition bits among its clbits, so it also becomes the last writer of those bits for DATA_CLASSICAL. Both choices add edges and never remove one.</li>
+<li><strong>A new dependency type needs only a new rule class.</strong> The slicer filters on whatever types the edges carry, and the web app builds its Follow chips from the rules that ran, with each type's edge count.</li>
+</ul>
+</div>
+</section>
+
+<section>
+<h2><span class="sn">5</span>Slicing as reachability</h2>
+<div class="prose">
+<p>A slicing criterion is <code>SlicingCriterion(node_idx, dep_types)</code>. For a criterion <var>s</var> and a set of allowed types <var>T</var> (all types when <code>dep_types</code> is <code>None</code>):</p>
+</div>
+<div class="math">
+  <div><span class="lbl">backward</span>BS<sub><var>T</var></sub>(<var>s</var>) = { <var>u</var> : there is a path <var>u</var> = <var>v</var><sub>0</sub> → <var>v</var><sub>1</sub> → … → <var>v</var><sub><var>k</var></sub> = <var>s</var> with every edge's type in <var>T</var> }</div>
+  <div><span class="lbl">forward</span>FS<sub><var>T</var></sub>(<var>s</var>) = { <var>v</var> : there is a path <var>s</var> = <var>v</var><sub>0</sub> → … → <var>v</var><sub><var>k</var></sub> = <var>v</var> with every edge's type in <var>T</var> }</div>
+</div>
+<div class="prose">
+<p>Both sets contain <var>s</var> (<var>k</var> = 0). <code>QuantumSlicer</code> computes them with a worklist over in-edges or out-edges, skipping an edge whose type is not in <var>T</var>, in O(<var>V</var> + <var>E</var>). The type filter applies to every edge on the path, so it removes whole routes, not single nodes: following only DATA_QUBIT edges answers "what reaches this gate through its qubits alone", and adding MEASUREMENT answers "and through the classical outcomes it is conditioned on".</p>
+<p>The browser sends the Follow chips' selection as <code>dep_types</code> to <code>/api/slice</code>, which runs this slicer on the QDG cached under the analysis token. Qubit-wise (horizontal) slices are computed in the browser; <code>SlicingCriterion.qubits</code> is reserved and not yet read by the slicer.</p>
+</div>
+</section>
+
+<section>
+<h2><span class="sn">6</span>A worked example</h2>
+<div class="prose">
+<p>The program below is quantum teleportation with two additions: Bob's half of the Bell pair is prepared inside a helper, and an ancilla <code>q3</code> gets two <code>x</code> gates from a loop and is never measured. Everything in Figure 2 is the output of <code>analyze_source</code> and <code>slice_program</code> on this file, with the quick, dependence and LintQ linters selected.</p>
+</div>
+
+<figure>
+  <div class="ex-grid">
+    <div>
+      <div class="panel-l">Source <span>tags: nodes from the line · call site · lint findings · shaded lines are in the slice of (b)</span></div>
+      <div class="listing">{{LISTING}}</div>
+    </div>
+    <div>
+      <div class="panel-l">IR <span>after circuit_to_program</span></div>
+      <div class="ir"><table>
+        <thead><tr><th>node</th><th>name</th><th>qubits</th><th>clbits</th><th>cond.</th><th>line</th><th>via</th></tr></thead>
+        <tbody>{{IRTABLE}}</tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <div class="panel-l">(a) QDG with lint markers <span>{{EX_NODES}} nodes, {{EX_EDGES}} edges: {{EX_EDGE_TYPES}}</span></div>
+  <div class="scroller qd">{{PANEL_FULL}}</div>
+  <div class="panel-l">(b) Backward slice from n{{EX_LAST}}, all dependency types <span>{{EX_SLICE_ALL}} of {{EX_NODES}} nodes</span></div>
+  <div class="scroller qd">{{PANEL_ALL}}</div>
+  <div class="panel-l">(c) Backward slice from n{{EX_LAST}}, DATA_QUBIT only <span>{{EX_SLICE_DQ}} of {{EX_NODES}} nodes</span></div>
+  <div class="scroller qd">{{PANEL_DQ}}</div>
+
+  <div class="legend">
+    <span><svg width="34" height="10"><line class="sw-dq" x1="0" y1="5" x2="34" y2="5" stroke-width="1.6"/></svg>DATA_QUBIT</span>
+    <span><svg width="34" height="10"><line class="sw-me" x1="0" y1="5" x2="34" y2="5" stroke-width="1.6"/></svg>MEASUREMENT (routed along the clbit it reads)</span>
+    <span><svg width="34" height="10"><line class="sw-dc" x1="0" y1="5" x2="34" y2="5" stroke-width="1.6"/></svg>DATA_CLASSICAL</span>
+    <span><svg width="22" height="14"><rect class="sw-in" x="1" y="1" width="20" height="12" rx="3" stroke-width="1.5"/></svg>in the slice</span>
+    <span><svg width="22" height="14"><rect class="sw-lint" x="1" y="1" width="20" height="12" rx="3"/></svg>marked by a lint finding</span>
+  </div>
+  <figcaption><span class="cap-n">Figure 2.</span>One program through the whole pipeline. The gates of <code>bell()</code> point at lines 4–5 and record the call on line 9 in <code>via</code>; the loop on lines 18–19 yields two nodes, n9 and n10, with the same span. In (a), QD01 (dead gate) and QD08 (cancelling pair) both name n9 and n10, which <code>attach_lint_nodes</code> keeps because they cover line 19. LQ09 (more qubits than clbits) reports line 7, where no instruction lives, so it marks no node. Slice (b) from Bob's final measurement contains Alice's preparation and measurements (n0, n3–n6) only through the two classical edges into the <code>if_else</code> nodes; with DATA_QUBIT alone (c) the slice shrinks to Bob's wire. Neither slice contains n9 or n10, which is exactly why QD01 reports them.</figcaption>
+</figure>
+</section>
+
+<section>
+<h2><span class="sn">7</span>The lint path</h2>
+<div class="prose">
+<p>Linters are registered in <code>webapp/linters.py</code> as <code>Linter</code> records: an id, a list of rules, a <code>run(context)</code> function, the languages it reads, whether it is on by default, an <code>available()</code> check for external tools, and an optional <code>batch</code> mode. Add-ons are discovered from <code>webapp/linter_plugins/</code> or the <code>QSLICER_LINTER_PLUGINS</code> variable; a module that fails to import is reported and skipped rather than taking the site down.</p>
+<p>A request selects rules by id (<code>quick/QS002</code>, or a bare <code>dependence</code> for all of a linter's rules). <code>linters.run</code> groups the selection by linter, skips linters that do not read the language or are unavailable, and calls each with one shared <code>LintContext</code>. The context parses the source with the same static front end at most once, lazily, under a 5 s limit, and hands out either the program or the failure. A linter that raises becomes one <code>&lt;ID&gt;-CRASH</code> error finding. <code>tag()</code> then keeps only the selected codes and stamps each finding with <code>tool</code> and <code>rule</code>, and the list is sorted by line. Every finding has the same shape: <code>code</code>, <code>severity</code>, <code>line</code>, <code>column</code>, <code>message</code>, <code>hint</code>, plus <code>nodes</code>, <code>lines</code> or <code>qubits</code> where the linter knows them.</p>
+
+<h3>7.1 Four linters, four sources of evidence</h3>
+<ul>
+<li><strong>Quick checks</strong> (<code>webapp/lint.py</code>, on, Python only) report what Python or Qiskit would raise. One <code>ast.NodeVisitor</code> pass collects circuits with literal sizes, method calls and attribute reads, and the checks compare literal indices against literal sizes. QS005, QS012 and QS013 look names, methods and keyword arguments up in the installed Qiskit by import and introspection; the submitted file itself is never imported. QS014 reads the lint context's parse failure: the static parser raises Qiskit's <code>CircuitError</code> where Qiskit would, at the line inside a helper or loop iteration, so QS014 catches computed indices that the literal checks cannot see.</li>
+<li><strong>Dependence checks</strong> (<code>webapp/linter_plugins/dependence_checks.py</code>, on, Python and OpenQASM) read the rebuilt program. QD01 builds a QDG with the request's profile and reports every gate outside the union of the backward slices of all measurements. QD05 follows the set of qubits provably still in |0⟩ through diagonal gates and measurements; QD10 follows each qubit's Pauli eigenstate through single-qubit Clifford gates. Findings name the node indices they mean, and findings with the same code and line are merged with a count, so a loop is reported once and marks every iteration.</li>
+<li><strong>LintQ port</strong> (<code>scripts/Linters/lintq_port.py</code>, off by default) reimplements LintQ's ten CodeQL queries on Python's syntax tree. It builds per-scope control-flow graphs, reaching definitions and API paths that mirror LintQ's CodeQL library, and deliberately keeps that library's limits, so it reproduces the original's 190 warnings line for line on 239 test programs.</li>
+<li><strong>LintQ original</strong> (<code>scripts/Linters/codeql_lintq.py</code>, off, needs CodeQL) runs the authors' queries through the CodeQL CLI and reads the SARIF output. It is slow to start, so the benchmark uses its batch mode.</li>
+</ul>
+
+<h3>7.2 Where the slicer and the linter meet</h3>
+<p>QD01 is the slicer used as a checker. With <var>M</var> the measurements of the rebuilt program, the live set is <var>L</var> = ⋃<sub><var>m</var> ∈ <var>M</var></sub> BS(<var>m</var>), and every gate outside <var>L</var> is reported. Because the QDG over-approximates dependence (Section 4), a gate outside <var>L</var> has no dependence path to any measured bit, so removing it cannot change what the program measures. The check reports such gates rather than pruning them; it is a likely mistake, not an optimisation.</p>
+
+<h3>7.3 From findings back to nodes</h3>
+<p>The linters parse the source themselves, so their node indices are checked before the graph uses them. <code>attach_lint_nodes</code> keeps a finding's named <code>nodes</code> if at least one of them comes from the finding's line in the main parse; otherwise it marks every node whose source span covers the finding's <code>lines</code> (or <code>line</code>), which is the same lookup as clicking a line number in the editor. This is how a finding inside a loop marks every unrolled iteration, and how a QS finding, which has no node indices, still lights up the gates on its line.</p>
+</div>
+
+<p class="tcap"><span class="cap-n">Table 2.</span>Every registered rule, what it reads to decide, and how it did on Bugs4Q (warnings on buggy / fixed programs, and bugs it detected) with quick, dependence and LintQ selected. LQ00, the port's "program too large" note, is left out. ● decides with this evidence; ○ uses it only to excuse or locate.</p>
+<div class="tbl"><table>
+<thead><tr><th>Code</th><th>Rule</th><th>Severity</th><th class="c">AST pattern</th><th class="c">AST data flow</th><th class="c">Installed Qiskit</th><th class="c">Parse failure</th><th class="c">Rebuilt IR</th><th class="c">QDG + slicer</th><th class="num">Bugs4Q warn b / f</th><th class="num">Detected</th></tr></thead>
+<tbody>{{RULETABLE}}</tbody>
+</table></div>
+</section>
+
+<section>
+<h2><span class="sn">8</span>One request, end to end</h2>
+<div class="prose">
+<p>Figure 3 orders the calls inside <code>/api/analyze</code> and a following <code>/api/slice</code>. Two design choices show up here. First, <strong>the program is parsed twice</strong>: once inside the lint context (5 s) and once for the analysis (20 s). Linting runs first because its findings are what explain a failed parse, QS014 needs the failure itself, and a syntax error (QS000, when selected) stops the request before the main parse is attempted. Second, <strong>slicing never re-parses</strong>: the QDG and program are cached in process memory under a token derived from the file name, profile, front end and source, in an LRU of 24 entries. That cache is why the deployment runs one worker process with several threads; a second worker would not recognise the first one's tokens.</p>
+</div>
+<figure>
+  <div class="scroller mid">{{FIG_SEQUENCE}}</div>
+  <figcaption><span class="cap-n">Figure 3.</span>Call sequence for one analysis and one slice. Dashed grey arrows are returns; the amber arrow is the early return taken when QS000 fires. A cache miss on <code>/api/slice</code> (the token was evicted) returns <code>stale_token</code> with HTTP 409 and asks the user to analyse again.</figcaption>
+</figure>
+</section>
+
+<section>
+<h2><span class="sn">9</span>Benchmarking the linters</h2>
+<div class="prose">
+<p>A dataset is any folder under <code>benchmarks/</code> with a <code>manifest.json</code> listing pairs of buggy and fixed programs; the first is the 62 Qiskit bugs of Bugs4Q, vendored at commit <code>bb853b8</code>. Ground truth comes from the fix: <code>ground_truth</code> diffs the two programs with <code>difflib.SequenceMatcher</code> on whitespace-stripped lines, and the <em>fault lines</em> are the buggy program's code lines that the fix deletes or rewrites. A fix that changes more than half the code lines is a <em>rewrite</em> and is reported separately, since any warning in it lands on a fault line; a fix that only adds code is an <em>omission</em>, and the code lines on either side stand in. Of the {{B_BUGS}} fixes, {{B_EDITS}} are edits, {{B_REWRITES}} rewrites and {{B_OMISSIONS}} omissions.</p>
+<p>Each bug is graded per rule set by three nested tests (Figure 4). <em>Detected</em> is the headline: a warning on a fault line whose rule fires fewer times on the fixed program, so the fix is what silenced it. Nothing is executed; the linters see exactly what they see on the slicer page.</p>
+</div>
+<figure>
+  <div class="scroller mid grade">{{FIG_GRADING}}</div>
+  <figcaption><span class="cap-n">Figure 4.</span>Grading as nested sets, with the counts from a run of all three built-in linters on Bugs4Q at this commit (<code>python benchmarks/run_benchmark.py --rules quick,dependence,lintq</code>, {{B_ELAPSED}} s). The static front end read {{B_READ}} of the {{B_PROGRAMS}} programs; the rest use APIs removed before Qiskit 2.6.0 or build no circuit, and get only the AST-based rules.</figcaption>
+</figure>
+
+<p class="tcap"><span class="cap-n">Table 3.</span>Bugs4Q results by linter at this commit. "Precision" is the share of warnings on buggy programs that land on a fault line.</p>
+<div class="tbl"><table>
+<thead><tr><th>Tool</th><th class="num">Detected</th><th class="num">Excl. rewrites</th><th class="num">Hit</th><th class="num">Warned</th><th class="num">Warnings b / f</th><th class="num">Precision</th><th style="width:28%"></th></tr></thead>
+<tbody>{{RESULTS}}</tbody>
+</table></div>
+<div class="prose">
+<p>By source, the combined selection detects {{B_BY_SOURCE}}. The dependence checks have the highest warning precision of the built-in linters and are the ones that find logic bugs (a dead Grover ancilla, two measurements into one bit, an unprepared control, an unused qubit); most quick-check detections are migrations away from removed APIs. The project's research notes conclude from this that Bugs4Q mostly measures old-API code rather than the mistakes students make, and keep it as a regression check and as the comparison with LintQ, whose port and original score identically.</p>
+</div>
+</section>
+
+<section>
+<h2><span class="sn">10</span>Limitations and documentation</h2>
+<div class="prose">
+<h3>10.1 Limitations of the current pipeline</h3>
+<ul>
+<li><strong>Classical control dependence is a placeholder.</strong> <code>ControlClassicalRule</code> emits nothing, and an <code>if_else</code> is one node whose bodies the rules do not enter.</li>
+<li><strong>Entanglement and phase rules ship disabled</strong>, and only the baseline profile exists, so there is no per-analysis toggle. Slices do not yet exclude an entangling gate that is uncomputed before the criterion; the entanglement analyzer's groups are shown in a side panel but do not feed the slicer.</li>
+<li><strong>Static reading has edges.</strong> Classes defined in the file, <code>transpile</code> and pass managers are not followed, and control flow that depends on an unknown value and touches a circuit is refused with its line rather than guessed.</li>
+<li><strong>Scale.</strong> Unrolling makes the IR large (the static parsing notes estimate about 156,000 nodes for a 4,000-layer, 20-qubit ansatz). Because every rule keeps one last-writer state per wire, the notes propose chunking along source structure, summarising each chunk at its qubit and clbit boundary; this would be exact for the current rules but is not implemented.</li>
+<li><strong>Quick checks read only Python</strong>, and the dependence checks need a circuit the static parser can rebuild.</li>
+</ul>
+
+<h3>10.2 Documentation</h3>
+<p>While this note was written, the README and the project wiki had drifted from the code in four places. They were brought in line on 3 Nov 2026:</p>
+<ul>
+<li>Both READMEs now list the dependence checks as QD01–QD03 and QD05–QD10. QD04 became QS014 in the 2026-10-29 reorganisation.</li>
+<li><code>wiki/Research/Linting.md</code> now describes the current design. The dependence checks are a plugin in <code>webapp/linter_plugins/</code>, the LintQ port works on the syntax tree and keeps the original's limits, and the rule tables match the registry.</li>
+<li><code>wiki/Research/Static-Parsing.md</code> now lists the OpenQASM features the interpreter supports (run-time <code>while</code>, <code>switch</code>, <code>box</code>, physical qubits, <code>extern</code>) and what it still refuses.</li>
+<li><code>wiki/Research/Bugs4Q-Benchmark.md</code> now reports the current run: {{B_DETECTED}} of {{B_BUGS}} bugs detected, {{B_READ}} of {{B_PROGRAMS}} programs read.</li>
+</ul>
+<p>The graph is called the QDG throughout, as in <code>scripts/qdg.py</code>. "QPDG" now appears only where a page cites the IEEE paper that introduced it.</p>
+</div>
+</section>
+
+<section>
+<h2><span class="sn">A</span>Where each stage lives</h2>
+<div class="tbl"><table>
+<thead><tr><th>Stage</th><th>Entry point</th><th>File</th></tr></thead>
+<tbody>
+<tr><td>Qiskit front end</td><td><code>StaticQiskitParser.parse</code>, <code>_Interpreter</code>, <code>_choose_circuit</code></td><td><code>scripts/Parsers/staticqiskitparser.py</code></td></tr>
+<tr><td>OpenQASM front end</td><td><code>StaticOpenQASMParser.parse</code>, <code>_QasmInterpreter</code></td><td><code>scripts/Parsers/staticopenqasmparser.py</code></td></tr>
+<tr><td>Circuit model and lowering</td><td><code>StaticCircuit</code>, <code>StaticInstruction</code>, <code>circuit_to_program</code></td><td><code>scripts/Parsers/staticqiskitparser.py</code></td></tr>
+<tr><td>IR</td><td><code>QuantumProgram</code>, <code>QuantumInstruction</code>, <code>SourceLocation</code></td><td><code>scripts/qprogram.py</code>, <code>scripts/qinstruction.py</code></td></tr>
+<tr><td>Dependency rules</td><td><code>DependencyRule.build</code> and six rules</td><td><code>scripts/Dependencies/</code></td></tr>
+<tr><td>QDG and profiles</td><td><code>QDG</code>, <code>get_rule_profile</code></td><td><code>scripts/qdg.py</code></td></tr>
+<tr><td>Slicer</td><td><code>QuantumSlicer.backward_slice</code>, <code>forward_slice</code></td><td><code>scripts/slicer.py</code></td></tr>
+<tr><td>Entanglement groups</td><td><code>EntanglementAnalyzer</code></td><td><code>scripts/entanglement.py</code></td></tr>
+<tr><td>Request handling</td><td><code>analyze_source</code>, <code>slice_program</code>, <code>attach_lint_nodes</code></td><td><code>webapp/analysis.py</code>, <code>webapp/app.py</code></td></tr>
+<tr><td>Linter registry</td><td><code>Linter</code>, <code>LintContext</code>, <code>run</code>, <code>tag</code></td><td><code>webapp/linters.py</code></td></tr>
+<tr><td>Quick checks</td><td><code>check_source</code>, <code>rejected_operation</code></td><td><code>webapp/lint.py</code></td></tr>
+<tr><td>Dependence checks</td><td><code>run</code> and one function per rule</td><td><code>webapp/linter_plugins/dependence_checks.py</code></td></tr>
+<tr><td>LintQ</td><td><code>LintQAnalysis</code>; CodeQL adapter</td><td><code>scripts/Linters/lintq_port.py</code>, <code>codeql_lintq.py</code></td></tr>
+<tr><td>Benchmark</td><td><code>ground_truth</code>, <code>grade_bug</code>, <code>run</code></td><td><code>webapp/benchmark.py</code>, <code>benchmarks/run_benchmark.py</code></td></tr>
+</tbody></table></div>
+</section>
+</div>

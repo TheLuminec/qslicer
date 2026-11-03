@@ -22,6 +22,14 @@
   var MIN_NODE_W = 34;
   var CHAR_W = 6.3;
   var READABLE_SCALE = 0.55; // auto-fit never zooms out past this
+  var CL_GAP = 58;      // last qubit wire to the first classical wire
+  var CL_H = 22;        // vertical distance between classical wires
+  var CL_SHIFT = 12;    // MEASUREMENT legs run left of a node's line label, DATA_CLASSICAL right
+  var CL_CORNER = 6;    // corner radius of a routed classical edge
+
+  /* Edges whose dependency travels through a classical bit: drawn down to the
+     bit's wire, along it, and up into the reader, as a circuit diagram would. */
+  var CLASSICAL_DEPS = { MEASUREMENT: -1, DATA_CLASSICAL: 1 };
 
   var CATEGORY_FILL = {
     'single-qubit': '#9AA6CF',
@@ -180,24 +188,46 @@
   };
 
   /* Instructions run left to right; each node sits on the average of the qubit
-     lanes it touches, the same rule the matplotlib viewer uses. */
+     lanes it touches, the same rule the matplotlib viewer uses. An instruction
+     on no qubit at all (a store) sits on the classical wires it uses instead. */
   QGraph.prototype._computeLayout = function () {
     var self = this;
     var x = LEFT_PAD;
     this.layout = {};
+    this.byId = {};
     this.data.nodes.forEach(function (node) {
       var w = nodeWidth(node.short || node.label);
+      var bits = classicalOnly(node);
+      self.byId[node.id] = node;
       self.layout[node.id] = {
         x: x + w / 2,
-        y: TOP_PAD + node.lane * LANE_H,
+        y: bits.length
+          ? bits.reduce(function (sum, c) { return sum + self._clbitY(c); }, 0) / bits.length
+          : TOP_PAD + node.lane * LANE_H,
         w: w,
         h: NODE_H
       };
       x += w + NODE_GAP;
     });
     this.contentWidth = x + LEFT_PAD;
-    this.contentHeight = TOP_PAD + Math.max(1, this.data.program.num_qubits) * LANE_H;
+    var clbits = this.data.program.num_clbits || 0;
+    this.contentHeight = clbits
+      ? this._clbitY(clbits - 1) + CL_H
+      : TOP_PAD + Math.max(1, this.data.program.num_qubits) * LANE_H;
   };
+
+  /* The classical wires sit below the last qubit wire, one per clbit. */
+  QGraph.prototype._clbitY = function (clbit) {
+    var qubits = Math.max(1, this.data.program.num_qubits);
+    return TOP_PAD + (qubits - 1) * LANE_H + CL_GAP + clbit * CL_H;
+  };
+
+  /* The clbits of an instruction that touches no qubit, else none. */
+  function classicalOnly(node) {
+    if ((node.qubits || []).length) return [];
+    var bits = (node.clbits || []).concat(node.condition_clbits || []);
+    return bits.filter(function (c, i) { return bits.indexOf(c) === i; });
+  }
 
   QGraph.prototype._pos = function (id) {
     var base = this.layout[id];
@@ -269,6 +299,21 @@
       group.appendChild(hit);
       group.appendChild(label);
     }
+
+    // Classical wires: a thin double line per clbit, as circuit diagrams draw them.
+    var clbits = this.data.program.num_clbits || 0;
+    for (var c = 0; c < clbits; c++) {
+      var cy = this._clbitY(c);
+      [-1.5, 1.5].forEach(function (d) {
+        group.appendChild(el('line', {
+          class: 'cwire-line',
+          x1: LEFT_PAD - 30, y1: cy + d, x2: self.contentWidth - LEFT_PAD + 20, y2: cy + d
+        }));
+      });
+      var clabel = el('text', { class: 'cwire-label', x: LEFT_PAD - 38, y: cy + 4 });
+      clabel.textContent = 'c' + c;
+      group.appendChild(clabel);
+    }
   };
 
   QGraph.prototype._renderEdges = function () {
@@ -278,6 +323,7 @@
 
     /* Count parallel edges so multi-edges between the same pair fan out. */
     var seen = {};
+    var routed = {};   // "id:clbit" -> true, for every bit an edge was drawn along
     this.data.edges.forEach(function (edge) {
       if (!self._inRange(edge.source) || !self._inRange(edge.target)) return;
 
@@ -289,35 +335,132 @@
       var b = self._pos(edge.target);
       if (!a || !b) return;
 
-      var x1 = a.x + a.w / 2;
-      var y1 = a.y;
-      var x2 = b.x - b.w / 2;
-      var y2 = b.y;
-      var bow = (rank % 2 === 0 ? 1 : -1) * (12 + 14 * Math.floor(rank / 2));
-      var mx = (x1 + x2) / 2;
-      var my = (y1 + y2) / 2 - bow;
+      var d;
+      var clbit = null;
+      var side = CLASSICAL_DEPS[edge.dependency];
+      if (side !== undefined) {
+        // The k-th parallel edge of one type runs along the k-th bit both share.
+        var depKey = pairKey + ':' + edge.dependency;
+        seen[depKey] = (seen[depKey] || 0) + 1;
+        var shared = sharedClbits(self.byId[edge.source], self.byId[edge.target]);
+        if (shared.length) clbit = shared[(seen[depKey] - 1) % shared.length];
+      }
+      if (clbit !== null) {
+        routed[edge.source + ':' + clbit] = routed[edge.target + ':' + clbit] = true;
+        d = roundedPath(classicalRoute(a, b, self._clbitY(clbit) + side * 2.5, side * CL_SHIFT),
+                        CL_CORNER);
+      } else {
+        var x1 = a.x + a.w / 2;
+        var y1 = a.y;
+        var x2 = b.x - b.w / 2;
+        var y2 = b.y;
+        var bow = (rank % 2 === 0 ? 1 : -1) * (12 + 14 * Math.floor(rank / 2));
+        var mx = (x1 + x2) / 2;
+        var my = (y1 + y2) / 2 - bow;
+        d = 'M ' + x1 + ' ' + y1 + ' Q ' + mx + ' ' + my + ' ' + x2 + ' ' + y2;
+      }
 
       var active = self._depActive(edge.dependency);
       var inSlice = active && self.slice &&
         self.slice.has(edge.source) && self.slice.has(edge.target);
 
       var classes = ['edge'];
+      if (clbit !== null) classes.push('classical', 'dep-' + edge.dependency.toLowerCase());
       if (!active) classes.push('dimmed');
       else if (self.slice && !inSlice) classes.push('dimmed');
       if (inSlice) classes.push('in-slice');
 
       var path = el('path', {
         class: classes.join(' '),
-        d: 'M ' + x1 + ' ' + y1 + ' Q ' + mx + ' ' + my + ' ' + x2 + ' ' + y2,
+        d: d,
         stroke: window.depColor(edge.dependency),
         'marker-end': 'url(#arrow-' + edge.dependency + ')'
       });
       path.appendChild(el('title')).textContent =
         edge.dependency + '  ' + edge.source + ' → ' + edge.target +
+        (clbit !== null ? '  via c' + clbit : '') +
         (edge.rule ? '  (rule: ' + edge.rule + ')' : '');
       group.appendChild(path);
     });
+
+    this._renderClbitTicks(routed);
   };
+
+  /* A bit written with no edge leaving along it (no later reader, or the reader
+     is outside the range) gets a dotted drop onto its wire ending in a dot; a
+     bit read with no edge arriving (nothing wrote it: QD09) gets one rising
+     from a ring. So every write and read stays visible. */
+  QGraph.prototype._renderClbitTicks = function (routed) {
+    var self = this;
+    var group = this.layerEdges;
+    this.data.nodes.forEach(function (node) {
+      if (!self._inRange(node.id)) return;
+      var pos = self._pos(node.id);
+      var reads = node.condition_clbits || [];
+      var writes = (node.clbits || []).filter(function (c) { return reads.indexOf(c) === -1; });
+      var dim = self.slice && !self.slice.has(node.id) ? ' dimmed' : '';
+      [['write', writes], ['read', reads]].forEach(function (pair) {
+        pair[1].forEach(function (c) {
+          if (routed[node.id + ':' + c]) return;
+          var wy = self._clbitY(c);
+          var edge = wy > pos.y ? pos.y + pos.h / 2 : pos.y - pos.h / 2;
+          if (Math.abs(wy - pos.y) <= pos.h / 2) return;  // the node sits on this wire
+          var tx = pos.x - CL_SHIFT;   // where a MEASUREMENT edge would run, clear of the label
+          var tick = el('g', { class: 'clbit-tick ' + pair[0] + dim });
+          tick.appendChild(el('line', { x1: tx, y1: edge, x2: tx, y2: wy }));
+          tick.appendChild(el('circle', { cx: tx, cy: wy, r: 2.8 }));
+          tick.appendChild(el('title')).textContent =
+            '#' + node.id + (pair[0] === 'write' ? ' writes c' : ' reads c') + c;
+          group.appendChild(tick);
+        });
+      });
+    });
+  };
+
+  /* Bits the source writes that the target's condition reads, in the target's order. */
+  function sharedClbits(source, target) {
+    if (!source || !target) return [];
+    var written = source.clbits || [];
+    return (target.condition_clbits || []).filter(function (c) { return written.indexOf(c) !== -1; });
+  }
+
+  /* The corner points of a classical edge from box ``a`` to box ``b`` along the
+     wire at ``wireY``: down (or up) from the source, along the wire, up (or
+     down) into the target. ``shift`` moves the vertical legs off the node's
+     centre so a MEASUREMENT and a DATA_CLASSICAL edge on one bit stay apart. A
+     box that sits on the wire itself joins it from its side instead. */
+  function classicalRoute(a, b, wireY, shift) {
+    function leg(box, x, isTarget) {
+      if (box.y + box.h / 2 < wireY - 3) return [[x, box.y + box.h / 2], [x, wireY]];
+      if (box.y - box.h / 2 > wireY + 3) return [[x, box.y - box.h / 2], [x, wireY]];
+      return [[box.x + (isTarget ? -1 : 1) * box.w / 2, wireY]];
+    }
+    var points = leg(a, a.x + shift, false).concat(leg(b, b.x + shift, true).reverse());
+    return points.filter(function (p, i) {
+      return i === 0 || p[0] !== points[i - 1][0] || p[1] !== points[i - 1][1];
+    });
+  }
+
+  /* An SVG path through ``points`` with each corner rounded to ``radius``. */
+  function roundedPath(points, radius) {
+    function toward(from, to, r) {
+      var len = Math.hypot(to[0] - from[0], to[1] - from[1]);
+      if (!len) return from;
+      return [from[0] + (to[0] - from[0]) * r / len, from[1] + (to[1] - from[1]) * r / len];
+    }
+    var d = 'M ' + points[0][0] + ' ' + points[0][1];
+    for (var i = 1; i < points.length - 1; i++) {
+      var prev = points[i - 1], corner = points[i], next = points[i + 1];
+      var r = Math.min(radius,
+        Math.hypot(corner[0] - prev[0], corner[1] - prev[1]) / 2,
+        Math.hypot(next[0] - corner[0], next[1] - corner[1]) / 2);
+      var p = toward(corner, prev, r);
+      var q = toward(corner, next, r);
+      d += ' L ' + p[0] + ' ' + p[1] + ' Q ' + corner[0] + ' ' + corner[1] + ' ' + q[0] + ' ' + q[1];
+    }
+    var last = points[points.length - 1];
+    return d + ' L ' + last[0] + ' ' + last[1];
+  }
 
   QGraph.prototype._renderNodes = function () {
     var self = this;
@@ -616,6 +759,9 @@
     });
     minY = Math.min(minY, TOP_PAD - 30);
     maxY = Math.max(maxY, TOP_PAD + (this.data.program.num_qubits - 1) * LANE_H + 30);
+    if (this.data.program.num_clbits) {
+      maxY = Math.max(maxY, this._clbitY(this.data.program.num_clbits - 1) + 18);
+    }
 
     var k = Math.min(rect.width / (maxX - minX), rect.height / (maxY - minY));
     k = Math.min(1.6, Math.max(0.15, k * 0.94));
@@ -655,6 +801,13 @@
     '.edge { fill: none; stroke-width: 1.4; opacity: 0.55; }',
     '.edge.dimmed { opacity: 0.08; }',
     '.edge.in-slice { opacity: 1; stroke-width: 2.4; }',
+    '.edge.dep-data_classical { stroke-dasharray: 5 3; }',
+    '.cwire-line { stroke: #45475a; stroke-width: 0.9; }',
+    '.cwire-label { fill: #7f849c; font-size: 10px; font-family: monospace; }',
+    '.clbit-tick line { stroke: #7f849c; stroke-width: 1.1; stroke-dasharray: 2 3; }',
+    '.clbit-tick.write circle { fill: #7f849c; }',
+    '.clbit-tick.read circle { fill: #181825; stroke: #7f849c; stroke-width: 1.3; }',
+    '.clbit-tick.dimmed { opacity: 0.22; }',
     '.node .node-shape { fill: #45475a; stroke: #11111b; stroke-width: 1.5; }',
     '.node .node-text { fill: #11111b; font-size: 11px; font-family: monospace; text-anchor: middle; }',
     '.node .node-index { fill: #7f849c; font-size: 9px; font-family: monospace; text-anchor: middle; }',
@@ -729,5 +882,7 @@
   }
 
   QGraph.READABLE_SCALE = READABLE_SCALE;
+  QGraph.routing = { classicalRoute: classicalRoute, roundedPath: roundedPath,
+                     sharedClbits: sharedClbits, classicalOnly: classicalOnly };
   window.QGraph = QGraph;
 })();

@@ -288,7 +288,7 @@ of the real thing:
   and QS013 look names and keyword arguments up in the installed Qiskit
   (importing the library's modules, never the checked file), and QS014 reports
   what Qiskit rejects while the static parser rebuilds the circuit.
-* **Dependence checks** (`QD01`–`QD08`, `linter_plugins/dependence_checks.py`):
+* **Dependence checks** (`QD01`–`QD03`, `QD05`–`QD10`, `linter_plugins/dependence_checks.py`):
   quantum mistakes in the rebuilt circuit (loops unrolled, helpers followed)
   and its dependence graph. Quick and dependence checks are on by default;
   LintQ (the port, and the original through CodeQL where it is installed) is

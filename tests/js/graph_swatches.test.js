@@ -83,6 +83,58 @@ test('layout runs left to right and places nodes on their lane', () => {
   assert.ok(g.contentWidth > c.x && g.contentHeight > c.y);
 });
 
+test('classical wires sit below the qubits and grow the content height', () => {
+  const g = bareGraph({ data: { ...DATA, program: { num_qubits: 2, num_clbits: 3 } } });
+  g._computeLayout();
+  const lastQubit = g.layout[2].y;
+  assert.ok(g._clbitY(0) > lastQubit + 26, 'clear of the last qubit wire and its line label');
+  assert.ok(g._clbitY(1) > g._clbitY(0) && g._clbitY(2) > g._clbitY(1));
+  assert.ok(g.contentHeight > g._clbitY(2));
+});
+
+test('an instruction on no qubit sits on its classical wires', () => {
+  const nodes = DATA.nodes.concat([{ id: 3, label: 'store', lane: 0, qubits: [], clbits: [1],
+                                     condition_clbits: [0] }]);
+  const g = bareGraph({ data: { program: { num_qubits: 2, num_clbits: 2 }, nodes, edges: [] } });
+  g._computeLayout();
+  assert.strictEqual(g.layout[3].y, (g._clbitY(0) + g._clbitY(1)) / 2);
+  assert.strictEqual(g.layout[0].y, 46, 'nodes with qubits keep their lane');
+});
+
+test('sharedClbits: bits the source wrote that the target reads', () => {
+  const { sharedClbits } = loadPage(['swatches.js', 'graph.js']).window.QGraph.routing;
+  assert.deepStrictEqual(sharedClbits({ clbits: [0, 1] }, { condition_clbits: [1, 2, 0] }), [1, 0]);
+  assert.deepStrictEqual(sharedClbits({ clbits: [3] }, { condition_clbits: [1] }), []);
+  assert.deepStrictEqual(sharedClbits(undefined, { condition_clbits: [1] }), []);
+});
+
+test('classicalRoute drops to the wire, runs along it and rises into the reader', () => {
+  const { classicalRoute } = loadPage(['swatches.js', 'graph.js']).window.QGraph.routing;
+  const a = { x: 100, y: 46, w: 34, h: 26 };
+  const b = { x: 300, y: 112, w: 34, h: 26 };
+  const points = classicalRoute(a, b, 250, -12);
+  assert.deepStrictEqual(points.map((p) => [...p]),
+    [[88, 59], [88, 250], [288, 250], [288, 125]]);
+});
+
+test('classicalRoute joins a box on the wire from its side', () => {
+  const { classicalRoute } = loadPage(['swatches.js', 'graph.js']).window.QGraph.routing;
+  const store = { x: 100, y: 250, w: 40, h: 26 };
+  const reader = { x: 300, y: 46, w: 34, h: 26 };
+  const points = classicalRoute(store, reader, 251, 12);
+  assert.deepStrictEqual(points.map((p) => [...p]), [[120, 251], [312, 251], [312, 59]]);
+});
+
+test('roundedPath rounds each corner and keeps the end points', () => {
+  const { roundedPath } = loadPage(['swatches.js', 'graph.js']).window.QGraph.routing;
+  const d = roundedPath([[0, 0], [0, 100], [50, 100], [50, 60]], 6);
+  assert.ok(d.startsWith('M 0 0 L 0 94 Q 0 100 6 100'));
+  assert.ok(d.endsWith('L 50 60'));
+  assert.strictEqual((d.match(/Q/g) || []).length, 2);
+  // A corner closer than twice the radius gets a smaller one, never an overshoot.
+  assert.ok(roundedPath([[0, 0], [0, 4], [10, 4]], 6).includes('L 0 2 Q 0 4 2 4'));
+});
+
 test('_pos applies drag offsets', () => {
   const g = bareGraph({ data: DATA });
   g._computeLayout();
