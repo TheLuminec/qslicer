@@ -745,10 +745,11 @@
         trace.textContent = item.traceback.join('\n');
         li.appendChild(trace);
       }
-      if (item.line || (item.nodes && item.nodes.length)) {
+      var aboutGraph = (item.nodes && item.nodes.length) || (item.qubits && item.qubits.length);
+      if (item.line || aboutGraph) {
         li.addEventListener('click', function () {
           if (item.line) jumpToLine(item.line);
-          if (item.nodes && item.nodes.length) markLintNodes(item);
+          if (aboutGraph) markLintNodes(item);
         });
       }
       list.appendChild(li);
@@ -756,19 +757,25 @@
   }
 
   /* A finding's nodes: marked in the graph and the instruction table, and
-     brought into view, as clicking a line number marks the nodes it made. */
+     brought into view, as clicking a line number marks the nodes it made.
+     A finding about wires (QD07's idle qubits) marks those lanes instead. */
   function markLintNodes(item) {
     if (!state.payload) return;
+    var nodes = item.nodes || [];
+    var qubits = item.qubits || [];
     state.source.picked = null;
-    graph.setMarked(item.nodes);
-    graph.reveal(item.nodes);
-    markPickedInTable(item.nodes);
+    graph.setMarked(nodes, qubits);
+    if (nodes.length) graph.reveal(nodes);
+    markPickedInTable(nodes);
     applySourceMarks();
     // The marks last as long as the line the finding selected stays selected.
     var code = $('code');
     state.lintMark = { start: code.selectionStart, end: code.selectionEnd };
-    setStatus(item.code + ' is about node' + (item.nodes.length === 1 ? '' : 's') + ' #' +
-      item.nodes.join(', #') + ', marked in the graph. Click a gate to slice from it.');
+    setStatus(nodes.length
+      ? item.code + ' is about node' + (nodes.length === 1 ? '' : 's') + ' #' +
+        nodes.join(', #') + ', marked in the graph. Click a gate to slice from it.'
+      : item.code + ' is about wire' + (qubits.length === 1 ? '' : 's') + ' q' +
+        qubits.join(', q') + ', marked red in the graph.');
   }
 
   /* Once the editor's selection moves off the finding's line (a click in the

@@ -350,6 +350,7 @@ def test_idle_qubits():
                        "QD07")
     assert [d["line"] for d in found] == [2] and found[0]["severity"] == "info"
     assert "[2, 3]" in found[0]["message"]
+    assert found[0]["qubits"] == [2, 3]          # the graph marks these wires red
 
 
 @pytest.mark.parametrize("body, idle", [

@@ -693,6 +693,12 @@ body.splitting-rows .row-splitter::after { background: var(--accent); }
 #graph .lane-label.selected { fill: var(--criterion); font-weight: 700; }
 #graph .lane-hit { fill: transparent; cursor: pointer; }
 #graph .lane-hit.selected { fill: rgba(255, 107, 53, 0.07); }
+/* Wires a lint finding is about (QD07, an idle qubit): red label while lint
+   markers are on, a red band while the finding is clicked. */
+#graph .lane-label.lint-flagged,
+#graph .lane-label.lint-marked { fill: var(--err); font-weight: 700; }
+#graph .lane-hit.lint-marked { fill: rgba(243, 139, 168, 0.16); }
+#graph .lane-line.lint-marked { stroke: var(--err); stroke-width: 1.5; }
 
 #graph .edge { fill: none; stroke-width: 1.4; opacity: 0.55; }
 #graph .edge.dimmed { opacity: 0.08; }

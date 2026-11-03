@@ -307,11 +307,14 @@ def _idle_qubits(program, source: str) -> List[Dict[str, Any]]:
     if not idle or len(program) == 0:
         return []
     line = lint.circuit_line(source) or _line(program[0])
-    return [_finding(
+    finding = _finding(
         "QD07", line, f"Qubit(s) {idle} are declared but never used.",
-        "They show up in the graph as empty wires. Shrink the register if they are left over "
-        "from an earlier draft, or check whether a gate meant for them names another qubit.",
-    )]
+        "They show up in the graph as empty wires, marked in red. Shrink the register if they "
+        "are left over from an earlier draft, or check whether a gate meant for them names "
+        "another qubit.",
+    )
+    finding["qubits"] = idle                   # the graph marks these wires
+    return [finding]
 
 
 def _call_chain(instruction) -> tuple:

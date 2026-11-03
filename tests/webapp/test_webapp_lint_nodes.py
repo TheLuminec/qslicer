@@ -57,6 +57,7 @@ def test_findings_without_a_node_get_none(client):
     assert by_code(data, "QD06") and by_code(data, "QD07")
     for finding in data["diagnostics"]:
         assert finding["nodes"] == []          # the constructor line made no instruction
+    assert by_code(data, "QD07")[0]["qubits"] == [1, 2]   # its wires instead
 
 
 def test_node_ids_that_do_not_match_the_line_fall_back_to_the_line():

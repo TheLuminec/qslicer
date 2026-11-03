@@ -59,7 +59,9 @@
     this.range = null;         // [from, to] inclusive, or null
     this.hoveredId = null;
     this.marked = null;        // Set of ids picked from the source, or null
+    this.markedQubits = null;  // Set of wires a clicked lint finding is about, or null
     this.lint = {};            // id -> the lint diagnostics about that node
+    this.lintQubits = {};      // wire -> the lint diagnostics about that wire (QD07)
     this.showLint = true;      // draw lint markers on the nodes
 
     this.root = el('g', { class: 'graph-root' });
@@ -106,7 +108,9 @@
     this.selectedQubit = null;
     this.range = null;
     this.marked = null;
+    this.markedQubits = null;
     this.lint = lintByNode(data.diagnostics);
+    this.lintQubits = lintByQubit(data.diagnostics);
     this._computeLayout();
     this.render();
     this.fit(READABLE_SCALE);
@@ -125,9 +129,11 @@
     this.render();
   };
 
-  /* Nodes that came from the source line the user picked in the editor. */
-  QGraph.prototype.setMarked = function (ids) {
+  /* Nodes that came from the source line the user picked in the editor, and
+     wires a lint finding is about (an idle qubit has no node to mark). */
+  QGraph.prototype.setMarked = function (ids, qubits) {
     this.marked = ids && ids.length ? new Set(ids) : null;
+    this.markedQubits = qubits && qubits.length ? new Set(qubits) : null;
     this.render();
   };
 
@@ -227,21 +233,29 @@
 
     for (var q = 0; q < qubits; q++) {
       var y = TOP_PAD + q * LANE_H;
+      var marked = this.markedQubits && this.markedQubits.has(q) ? ' lint-marked' : '';
+      var lint = this.showLint ? this.lintQubits[q] : null;
       group.appendChild(el('line', {
-        class: 'lane-line',
+        class: 'lane-line' + marked,
         x1: LEFT_PAD - 30, y1: y, x2: this.contentWidth - LEFT_PAD + 20, y2: y
       }));
 
       var hit = el('rect', {
-        class: 'lane-hit' + (this.selectedQubit === q ? ' selected' : ''),
+        class: 'lane-hit' + (this.selectedQubit === q ? ' selected' : '') + marked,
         x: LEFT_PAD - 40, y: y - LANE_H / 2 + 4,
         width: this.contentWidth, height: LANE_H - 8
       });
       var label = el('text', {
-        class: 'lane-label' + (this.selectedQubit === q ? ' selected' : ''),
+        class: 'lane-label' + (this.selectedQubit === q ? ' selected' : '') +
+          (lint ? ' lint-flagged' : '') + marked,
         x: LEFT_PAD - 38, y: y + 4
       });
       label.textContent = 'q' + q;
+      if (lint) {
+        var title = el('title');
+        title.textContent = lint.map(function (d) { return d.code + ': ' + d.message; }).join('\n');
+        label.appendChild(title);
+      }
 
       (function (qubit) {
         function pick(event) {
@@ -510,6 +524,15 @@
     return byNode;
   }
 
+  /* Wires the diagnostics are about (QD07's idle qubits), as lintByNode. */
+  function lintByQubit(diagnostics) {
+    var byQubit = {};
+    (diagnostics || []).forEach(function (d) {
+      (d.qubits || []).forEach(function (q) { (byQubit[q] = byQubit[q] || []).push(d); });
+    });
+    return byQubit;
+  }
+
   var SEVERITY_RANK = { error: 3, warning: 2, info: 1 };
 
   function worstSeverity(diagnostics) {
@@ -626,6 +649,9 @@
     '.lane-label { fill: #7f849c; font-size: 10px; font-family: monospace; }',
     '.lane-label.selected { fill: #ff6b35; font-weight: 700; }',
     '.lane-hit { fill: transparent; }',
+    '.lane-hit.lint-marked { fill: rgba(243, 139, 168, 0.16); }',
+    '.lane-line.lint-marked { stroke: #f38ba8; stroke-width: 1.5; }',
+    '.lane-label.lint-flagged, .lane-label.lint-marked { fill: #f38ba8; font-weight: 700; }',
     '.edge { fill: none; stroke-width: 1.4; opacity: 0.55; }',
     '.edge.dimmed { opacity: 0.08; }',
     '.edge.in-slice { opacity: 1; stroke-width: 2.4; }',
