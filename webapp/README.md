@@ -76,6 +76,7 @@ from the API. It parses text and runs nothing, but it is not on the page.
 | `/`        | Landing page: what the tool does, quantum programming in brief           |
 | `/slicer`  | The application: source on the left, graph and analysis on the right     |
 | `/quantum` | Background on quantum programs, on the QDG, and on the tools we use     |
+| `/lint`      | The lint rules: pick them, read each one with an example, lint a program |
 | `/benchmark` | Grades the selected lint rules on the Bugs4Q bugs                     |
 | `/team`    | Team, course, vision and mission                                         |
 

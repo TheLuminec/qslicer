@@ -32,16 +32,27 @@
     window.LintRules.load()
       .then(function (catalog) {
         state.picker = window.LintRules.mountPicker($('lint-picker'), catalog, function (selection) {
+          $('lint-summary').textContent = state.picker.summary();
           if (state.report) {
             setStatus(selection.length ? 'Selection changed: run again to grade it.'
               : 'Select at least one rule.');
           }
         });
+        $('lint-summary').textContent = state.picker.summary();
         run();
       })
       .catch(function (error) {
         $('lint-picker').innerHTML = '<p class="placeholder">' + escapeHtml(error.message) + '</p>';
       });
+  });
+
+  // Close the Lint dropdown on an outside click, as the Slicer's does.
+  document.addEventListener('click', function (event) {
+    var dropdown = $('lint-dropdown');
+    if (!dropdown || !dropdown.open) return;
+    var inside = event.composedPath ? event.composedPath().indexOf(dropdown) !== -1
+      : dropdown.contains(event.target);
+    if (!inside) dropdown.open = false;
   });
 
   function setStatus(text) { $('bench-status').textContent = text; }

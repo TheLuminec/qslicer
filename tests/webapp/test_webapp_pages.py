@@ -13,11 +13,12 @@ from team import COURSE, MEMBERS, MISSION, PROJECT_BLURB, VISION
 PAGES = {
     "/": "index",
     "/slicer": "slicer",
+    "/lint": "lint",
     "/benchmark": "benchmark",
     "/quantum": "quantum",
     "/team": "team",
 }
-NAV = [("/", "Home"), ("/slicer", "Slicer"), ("/benchmark", "Benchmark"),
+NAV = [("/", "Home"), ("/slicer", "Slicer"), ("/lint", "Lint"), ("/benchmark", "Benchmark"),
        ("/quantum", "Quantum Info"), ("/team", "Team")]
 
 

@@ -89,9 +89,17 @@ def test_analyze_with_a_rule_off_does_not_report_it(client):
 
 def test_benchmark_page_links_the_picker_and_dataset(client):
     body = client.get("/benchmark").get_data(as_text=True)
-    assert 'id="lint-picker"' in body and "lintrules.js" in body and "benchmark.js" in body
+    # The rules are picked in a dropdown; the Lint page explains them.
+    assert 'id="lint-dropdown"' in body and 'id="lint-picker"' in body and 'href="/lint"' in body
+    assert "lintrules.js" in body and "benchmark.js" in body
     assert "62 real Qiskit bugs" in body
     assert "Z-928/Bugs4Q-NA" in body
+
+
+def test_lint_page_has_the_rules_and_a_program_to_lint(client):
+    body = client.get("/lint").get_data(as_text=True)
+    assert 'id="lint-picker"' in body and 'id="lint-source"' in body and 'id="btn-lint"' in body
+    assert "lintrules.js" in body and "lint.js" in body
 
 
 def test_slicer_page_has_the_lint_menu(client):

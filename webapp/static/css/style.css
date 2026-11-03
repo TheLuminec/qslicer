@@ -576,6 +576,8 @@ body.splitting-rows .row-splitter::after { background: var(--accent); }
 .diagnostics-list li.sev-info { border-left-color: var(--info); }
 .diag-head { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; }
 .diag-code { font-family: var(--mono); font-size: 0.74rem; color: var(--text-faint); }
+a.diag-code { text-decoration: underline dotted; }
+a.diag-code:hover { color: var(--accent); }
 .diag-tool {
   font-size: 0.68rem; padding: 0 0.4rem; border-radius: 999px;
   border: 1px solid var(--surface-3); color: var(--text-dim); white-space: nowrap;
@@ -994,7 +996,8 @@ figcaption { font-size: 0.85rem; color: var(--text-faint); margin-top: 0.6rem; m
 
 /* ---------------------------------------------------------- lint rules -- */
 
-/* The rule picker: a dropdown on the slicer page, inline on the Benchmark page. */
+/* The rule picker: a dropdown on the Slicer and Benchmark pages, the rule
+   reference on the Lint page. */
 .lint-field { position: relative; }
 .lint-dropdown > summary {
   list-style: none; cursor: pointer;
@@ -1021,14 +1024,10 @@ figcaption { font-size: 0.85rem; color: var(--text-faint); margin-top: 0.6rem; m
 .lint-panel { color: var(--text); font-size: 0.85rem; }
 /* .field uppercases its label span; the panel's spans are not labels. */
 .lint-field .lint-panel span { text-transform: none; letter-spacing: normal; }
-.lint-panel-inline {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.8rem;
-}
 .lint-linter {
   border: 1px solid var(--line); border-radius: var(--radius-sm);
   margin: 0 0 0.6rem; padding: 0.5rem 0.7rem 0.6rem; min-width: 0;
 }
-.lint-panel-inline .lint-linter { margin: 0; background: var(--surface); }
 .lint-linter.is-disabled { opacity: 0.55; }
 .lint-linter legend {
   display: flex; gap: 0.5rem; align-items: center; padding: 0 0.3rem; font-weight: 600;
@@ -1165,6 +1164,46 @@ figcaption { font-size: 0.85rem; color: var(--text-faint); margin-top: 0.6rem; m
 .unplaced { font-size: 0.8rem; color: var(--text-dim); margin: 0.4rem 0 0; padding-left: 1.1rem; }
 
 .bench-explain { margin-top: 3rem; border-top: 1px solid var(--line); }
+.src-rule { color: inherit; font-weight: 700; text-decoration: underline dotted; }
+
+/* ----------------------------------------------------------------- lint -- */
+
+.lintpage { max-width: 1120px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+.lintpage h2 { margin-top: 2.2rem; }
+.lint-try h2, .lint-reference h2 { margin-top: 0; }
+.lint-try, .lint-reference {
+  background: var(--bg-sunken); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 1.1rem 1.2rem; margin-top: 1.5rem;
+}
+.lint-try-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem;
+}
+.lint-try-input textarea {
+  width: 100%; min-height: 18rem; resize: vertical; box-sizing: border-box;
+  background: var(--bg); color: var(--text); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 0.6rem 0.7rem;
+  font-family: var(--mono); font-size: 0.8rem; line-height: 1.5; tab-size: 4;
+}
+.lint-try-input textarea:focus { outline: none; border-color: var(--accent); }
+.lint-try-output { display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
+.lint-try-bar { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; }
+.lint-try-bar .bench-status { padding-bottom: 0; }
+.lint-result .source-view { max-height: 30rem; }
+.lint-loose { margin: 0 0 0.5rem; padding-left: 1.1rem; font-size: 0.82rem; }
+.lint-loose .sev-error strong { color: var(--err); }
+.lint-loose .sev-warning strong { color: var(--warn); }
+.lint-loose .sev-info strong { color: var(--info); }
+
+/* The Lint page's picker is the rule reference: one linter per row, its rules
+   in columns, and a rule's explanation opening right under it. */
+.lint-panel-reference { display: flex; flex-direction: column; gap: 0.9rem; }
+.lint-panel-reference .lint-linter { margin: 0; background: var(--surface); }
+.lint-panel-reference .lint-rules {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); column-gap: 1rem;
+}
+.lint-panel-reference .lint-rules li.is-open > label { color: var(--text); }
+.lint-panel-reference .lint-doc-row { grid-column: 1 / -1; display: block; margin: 0.2rem 0 0.5rem; }
+.lint-panel-reference [id^="rule-"] { scroll-margin-top: calc(var(--header-h) + 1rem); }
 
 /* --------------------------------------------------------------- error -- */
 

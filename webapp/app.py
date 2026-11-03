@@ -59,6 +59,7 @@ def inject_globals():
         "nav_items": [
             ("index", "Home"),
             ("slicer", "Slicer"),
+            ("lint", "Lint"),
             ("benchmark", "Benchmark"),
             ("quantum", "Quantum Info"),
             ("team", "Team"),
@@ -89,7 +90,13 @@ def slicer():
 
 
 # The endpoint is named for the page; the function is not, so it does not
-# shadow the benchmark module.
+# shadow the lint module the linters use.
+@app.route("/lint", endpoint="lint")
+def lint_page():
+    return render_template("lint.html", page="lint", profiles=analysis.rule_profiles())
+
+
+# Likewise for the benchmark module.
 @app.route("/benchmark", endpoint="benchmark")
 def benchmark_page():
     dataset = _benchmark_dataset(request.args.get("dataset"))

@@ -401,6 +401,14 @@
   function wireToolbar() {
     $('dir-backward').addEventListener('click', function () { setDirection('backward'); });
     $('dir-forward').addEventListener('click', function () { setDirection('forward'); });
+    $('slice-clear').addEventListener('click', clearSlice);
+    // Esc clears the slice, unless the key is meant for the editor or a field.
+    document.addEventListener('keydown', function (event) {
+      if (event.key !== 'Escape' || state.criterion === null) return;
+      var tag = event.target && event.target.tagName;
+      if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return;
+      clearSlice();
+    });
 
     $('range-from').addEventListener('change', applyRange);
     $('range-to').addEventListener('change', applyRange);
@@ -619,6 +627,7 @@
       state.payload = null;
       state.token = null;
       state.criterion = null;
+      $('slice-clear').disabled = true;
       graph.clear();
       $('graph-empty').hidden = false;
       renderInstructions(null);
@@ -633,6 +642,7 @@
     state.payload = data;
     state.token = data.token;
     state.criterion = null;
+    $('slice-clear').disabled = true;
     state.selectedQubit = null;
     // A new rule set may offer different dependency types, so the filter goes
     // back to following everything it now has.
@@ -719,13 +729,20 @@
       head.innerHTML =
         (item.tool ? '<span class="diag-tool">' + escapeHtml(linterLabels[item.tool] || item.tool) +
           '</span>' : '') +
-        '<span class="diag-code">' + escapeHtml(item.code) + '</span>' +
+        // The code links to the rule's explanation on the Lint page, in a new
+        // tab so the analysis stays.
+        (item.tool && item.code ? '<a class="diag-code" target="_blank" rel="noopener" href="/lint#' +
+          escapeHtml(item.tool + '/' + item.code) + '" title="What ' + escapeHtml(item.code) +
+          ' checks, with an example">' + escapeHtml(item.code) + '</a>'
+          : '<span class="diag-code">' + escapeHtml(item.code) + '</span>') +
         (item.line ? '<span class="diag-loc">line ' + item.line +
           (item.column ? ':' + item.column : '') + '</span>' : '') +
         (item.nodes && item.nodes.length ? '<span class="diag-nodes" title="Graph nodes this is about">#' +
           item.nodes.join(', #') + '</span>' : '') +
         '<span class="diag-message">' + escapeHtml(item.message) + '</span>';
       li.appendChild(head);
+      var ruleLink = head.querySelector('a.diag-code');
+      if (ruleLink) ruleLink.addEventListener('click', function (event) { event.stopPropagation(); });
 
       if (item.detail) {
         var detail = document.createElement('span');
@@ -944,8 +961,23 @@
 
   /* ----------------------------------------------------------- slice ---- */
 
+  /* Clicking the criterion again (in the graph or the table) clears the slice. */
   function pickCriterion(node) {
-    requestSlice(node.id);
+    if (node.id === state.criterion) clearSlice();
+    else requestSlice(node.id);
+  }
+
+  function clearSlice() {
+    if (state.criterion === null) return;
+    state.criterion = null;
+    state.sliceSeq++;                 // a slice still on its way is no longer wanted
+    graph.setSlice(null, null);
+    markSliceInTable([], null);
+    state.source.slice = [];
+    state.source.criterion = [];
+    applySourceMarks();
+    $('slice-clear').disabled = true;
+    setStatus('Slice cleared. Click a gate to slice from it.');
   }
 
   function requestSlice(nodeIdx) {
@@ -975,6 +1007,7 @@
         }
         graph.setSlice(data.slice, nodeIdx);
         markSliceInTable(data.slice, nodeIdx);
+        $('slice-clear').disabled = false;
         var node = state.payload.nodes[nodeIdx];
         var lines = sliceSource(data.slice, nodeIdx);
         var percent = Math.round((data.size / data.total) * 100);
@@ -1015,7 +1048,7 @@
             escapeHtml(window.describeSource(node.source)) + '</span>'
           : '—') + '</td>' +
         '<td class="slice-cell"></td>';
-      row.addEventListener('click', function () { requestSlice(node.id); });
+      row.addEventListener('click', function () { pickCriterion(node); });
       row.addEventListener('mouseenter', function () { hoverSource(node); });
       row.addEventListener('mouseleave', function () { hoverSource(null); });
       var link = row.querySelector('.line-link');
@@ -1458,6 +1491,7 @@
     state.payload = null;
     state.token = null;
     state.criterion = null;
+    $('slice-clear').disabled = true;
     state.selectedQubit = null;
     resetSourceLinks(false);
     graph.clear();

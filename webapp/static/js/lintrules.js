@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Lint rule selection, shared by the slicer page and the Benchmark page.
+   Lint rule selection, shared by the Slicer, Lint and Benchmark pages.
 
    The selection is a list of rule ids ("quick/QS002", "dependence/QD01")
    kept in localStorage, so the rules a user picks on one page are the rules
@@ -66,11 +66,18 @@
 
   var catalogPromise = null;
 
+  /* The linters this server can run. One it cannot (LintQ through CodeQL,
+     unless CodeQL is installed) is left out of every picker, and kept in
+     ``unavailable`` for the Lint page to mention. */
   function load() {
     if (!catalogPromise) {
       catalogPromise = fetch('/api/linters').then(function (response) {
         if (!response.ok) throw new Error('Could not load the linter list.');
         return response.json();
+      }).then(function (catalog) {
+        catalog.unavailable = catalog.linters.filter(function (l) { return !l.available; });
+        catalog.linters = catalog.linters.filter(function (l) { return l.available; });
+        return catalog;
       });
     }
     return catalogPromise;
@@ -113,8 +120,11 @@
       html += '<span class="src-line' + (byLine[n] ? ' is-fault' : '') + '"><span class="src-no">' +
         n + '</span>' + escapeHtml(text) + '</span>';
       (byLine[n] || []).forEach(function (f) {
+        // A finding that names its linter links to the rule on the Lint page.
+        var code = f.tool ? '<a class="src-rule" href="/lint#' + escapeHtml(f.tool + '/' + f.code) +
+          '">' + escapeHtml(f.code) + '</a>' : escapeHtml(f.code);
         html += '<span class="src-warning sev-' + escapeHtml(f.severity || 'warning') + '">' +
-          escapeHtml(f.code + ' ' + f.message) + (f.hint ? '\n' + escapeHtml(f.hint) : '') + '</span>';
+          code + ' ' + escapeHtml(f.message) + (f.hint ? '\n' + escapeHtml(f.hint) : '') + '</span>';
       });
     });
     return html + '</pre>';
@@ -148,9 +158,10 @@
 
   /* Build the checkbox tree inside `container`. `onChange(selection)` runs
      after every change, once the new selection is stored. Each rule has a
-     "?" button that opens its explanation, with a worked example, below the
-     tree. */
-  function mountPicker(container, catalog, onChange) {
+     "?" button that opens its explanation, with a worked example: below the
+     tree, or with ``options.inlineDocs`` right under the rule (the Lint page). */
+  function mountPicker(container, catalog, onChange, options) {
+    var inline = !!(options && options.inlineDocs);
     var selection = resolve(catalog, readStored());
     var openDoc = null;                 // the rule id whose explanation is shown
 
@@ -169,7 +180,10 @@
 
     function render() {
       var chosen = chosenSet();
-      var html = '';
+      var html = '<div class="lint-actions">' +
+        '<button type="button" class="chip" data-action="default">Defaults</button>' +
+        '<button type="button" class="chip" data-action="all">All</button>' +
+        '<button type="button" class="chip" data-action="none">None</button></div>';
       catalog.linters.forEach(function (linter) {
         var on = linter.rules.filter(function (rule) { return chosen[rule.id]; }).length;
         var disabled = !linter.available;
@@ -182,7 +196,8 @@
           '</p><ul class="lint-rules">';
         linter.rules.forEach(function (rule) {
           var open = openDoc === rule.id;
-          html += '<li><label title="' + escapeHtml(rule.description) + '">' +
+          html += '<li id="' + (inline ? 'rule-' + escapeHtml(rule.id.replace('/', '-')) : '') + '"' +
+            (open ? ' class="is-open"' : '') + '><label title="' + escapeHtml(rule.description) + '">' +
             '<input type="checkbox" data-rule="' + escapeHtml(rule.id) + '"' +
             (chosen[rule.id] ? ' checked' : '') + (disabled ? ' disabled' : '') + '>' +
             '<span class="lint-code sev-' + escapeHtml(rule.severity) + '">' + escapeHtml(rule.code) +
@@ -190,14 +205,13 @@
             '<button type="button" class="lint-more' + (open ? ' is-open' : '') + '" data-doc="' +
             escapeHtml(rule.id) + '" aria-expanded="' + open + '" title="Explain ' +
             escapeHtml(rule.code) + ', with an example">?</button></li>';
+          if (inline && open) html += '<li class="lint-doc-row"><section class="lint-doc" aria-live="polite"></section></li>';
         });
         html += '</ul></fieldset>';
       });
-      html += '<div class="lint-actions">' +
-        '<button type="button" class="chip" data-action="default">Defaults</button>' +
-        '<button type="button" class="chip" data-action="all">All</button>' +
-        '<button type="button" class="chip" data-action="none">None</button></div>' +
-        '<section class="lint-doc" aria-live="polite"' + (openDoc ? '' : ' hidden') + '></section>';
+      if (!inline) {
+        html += '<section class="lint-doc" aria-live="polite"' + (openDoc ? '' : ' hidden') + '></section>';
+      }
       container.innerHTML = html;
       fillDoc();
       container.querySelectorAll('input[data-linter]').forEach(function (box) {
@@ -244,6 +258,7 @@
     function showDoc(ruleId) {
       openDoc = openDoc === ruleId ? null : ruleId;
       render();
+      if (options && options.onDoc) options.onDoc(openDoc);
       var panel = container.querySelector('.lint-doc');
       if (!openDoc || !panel) return;
       if (container.closest && container.closest('.lint-dropdown')) {
@@ -283,7 +298,20 @@
     render();
     return {
       selection: function () { return selection.slice(); },
-      summary: function () { return summarize(catalog, selection); }
+      summary: function () { return summarize(catalog, selection); },
+      // Open one rule's explanation (a link to /lint#quick/QS015) and bring
+      // its rule to the top of the view. False for a rule it does not list.
+      openRule: function (ruleId) {
+        var known = catalog.linters.some(function (linter) {
+          return linter.rules.some(function (rule) { return rule.id === ruleId; });
+        });
+        if (!known) return false;
+        openDoc = ruleId;
+        render();
+        var row = container.querySelector('[data-doc="' + ruleId + '"]');
+        if (row && row.scrollIntoView) row.closest('li').scrollIntoView({ block: 'start' });
+        return true;
+      }
     };
   }
 
@@ -296,6 +324,7 @@
     // What is stored, unresolved: null for the default. Good enough to send
     // before the catalog has loaded, since the server drops unknown ids.
     stored: readStored,
-    mountPicker: mountPicker
+    mountPicker: mountPicker,
+    sourceBlock: sourceBlock
   };
 })();

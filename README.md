@@ -91,6 +91,7 @@ API but is not on the page.
 |---|---|
 | `/` | Landing page |
 | `/slicer` | The application: source on the left, graph and analysis on the right |
+| `/lint` | Pick the lint rules, read what each catches with an example and its fix, and lint a pasted program |
 | `/benchmark` | Grade the selected lint rules on a benchmark's bugs (Bugs4Q by default) |
 | `/quantum` | Background on quantum programs, the QDG and the tools used |
 
@@ -107,8 +108,11 @@ On the slicer page:
   line. A slice highlights every source line it covers and scrolls to the
   criterion. Click a gutter line number to see which nodes that line produced.
 - **Lint** picks the linters and individual rules that run on Analyze. The
-  choice is remembered in the browser and shared with the Benchmark page.
-  The **?** next to a rule explains it with a worked example.
+  choice is remembered in the browser and shared with the Lint and Benchmark
+  pages. The **?** next to a rule explains it with a worked example, and a
+  finding's code links to its rule on the Lint page.
+- **Clear a slice** by clicking its criterion again, the **Clear** button next
+  to Backward/Forward, or Esc.
 - **Lint markers on the graph.** A node a finding is about gets a dashed
   outline in the finding's severity and a corner badge; its tooltip lists the
   findings. A finding about several gates marks them all (both gates of a

@@ -32,14 +32,18 @@
   <section class="bench-controls" aria-label="Benchmark settings">
     <div class="bench-controls-head">
       <h2>Rules to grade</h2>
-      <p>The same selection as the <strong>Lint</strong> menu on the <a href="/slicer">Slicer</a>
-        page; a change here applies there too. Select rules from several linters to see each one
-        alone and all of them combined.</p>
-    </div>
-    <div class="lint-panel lint-panel-inline" id="lint-picker">
-      <p class="placeholder">Loading the linters&hellip;</p>
+      <p>The rules picked on the <a href="/lint">Lint</a> page, where each one is explained with an
+        example; the <a href="/slicer">Slicer</a> uses them too. Pick rules from several linters
+        to see each one alone and all of them combined.</p>
     </div>
     <div class="bench-run">
+      <div class="field lint-field">
+        <span>Lint</span>
+        <details class="lint-dropdown" id="lint-dropdown">
+          <summary id="lint-summary" title="The rules to grade, the same selection as the Lint page.">Default rules</summary>
+          <div class="lint-panel" id="lint-picker"><p class="placeholder">Loading the linters&hellip;</p></div>
+        </details>
+      </div>
       <label class="field field-narrow">
         <span>QDG rules</span>
         <select id="profile-select" title="The dependence-graph rules linters that read the QDG use.">

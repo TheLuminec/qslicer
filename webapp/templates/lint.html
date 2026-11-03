@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Lint &middot; Quantum Program Slicer{% endblock %}
+
+{% block content %}
+<div class="lintpage">
+  <header class="bench-header">
+    <p class="eyebrow">Linting</p>
+    <h1>Lint rules</h1>
+    <p class="lede">
+      The linters read a Qiskit program without running it and point at lines that are likely
+      wrong. The rules you pick here are the ones the <a href="/slicer">Slicer</a> reports on
+      every analysis and the ones the <a href="/benchmark">Benchmark</a> grades.
+    </p>
+  </header>
+
+  <section class="lint-try" aria-labelledby="lint-try-title">
+    <div class="bench-controls-head">
+      <h2 id="lint-try-title">Try them</h2>
+      <p>Paste a program and lint it with the selected rules. Nothing is executed; the findings
+        appear under the lines they are about.</p>
+    </div>
+    <div class="lint-try-grid">
+      <label class="lint-try-input">
+        <textarea id="lint-source" spellcheck="false" rows="14" aria-label="Program to lint">from qiskit import QuantumCircuit
+from qiskit_aer import AerSimulator
+
+
+def sample() -&gt; dict:
+    qc = QuantumCircuit(3)
+    qc.h(0)
+    qc.cx(0, 1)
+    return AerSimulator().run(qc).result().get_counts()
+</textarea>
+      </label>
+      <div class="lint-try-output">
+        <div class="lint-try-bar">
+          <button class="btn btn-primary" id="btn-lint" type="button">Lint</button>
+          <span class="bench-status" id="lint-status" role="status">Not run yet.</span>
+        </div>
+        <div id="lint-result" class="lint-result">
+          <p class="placeholder">The findings show up here, on the program's lines.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="lint-reference" aria-labelledby="lint-rules-title">
+    <div class="bench-controls-head">
+      <h2 id="lint-rules-title">Rules</h2>
+      <p>Tick the rules to run; the choice is kept in this browser and shared with the Slicer and
+        the Benchmark. Click <strong>?</strong> on a rule for what it catches, its limits, and a
+        worked example with its fix.</p>
+    </div>
+    <div class="lint-panel lint-panel-reference" id="lint-picker">
+      <p class="placeholder">Loading the linters&hellip;</p>
+    </div>
+    <p class="bench-note" id="lint-unavailable" hidden></p>
+  </section>
+
+  <section class="bench-explain">
+    <h2>The linters</h2>
+    <dl class="tool-list">
+      <dt>Quick checks (QS)</dt>
+      <dd>Errors Python or Qiskit would raise, read from the source: syntax, a missing circuit,
+        indices outside the registers, removed, deprecated or unknown Qiskit APIs, and operations
+        Qiskit rejects while the static parser rebuilds the circuit.</dd>
+      <dt>Dependence checks (QD)</dt>
+      <dd>Quantum-side mistakes, read from the rebuilt circuit and its dependence graph: gates no
+        measurement depends on, measurements overwritten or constant, controls never set, idle
+        qubits, cancelling pairs, gates with no effect.</dd>
+      <dt>LintQ (LQ)</dt>
+      <dd>A port of the LintQ analyses to the slicer's static front end.</dd>
+      <dt>Where they run</dt>
+      <dd>On every <strong>Analyze</strong> in the Slicer, where a finding marks its nodes in the
+        graph, and on every bug of a <a href="/benchmark">Benchmark</a> dataset.</dd>
+    </dl>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/lintrules.js') }}"></script>
+<script src="{{ url_for('static', filename='js/lint.js') }}"></script>
+{% endblock %}
