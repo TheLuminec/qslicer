@@ -98,8 +98,31 @@ def rule_table(bench):
     return "\n".join(rows)
 
 
+def _pct(num, den):
+    return f"{round(100 * num / den)}%" if den else "–"
+
+
+def no_rewrite_precision(bench, cid):
+    """Warning precision over the bugs whose fix is not a rewrite. In a rewrite almost
+    every line is a fault line, so its warnings hit by default and inflate precision."""
+    config = next(c for c in bench["configs"] if c["id"] == cid)
+    rules = set(config.get("rules", []))
+    hits = total = 0
+    for bug in bench["bugs"]:
+        if bug["truth"]["kind"] == "rewrite":
+            continue
+        if config["kind"] == "external":
+            buggy = bug["external_warnings"].get(cid, {}).get("buggy", [])
+        else:
+            buggy = [w for w in bug["warnings"]["buggy"] if w["rule"] in rules]
+        total += len(buggy)
+        hits += sum(1 for w in buggy if w.get("line") in bug["truth"]["lines"])
+    return _pct(hits, total)
+
+
 def results_table(bench):
     rows = []
+    no_rewrite = sum(1 for b in bench["bugs"] if b["truth"]["kind"] != "rewrite")
     for cid, label in RESULT_ROWS:
         t = bench["totals"].get(cid)
         if t is None:
@@ -108,10 +131,12 @@ def results_table(bench):
         bold = ' style="font-weight:600"' if cid == "selection" else ""
         prec = f'{round(100 * t["warning_precision"])}%' if t["warning_precision"] is not None else "–"
         rows.append(f'<tr{bold}><td>{label}</td>'
-                    f'<td class="num">{t["detected"]} / {t["bugs"]}</td><td class="num">{t["detected_no_rewrites"]}</td>'
+                    f'<td class="num">{t["detected"]} / {t["bugs"]}</td>'
+                    f'<td class="num">{t["detected_no_rewrites"]} / {no_rewrite}</td>'
                     f'<td class="num">{t["hit"]}</td><td class="num">{t["warned"]}</td>'
                     f'<td class="num">{t["warnings_buggy"]} / {t["warnings_fixed"]}</td>'
-                    f'<td class="num">{prec}</td><td><span class="bar" style="width:{bar}px"></span></td></tr>')
+                    f'<td class="num">{prec}</td><td class="num">{no_rewrite_precision(bench, cid)}</td>'
+                    f'<td><span class="bar" style="width:{bar}px"></span></td></tr>')
     return "\n".join(rows)
 
 
@@ -158,8 +183,13 @@ def main():
         "{{QISKIT}}": qiskit.__version__,
         "{{DATE}}": datetime.date.today().strftime("%d %b %Y").lstrip("0"),
         "{{LINTERS}}": str(len(catalog)), "{{LINTERS_ON}}": str(sum(1 for e in catalog if e["default"])),
-        "{{RULE_CODES}}": str(len({r["code"] for e in catalog for r in e["rules"]})),
+        # LQ00 is the port's "program too large" note, not a check; Table 2 leaves it out too
+        "{{RULE_CODES}}": str(len({r["code"] for e in catalog for r in e["rules"]} - {"LQ00"})),
         "{{B_DETECTED}}": str(sel["detected"]), "{{B_BUGS}}": str(sel["bugs"]),
+        "{{B_DETECTED_NR}}": str(sel["detected_no_rewrites"]),
+        "{{B_NR}}": str(sum(1 for b in bench["bugs"] if b["truth"]["kind"] != "rewrite")),
+        "{{B_PREC_NR}}": no_rewrite_precision(bench, "selection"),
+        "{{B_PREC}}": f'{round(100 * sel["warning_precision"])}%',
         "{{B_EDITS}}": str(kinds["edit"]), "{{B_REWRITES}}": str(kinds["rewrite"]),
         "{{B_OMISSIONS}}": str(kinds["omission"]),
         "{{B_READ}}": str(bench["front_end"]["read"]), "{{B_PROGRAMS}}": str(bench["front_end"]["attempted"]),

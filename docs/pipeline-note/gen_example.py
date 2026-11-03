@@ -158,9 +158,12 @@ def panel(mode, pid):
 
 via_calls = {}
 by_line = {}
+spans = {}          # line -> nodes whose span covers it (an if_test block spans its body)
 for n in nodes:
     s = n["source"]
     by_line.setdefault(s["line"], []).append((n["id"], s["via"]))
+    for ln in range(s["line"], (s.get("end_line") or s["line"]) + 1):
+        spans.setdefault(ln, []).append(n["id"])
     for v in s["via"]:
         via_calls.setdefault(v, []).append(n["id"])
 lint_lines = {}
@@ -178,7 +181,8 @@ for ln, text in enumerate(src.splitlines(), 1):
         tags.append(f'<span class="tag-v">call site of {", ".join("n%d" % i for i in via_calls[ln])}</span>')
     for c in lint_lines.get(ln, []):
         tags.append(f'<span class="tag-l">{c}</span>')
-    hl = " hl" if own and any(i in slice_all for i, _ in own) else ""
+    # shaded: a line some node of slice (b) spans, or the call site of one
+    hl = " hl" if any(i in slice_all for i in spans.get(ln, []) + via_calls.get(ln, [])) else ""
     rows.append(f'<div class="ln{hl}"><span class="no">{ln}</span><code>{html.escape(text) or " "}</code><span class="tags">{" ".join(tags)}</span></div>')
 
 ir = []

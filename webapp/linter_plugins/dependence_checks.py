@@ -28,7 +28,8 @@ _PREPARING = frozenset({"barrier", "delay", "snapshot", "measure", "reset"})
 
 RULES = [
     Rule("QD01", "Dead gate", "warning",
-         "No measured bit depends on this gate, so removing it cannot change the output."),
+         "No classical bit the circuit writes (by a measurement, a store or a block that "
+         "measures inside) depends on this gate, so removing it cannot change the output."),
     Rule("QD02", "Measurement overwritten", "warning",
          "A measurement writes a classical bit that a later measurement overwrites before "
          "anything reads it."),
@@ -106,14 +107,37 @@ def _finding(code: str, line: int, message: str, hint: str,
     return finding
 
 
+def _writes_a_bit(instruction) -> bool:
+    """Whether an instruction writes a classical bit: a measurement, a store, or a
+    control-flow block whose body (at any depth) writes one. A block lists its
+    condition bits among its clbits, so its body is what tells."""
+    bodies = [p for p in instruction.params if hasattr(p, "data")]
+    if not bodies:
+        return bool(instruction.clbits)
+    return any(_body_writes(body) for body in bodies)
+
+
+def _body_writes(circuit) -> bool:
+    for inner in circuit.data:
+        bodies = [p for p in inner.operation.params if hasattr(p, "data")]
+        if bodies:
+            if any(_body_writes(body) for body in bodies):
+                return True
+        elif inner.clbits:
+            return True
+    return False
+
+
 def _dead_gates(program, qdg) -> List[Dict[str, Any]]:
     from slicer import QuantumSlicer, SlicingCriterion
 
-    measurements = [i for i in range(len(program)) if program[i].name == "measure"]
-    if not measurements:
+    # The program's output is every classical bit it writes, so every writer is a
+    # criterion: measurements, stores, and blocks that measure inside.
+    writers = [i for i in range(len(program)) if _writes_a_bit(program[i])]
+    if not any(program[i].name == "measure" for i in writers):
         return []
     live: Set[int] = set()
-    for idx in measurements:
+    for idx in writers:
         if idx not in live:
             live |= QuantumSlicer.backward_slice(qdg, SlicingCriterion(node_idx=idx))
     findings = []
@@ -124,7 +148,7 @@ def _dead_gates(program, qdg) -> List[Dict[str, Any]]:
         findings.append(_finding(
             "QD01", _line(instruction),
             f"{instruction.name} on qubit(s) {list(instruction.qubits)} cannot affect any "
-            "measured bit.",
+            "classical bit the circuit writes.",
             "Either it is left over, or a measurement that should follow it is missing.",
             nodes=[idx],
         ))

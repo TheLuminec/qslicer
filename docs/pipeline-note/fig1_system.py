@@ -1,7 +1,8 @@
 """Figure 1: the system overview, with the web app as a layer on the left.
 
-One request enters from the browser; analyze_source runs the lint path first,
-then the analysis path, and the JSON response goes back along the top lane. A
+One request enters from the browser; analyze_source runs the lint path first
+(linters.run builds the LintContext and calls each linter), then the analysis
+path, and the JSON response goes back along the top lane. A
 slice request goes from slice_program along the second top lane to the cached
 QDG. Imported by gen_figs.py, which owns the drawing helpers.
 """
@@ -32,7 +33,7 @@ def system(Fig):
     f.text(FE[0], A_TOP + 18, "ANALYSIS PATH", "bandt")
     f.text(FE[0] + 104, A_TOP + 18, "builds the QDG, answers slices", "bands")
     f.text(FE[0], L_TOP + 18, "LINT PATH", "bandt")
-    f.text(FE[0] + 72, L_TOP + 18, "runs first, on its own parse (linting on)", "bands")
+    f.text(FE[0] + 72, L_TOP + 18, "runs first (linting on)", "bands")
     f.text(FE[0], B_TOP + 18, "BENCHMARK PATH", "bandt")
     f.text(FE[0] + 118, B_TOP + 18, "grades the same linters on buggy and fixed programs", "bands")
     for (x, _), s in ((WEB, "WEB LAYER"), (FE, "STATIC FRONT ENDS"), (MOD, "CIRCUIT MODEL"),
@@ -114,7 +115,7 @@ def system(Fig):
         "ANTLR reference",
         "grammar; spans",
     ], "box")
-    f.box(ix, 350, iw, 180, "_QasmInterpreter", [
+    f.box(ix, 350, iw, 172, "_QasmInterpreter", [
         "for → unrolled",
         "def → inlined",
         "known branch → taken",
@@ -126,12 +127,13 @@ def system(Fig):
     ], "box box-key")
     f.arrow([(bx + 150, 395), (ix, 395)], "ar")
     # dispatcher and its bus
-    f.box(bx, 552, fw - 34, 66, "_parse_source · parse()", [
-        "the request's language picks one front",
-        "end; parse() returns a QuantumProgram",
+    f.box(bx, 534, fw - 34, 88, "parse() · the language picks the front end", [
+        "analysis: analysis._parse_source, 20 s",
+        "lint: linters._static_parse, 5 s",
+        "both return a QuantumProgram (the IR)",
     ], "box box-key")
-    f.badge(bx + fw - 34 - 14, 566, 3)
-    f.add(f'<path class="ar" d="M{bx+16},{552} L{bx+16},{542} L{fx+10},{542} L{fx+10},{190} L{bx-2},{190}" '
+    f.badge(bx + fw - 34 - 14, 548, 3)
+    f.add(f'<path class="ar" d="M{bx+16},{534} L{bx+16},{528} L{fx+10},{528} L{fx+10},{190} L{bx-2},{190}" '
           f'marker-end="url(#f1-ah)"/>')
     f.arrow([(fx + 10, 395), (bx - 2, 395)], "ar")
     # analyze_source -> dispatcher
@@ -141,31 +143,38 @@ def system(Fig):
     mx, mw = MOD
     f.rect(mx, 104, mw, 526, "box box-group", 8)
     f.text(mx + 10, 122, "staticqiskitparser.py", "sub")
-    f.box(mx + 10, 134, mw - 20, 112, "StaticCircuit", [
-        "`data: [StaticInstruction]",
+    # StaticCircuit holds its StaticInstructions, drawn nested
+    f.box(mx + 10, 134, mw - 20, 214, "StaticCircuit", [
         "`qregs cregs qubits clbits",
         "`_scopes: open if blocks",
         "~broadcast() as Qiskit does",
+        "`data: one per instruction",
     ], "box")
-    f.box(mx + 10, 258, mw - 20, 82, "StaticInstruction", [
-        "`operation qubits clbits",
-        "`location condition",
-        "`condition_bits",
+    f.box(mx + 22, 232, mw - 44, 104, "StaticInstruction", [
+        "`operation qubits",
+        "`clbits condition_bits",
+        "`location",
     ], "box")
-    f.box(mx + 10, 352, mw - 20, 80, "_choose_circuit", [
-        "Qiskit only: picks the",
-        "module-level circuit with",
-        "the most instructions",
+    f.box(mx + 50, 372, mw - 60, 92, "_choose_circuit", [
+        "Qiskit: module-level",
+        "circuit with most",
+        "top-level instructions;",
+        "tie → defined first",
     ], "box")
-    f.box(mx + 10, 444, mw - 20, 78, "circuit_to_program", [
+    f.box(mx + 10, 488, mw - 20, 78, "circuit_to_program", [
         "bits → flat int indices",
         "`condition_bits →",
         "`  condition_clbits",
     ], "box box-key")
-    f.arrow([(mx + mw / 2, 432), (mx + mw / 2, 444)], "ar")
-    f.arrow([(ix + iw, 230), (mx + 10, 200)], "ar")
-    f.text(ix + iw + 16, 206, "places", "al", "middle")
-    f.arrow([(ix + iw, 450), (mx + 10, 300)], "ar")
+    f.arrow([(mx + 130, 348), (mx + 130, 372)], "ar")
+    f.text(mx + 136, 364, "Python", "al", "start")
+    f.arrow([(mx + 130, 464), (mx + 130, 488)], "ar")
+    f.arrow([(mx + 30, 348), (mx + 30, 488)], "ar")
+    f.text(mx + 30, 422, "QASM", "al", "middle")
+    # both interpreters build a StaticCircuit
+    f.arrow([(ix + iw, 190), (mx + 10, 190)], "ar")
+    f.text(ix + iw + 25, 184, "builds", "al", "middle")
+    f.arrow([(ix + iw, 450), (ix + iw + 22, 450), (ix + iw + 22, 226), (mx + 10, 226)], "ar")
 
     # ---------------- IR ----------------
     rx, rw = IR
@@ -194,7 +203,7 @@ def system(Fig):
         "~finding lines and call",
         "~chains, span → node",
     ], "box box-loc")
-    f.arrow([(mx + mw - 10, 484), (mx + mw + 15, 484), (mx + mw + 15, 172), (rx + 10, 172)], "ar")
+    f.arrow([(mx + mw - 10, 527), (mx + mw + 15, 527), (mx + mw + 15, 172), (rx + 10, 172)], "ar")
 
     # ---------------- QDG ----------------
     qx, qw = QDG
@@ -217,8 +226,8 @@ def system(Fig):
     # the rules that emit nothing, grouped
     gy = y + 6
     f.rect(qx + 10, gy, qw - 20, 166, "box box-off", 6)
-    f.text(qx + 20, gy + 18, "Unused in the baseline profile", "t b")
-    f.text(qx + 20, gy + 33, "no edges come from these", "sub")
+    f.text(qx + 20, gy + 18, "No edges in the baseline profile", "t b")
+    f.text(qx + 20, gy + 33, "one placeholder, two switched off", "sub")
     y = gy + 42
     for name, note in (("ControlClassicalRule", "in profile, empty"),
                        ("EntanglementRule", "commented out"),
@@ -277,25 +286,37 @@ def system(Fig):
     f.text(slx + slw / 2, 434, "nodes (from the IR), edges", "al", "middle")
 
     # ---------------- lint path ----------------
-    f.box(fx, 684, fw, 104, "LintContext(source, kind, profile)", [
-        "program() asks the same front ends for",
-        "the IR, lazily and at most once (5 s);",
-        "failure() keeps the exception, which",
-        "is where QS014 comes from",
-    ], "box box-key")
-    f.badge(fx + fw - 14, 698, 1)
+    # linters.run is the entry point: it builds the context and calls each linter
+    lrw = 182                        # linters.run and LintContext, side by side
+    f.box(fx, 684, lrw, 226, "linters.run", [
+        "keeps selected rule ids",
+        "builds one LintContext",
+        "calls each selected linter",
+        "with it; tags tool, rule",
+        "a crash → one error",
+        "sorts by line",
+    ], "box box-key", sub="linters.py · selection")
+    f.badge(fx + lrw - 14, 698, 1)
     f.arrow([(wx + ww, 620), (272, 620), (272, 736), (fx, 736)], "ar")
-    f.arrow([(fx + 150, 684), (fx + 150, 618)], "ar")
-    f.text(fx + 156, 656, "parse, 5 s", "al", "start")
-    f.arrow([(fx + 280, 618), (fx + 280, 684)], "ar-r")
-    f.text(fx + 286, 656, "program or failure", "al", "start")
+    cx, cw = fx + lrw + 16, fw - lrw - 16
+    f.box(cx, 684, cw, 112, "LintContext", [
+        "program(): the IR, parsed",
+        "lazily, at most once",
+        "failure(): the exception,",
+        "source of QS014",
+    ], "box", sub="source, kind, profile")
+    f.arrow([(fx + lrw, 730), (cx, 730)], "ar")
+    f.arrow([(cx + 40, 684), (cx + 40, 622)], "ar")
+    f.text(cx + 46, 662, "parse, 5 s", "al", "start")
+    f.arrow([(cx + 132, 622), (cx + 132, 684)], "ar-r")
+    f.text(cx + 138, 662, "program or failure", "al", "start")
 
     # the linters, grouped
     gx, gw = MOD[0], SL[0] + SL[1] - MOD[0]
     f.rect(gx, 680, gw, 252, "box box-group box-lint", 8)
     f.text(gx + 12, 698, "Linters", "bh")
-    f.text(gx + 70, 698, "registered in linters.py; only the selected rules run, each gets the same context",
-           "sub")
+    f.text(gx + 70, 698, "quick is built into linters.py; the other three are plugins the registry loads from "
+           "linter_plugins/. Each gets the same context.", "sub")
     LW = (gw - 24 - 3 * 12) / 4
     lx = [gx + 12 + k * (LW + 12) for k in range(4)]
     ly, lh = 710, 210
@@ -315,14 +336,14 @@ def system(Fig):
             "reaching definitions, API",
             "paths (mirrors LintQ's CodeQL",
             "library and its limits)",
-            "same 190 warnings as the",
-            "original on 239 programs",
+            "same warnings as the original",
+            "on a 239-program corpus",
         ]),
         ("dependence · QD01–QD10", "on · Python and OpenQASM", [
             "reads the rebuilt program;",
             "builds its own QDG",
-            "QD01: gates outside every",
-            "measurement's backward slice",
+            "QD01: gates outside the",
+            "backward slice of every write",
             "QD05: qubits still |0⟩",
             "QD10: Pauli eigenstates",
             "findings name node indices",
@@ -340,7 +361,13 @@ def system(Fig):
     ]
     for k, (title, sub, lines) in enumerate(linters):
         f.box(lx[k], ly, LW, lh, title, lines, "box", sub=sub)
-    f.arrow([(fx + fw, 736), (gx, 736)], "ar")
+    # the context goes to every linter; linters.run calls them and collects
+    f.arrow([(cx + cw, 736), (gx, 736)], "ar")
+    f.text((cx + cw + gx) / 2, 730, "context", "al", "middle")
+    f.arrow([(fx + lrw, 860), (gx, 860)], "ar")
+    f.text((fx + lrw + gx) / 2, 854, "calls each selected linter", "al", "middle")
+    f.arrow([(gx, 892), (fx + lrw, 892)], "ar-r")
+    f.text((fx + lrw + gx) / 2, 886, "diagnostics", "al", "middle")
     # dependence checks reuse the QDG and slicer
     f.arrow([(lx[2] + LW - 30, ly), (lx[2] + LW - 30, 630)], "ar-l")
     f.text(lx[2] + LW - 24, 674, "reuses QDG + backward_slice", "al", "start")
@@ -348,7 +375,7 @@ def system(Fig):
     f.arrow([(rx + 110, 560), (rx + 110, 664), (lx[2] + 40, 664), (lx[2] + 40, ly)], "ar-loc")
     f.text(rx + 118, 658, "line, via", "al loc", "start")
 
-    # results of the lint path
+    # step 7, after the graph: findings onto nodes
     f.box(ox, 684, ow, 100, "attach_lint_nodes", [
         "named nodes if one",
         "covers the line, else",
@@ -356,26 +383,20 @@ def system(Fig):
         "covers the line(s)",
     ], "box box-key")
     f.badge(ox + ow - 14, 698, 7)
-    f.box(ox, 812, ow, 112, "linters.run", [
-        "keep selected ids,",
-        "add tool and rule;",
-        "a crash → one error;",
-        "sort by line",
-    ], "box", sub="linters.py")
-    f.arrow([(gx + gw, 866), (ox, 866)], "ar")
-    f.arrow([(ox + 90, 812), (ox + 90, 784)], "ar")
-    f.text(ox + 96, 803, "diagnostics", "al", "start")
     f.arrow([(ox + ow - 30, 684), (ox + ow - 30, 470)], "ar")
     f.text(ox + ow - 36, 540, "diagnostics", "al", "end")
     f.text(ox + ow - 36, 553, "+ nodes", "al", "end")
     f.arrow([(ox + 40, 470), (ox + 40, 684)], "ar-loc")
     f.text(ox + 34, 600, "node spans", "al loc", "end")
     f.text(ox + 34, 613, "(SourceLocation)", "al loc", "end")
-    # diagnostics back to analyze_source for the QS000 gate
-    f.arrow([(ox + 150, 924), (ox + 150, 942), (wx + 120, 942), (wx + 120, 634)], "ar-alt")
+    # linters.run returns the diagnostics to analyze_source (the QS000 gate), which
+    # keeps them for step 7
+    f.arrow([(fx + 60, 910), (fx + 60, 948), (wx + 120, 948), (wx + 120, 634)], "ar-alt")
     f.badge(wx + 120, 900, 2)
-    f.text(1000, 957, "diagnostics back to analyze_source: a QS000 syntax error ends the request "
-                      "with these and no graph", "al alt", "middle")
+    f.text(wx + 128, 926, "QS000: stop,", "al alt", "start")
+    f.text(wx + 128, 939, "no graph", "al alt", "start")
+    f.arrow([(fx + 60, 948), (ox + 60, 948), (ox + 60, 784)], "ar")
+    f.text(1000, 961, "diagnostics, kept by analyze_source until step 7", "al", "middle")
 
     # ---------------- benchmark band ----------------
     BY, BH = 1006, 92
@@ -413,8 +434,9 @@ def system(Fig):
         f.arrow([(bxs[k] + widths[k], BY + BH / 2), (bxs[k + 1], BY + BH / 2)], "ar")
 
     return f.svg(W, H, "System overview of the Quantum Slicer. The web layer on the left receives one "
-                       "request from the browser. analyze_source runs the linters first on their own "
-                       "static parse, stops on a syntax error, then parses the program through one of two "
+                       "request from the browser. analyze_source first calls linters.run, which builds one "
+                       "LintContext with its own static parse and calls each selected linter; a syntax "
+                       "error stops the request. It then parses the program through one of two "
                        "static front ends into the shared circuit model and the IR, builds the QDG, caches "
                        "it under a token and maps the lint findings onto graph nodes using source "
                        "locations; the response goes back to the browser. A slice request reaches the "

@@ -141,6 +141,37 @@ def test_gate_feeding_a_measurement_is_live():
     assert dependence(source, "QD01") == []
 
 
+def test_block_that_measures_inside_is_live():
+    # The if_test lists only its condition bit; the measurement in its body writes
+    # the output, so the block is not dead.
+    source = py("""
+        qc = QuantumCircuit(2, 2)
+        qc.h(0)
+        qc.measure(0, 0)
+        with qc.if_test((qc.clbits[0], 1)):
+            qc.x(1)
+            qc.measure(1, 0)
+    """)
+    assert dependence(source, "QD01") == []
+
+
+def test_block_without_a_write_after_the_last_measurement_is_dead():
+    source = py("""
+        qc = QuantumCircuit(2, 1)
+        qc.h(0)
+        qc.measure(0, 0)
+        with qc.if_test((qc.clbits[0], 1)):
+            qc.x(1)
+    """)
+    assert [d["line"] for d in dependence(source, "QD01")] == [6]
+
+
+def test_store_after_the_last_measurement_is_live():
+    qasm = ('OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[1] q;\nbit[2] c;\n'
+            'h q[0];\nc[0] = measure q[0];\nc[1] = c[0];\n')
+    assert linters.run(qasm, "a.qasm", "qasm-static", ["dependence/QD01"]) == []
+
+
 def test_dead_gate_in_a_loop_is_reported_once():
     source = py("""
         qc = QuantumCircuit(2, 1)

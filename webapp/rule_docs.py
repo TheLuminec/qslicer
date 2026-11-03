@@ -227,9 +227,11 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
     },
     # ----------------------------------------------------------- dependence
     "QD01": {
-        "explain": "No measured bit depends on this gate: the dependence graph proves removing "
-                   "it cannot change the output. Typically a gate after the last measurement of "
-                   "its qubit, or on a qubit that is never measured.",
+        "explain": "No classical bit the circuit writes depends on this gate: the dependence "
+                   "graph proves removing it cannot change the output. The writers are "
+                   "measurements, stores (a bit copied from another) and if_test blocks that "
+                   "measure inside. Typically a gate after the last measurement of its qubit, "
+                   "or on a qubit that is never measured.",
         "limits": "Needs the static parser to rebuild the circuit; circuits with no "
                   "measurement get no QD01.",
         "example": _HEAD + "qc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.measure(0, 0)\nqc.x(0)\n",

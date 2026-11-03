@@ -211,6 +211,23 @@ tr.grp td { background: var(--code-bg); font-weight: 600; color: var(--ink); fon
 .qdg .crittag { font-size: 10.5px; fill: var(--accent); }
 
 a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* full-screen viewer for Figure 1: click to zoom, drag to pan */
+.fig-tools { display: flex; justify-content: flex-end; margin: 0 0 8px; }
+.fs-btn { font-family: var(--f-sans); font-size: 13px; display: inline-flex; gap: 7px; align-items: center; padding: 6px 12px; border: 1px solid var(--rule-2); border-radius: 8px; background: var(--panel); color: var(--ink-2); cursor: pointer; }
+.fs-btn:hover { color: var(--ink); border-color: var(--ink-3); }
+.fs-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fs-btn svg { display: block; }
+.fs-overlay { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column; background: var(--panel); }
+.fs-overlay[hidden] { display: none; }
+.fs-bar { display: flex; align-items: center; gap: 16px; padding: 10px 16px; padding-top: max(10px, env(safe-area-inset-top, 0px)); border-bottom: 1px solid var(--rule); background: var(--bg); font-family: var(--f-sans); font-size: 13px; color: var(--ink-2); }
+.fs-bar b { color: var(--ink); font-weight: 600; }
+.fs-hint { flex: 1; color: var(--ink-3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fs-stage { flex: 1; overflow: auto; cursor: zoom-in; overscroll-behavior: contain; }
+.fs-stage.zoomed { cursor: zoom-out; }
+.fs-stage.dragging { cursor: grabbing; user-select: none; }
+.fs-canvas { display: flex; min-width: 100%; min-height: 100%; width: max-content; height: max-content; padding: 16px; }
+.fs-canvas > svg { margin: auto; flex: none; height: auto; display: block; }
 @media (max-width: 640px) { body { font-size: 16px; } .lede { font-size: 18px; } h2 { margin-top: 48px; } }
 </style>
 
@@ -223,7 +240,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <div><dt>Front ends</dt><dd><b>2</b> static interpreters: Python <code>ast</code>, OpenQASM 2/3</dd></div>
     <div><dt>Dependency rules</dt><dd><b>4</b> in the baseline profile, <b>3</b> emit edges; 2 more ship off</dd></div>
     <div><dt>Linters</dt><dd><b>{{LINTERS}}</b> registered, <b>{{LINTERS_ON}}</b> on by default; <b>{{RULE_CODES}}</b> rule codes</dd></div>
-    <div><dt>Bugs4Q</dt><dd><b>{{B_DETECTED}}</b> of {{B_BUGS}} bugs detected with quick + dependence + LintQ</dd></div>
+    <div><dt>Bugs4Q</dt><dd><b>{{B_DETECTED}}</b> of {{B_BUGS}} bugs detected with quick + dependence + LintQ; <b>{{B_DETECTED_NR}}</b> of {{B_NR}} without rewrites</dd></div>
   </dl>
 </header>
 
@@ -231,11 +248,13 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <h2><span class="sn">1</span>The pipeline at a glance</h2>
 <div class="prose">
 <p>Figure 1 shows the three paths through the system. The <strong>analysis path</strong> turns source text into an intermediate representation (IR), builds the dependence graph and serves slices. The <strong>lint path</strong> runs first, on its own static parse, and its findings are joined to the graph at the end. The <strong>benchmark path</strong> runs the same linters over pairs of buggy and fixed programs and grades them against the fix.</p>
-<p>Everything after the IR is independent of the source language. Neither front end imports, evaluates or executes the submitted program, and the web API refuses the old route that did (<code>language="qiskit"</code> returns <code>execution_disabled</code>).</p>
+<p>Everything after the IR is independent of the source language. Neither front end imports, evaluates or executes the submitted program, and the web API refuses the old route that did (<code>language="qiskit"</code>, <code>"python"</code> or <code>"py"</code> returns <code>execution_disabled</code>).</p>
+<p>The request's <code>language</code> picks the front end: <code>qiskit-static</code> (or <code>static</code>) for Python and <code>qasm-static</code> (or <code>openqasm-static</code>) for OpenQASM 2 and 3. These are the two choices the page offers. An API caller that sends no language gets the front end the file extension suggests (<code>.qasm</code> and <code>.qasm3</code> for OpenQASM). The names <code>qasm</code>, <code>openqasm</code> and <code>qasm3</code> still reach an older route through <code>qiskit.qasm3.load</code>. It executes nothing either, but it reads only OpenQASM 3 and keeps no source locations; this note does not cover it further.</p>
 </div>
 
 <figure>
-  <div class="scroller wide">{{FIG_SYSTEM}}</div>
+  <div class="fig-tools"><button type="button" class="fs-btn" id="fig1-fs" aria-haspopup="dialog"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9"/></svg>Full screen</button></div>
+  <div class="scroller wide" id="fig1-scroller">{{FIG_SYSTEM}}</div>
   <div class="legend">
     <span><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" style="stroke:var(--ink-2);stroke-width:1.4"/></svg>call or data, in request order</span>
     <span><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" style="stroke:var(--accent);stroke-width:1.8"/></svg>source locations used by the lint path</span>
@@ -243,7 +262,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <span><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" style="stroke:var(--ink-3);stroke-width:1.2;stroke-dasharray:3 3"/></svg>result returned</span>
     <span><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" style="stroke:var(--warn);stroke-width:1.3;stroke-dasharray:6 3"/></svg>diagnostics back to the request (QS000 gate)</span>
   </div>
-  <figcaption><span class="cap-n">Figure 1.</span>System overview, with linting on. The web layer on the left is the only entry point: the browser sends one request, <code>app.py</code> validates it and hands it to <code>analyze_source</code>, which runs the numbered steps in order. <b>1</b> The lint path's <code>LintContext</code> asks the same static front ends for the program under a 5 s limit, and the selected linters run on it. <b>2</b> Their diagnostics come back to <code>analyze_source</code>; a syntax error ends the request there. <b>3</b> <code>_parse_source</code> sends the source to the front end its language names, which lowers it through the shared circuit model into the IR. <b>4</b> The rules build the QDG. <b>5</b> It is cached under a token. <b>6</b> The response is described from the IR and the QDG. <b>7</b> <code>attach_lint_nodes</code> marks the nodes each finding is about, using the source spans of the nodes. A slice request goes from <code>slice_program</code> straight to the cached QDG along the second top lane and never re-parses; both responses return along the top lane.</figcaption>
+  <figcaption><span class="cap-n">Figure 1.</span>System overview, with linting on. The web layer on the left is the only entry point: the browser sends one request, <code>app.py</code> validates it and hands it to <code>analyze_source</code>, which runs the numbered steps in order. <b>1</b> <code>linters.run</code> builds one <code>LintContext</code>, which parses the source through <code>linters._static_parse</code> under a 5 s limit, and calls each selected linter with it. <b>2</b> The diagnostics return to <code>analyze_source</code>; a QS000 syntax error ends the request there. <b>3</b> <code>_parse_source</code> parses again, under 20 s, with the front end the language names. Both interpreters build a <code>StaticCircuit</code>; the Python one picks a single circuit with <code>_choose_circuit</code>, the OpenQASM one only ever builds one, and <code>circuit_to_program</code> lowers it into the IR. <b>4</b> The rules build the QDG. <b>5</b> It is cached under a token. <b>6</b> The response is described from the IR and the QDG. <b>7</b> <code>attach_lint_nodes</code> marks the nodes each finding is about, using the source spans of the nodes. A slice request goes from <code>slice_program</code> straight to the cached QDG along the second top lane and never re-parses; both responses return along the top lane.</figcaption>
 </figure>
 </section>
 
@@ -266,10 +285,11 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </tbody></table></div>
 <div class="prose">
 <p>Python <code>for</code>, <code>while</code> and <code>if</code> statements run concretely, so loops are unrolled and helper functions are followed; the call line of every file-defined function is pushed onto a <code>via</code> stack. Qiskit calls go through <code>call_method</code> and <code>circuit_method</code> to modelled handlers, and every instruction is placed through <code>place()</code>, which applies Qiskit's argument broadcasting. The interpreter refuses <code>eval</code>, <code>exec</code>, <code>compile</code> and any attribute starting with <code>_</code>, and bounds its own work: 2,000,000 statements and loop iterations, 200,000 instructions, call depth 40, 1,000,000 elements in any collection it builds, 100,000 bits per register, and a wall-clock limit (20 s for the analysis, 5 s for linting).</p>
-<p>A script may build several circuits. <code>_choose_circuit</code> takes the module-level <code>StaticCircuit</code> with the most top-level instructions, the same rule as the older executing parser; calls such as <code>execute</code> or <code>transpile</code> play no part, since unmodelled calls return <code>Unknown</code>.</p>
+<p>A script may build several circuits. <code>_choose_circuit</code> takes the module-level <code>StaticCircuit</code> with the most top-level instructions (an <code>if_else</code> counts as one), the same rule as the older executing parser. On a tie, the circuit defined first wins; calls such as <code>execute</code> or <code>transpile</code> play no part, since unmodelled calls return <code>Unknown</code>.</p>
 
 <h3>2.2 OpenQASM 2 and 3</h3>
 <p><code>StaticOpenQASMParser</code> takes its syntax from the OpenQASM project's ANTLR reference parser (<code>openqasm3.parse</code>), so syntax coverage tracks the specification and every statement carries a span. Its own <code>_QasmInterpreter</code> supplies the meaning. <code>for</code> loops are unrolled and subroutines inlined, with the call line added to <code>via</code>. A branch whose condition is known at compile time is simply taken. A branch on measured bits becomes one <code>if_else</code>, <code>switch_case</code> or <code>while_loop</code> instruction, shaped as Qiskit builds it, that lists the clbits its condition reads. A run-time value copied into bits becomes a <code>store</code> instruction that reads the source bits, so a dependency survives the copy. It always builds exactly one circuit.</p>
+<p>OpenQASM 2 goes through the same grammar and interpreter. The OpenQASM 3 grammar already accepts <code>qreg</code>, <code>creg</code> and <code>measure q -&gt; c</code>, and the interpreter knows the gates of <code>qelib1.inc</code> as well as <code>stdgates.inc</code>. The one OpenQASM 2 statement the grammar lacks, <code>opaque</code>, is rewritten to an empty <code>gate</code> before parsing when the header says <code>OPENQASM 2</code>, so an opaque gate stays one instruction, as in Qiskit.</p>
 
 <h3>2.3 One circuit model, one lowering</h3>
 <p>The model is shared in code, not just in spirit: the OpenQASM parser imports <code>StaticCircuit</code>, <code>StaticInstruction</code>, <code>broadcast</code> and <code>circuit_to_program</code> from the Qiskit parser's module. <code>circuit_to_program(circuit, frontend)</code> is the only way into the IR. It maps every bit object to a flat integer index, turns an instruction's <code>condition_bits</code> into <code>metadata["condition_clbits"]</code>, and passes the source location through.</p>
@@ -317,7 +337,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <ul>
 <li><strong>The QDG is a DAG in program order.</strong> Every edge goes from a lower index to a higher one, so program order is a topological order.</li>
 <li><strong>Construction is linear.</strong> Each rule does constant work per operand, so a program with <var>n</var> instructions and at most <var>k</var> operands each yields at most <var>nk</var> edges per rule.</li>
-<li><strong>Edges are typed and attributed.</strong> The graph is a <code>networkx.MultiDiGraph</code>; each edge carries <code>dependency</code> and <code>rule</code>. Parallel edges are expected: an instruction conditioned on a fresh measurement gets both a MEASUREMENT and a DATA_CLASSICAL edge from it (n6→n7 in Figure 2).</li>
+<li><strong>Edges are typed and attributed.</strong> The graph is a <code>networkx.MultiDiGraph</code>; each edge carries <code>dependency</code> and <code>rule</code>. Parallel edges are expected. Whenever the last writer of a condition bit is a measurement, the MEASUREMENT edge duplicates the DATA_CLASSICAL edge from it (n6→n7 in Figure 2), and edge counts include both. A gate whose qubits share a last writer gets one DATA_QUBIT edge per shared qubit.</li>
 <li><strong>The approximation errs toward larger slices.</strong> Every qubit operand counts as both a use and a definition, so a control qubit, a barrier and a measurement all become writers of their wires. An <code>if_else</code> lists its condition bits among its clbits, so it also becomes the last writer of those bits for DATA_CLASSICAL. Both choices add edges and never remove one.</li>
 <li><strong>A new dependency type needs only a new rule class.</strong> The slicer filters on whatever types the edges carry, and the web app builds its Follow chips from the rules that ran, with each type's edge count.</li>
 </ul>
@@ -348,7 +368,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <figure>
   <div class="ex-grid">
     <div>
-      <div class="panel-l">Source <span>tags: nodes from the line · call site · lint findings · shaded lines are in the slice of (b)</span></div>
+      <div class="panel-l">Source <span>tags: nodes from the line · call site · lint findings · shaded: a line a node of slice (b) spans, or its call site</span></div>
       <div class="listing">{{LISTING}}</div>
     </div>
     <div>
@@ -374,32 +394,32 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <span><svg width="22" height="14"><rect class="sw-in" x="1" y="1" width="20" height="12" rx="3" stroke-width="1.5"/></svg>in the slice</span>
     <span><svg width="22" height="14"><rect class="sw-lint" x="1" y="1" width="20" height="12" rx="3"/></svg>marked by a lint finding</span>
   </div>
-  <figcaption><span class="cap-n">Figure 2.</span>One program through the whole pipeline. The gates of <code>bell()</code> point at lines 4–5 and record the call on line 9 in <code>via</code>; the loop on lines 18–19 yields two nodes, n9 and n10, with the same span. In (a), QD01 (dead gate) and QD08 (cancelling pair) both name n9 and n10, which <code>attach_lint_nodes</code> keeps because they cover line 19. LQ09 (more qubits than clbits) reports line 7, where no instruction lives, so it marks no node. Slice (b) from Bob's final measurement contains Alice's preparation and measurements (n0, n3–n6) only through the two classical edges into the <code>if_else</code> nodes; with DATA_QUBIT alone (c) the slice shrinks to Bob's wire. Neither slice contains n9 or n10, which is exactly why QD01 reports them.</figcaption>
+  <figcaption><span class="cap-n">Figure 2.</span>One program through the whole pipeline. The gates of <code>bell()</code> point at lines 4–5 and record the call on line 9 in <code>via</code>; the loop on lines 18–19 yields two nodes, n9 and n10, with the same span. In (a), QD01 (dead gate) and QD08 (cancelling pair) both name n9 and n10, which <code>attach_lint_nodes</code> keeps because they cover line 19. LQ09 (unmeasurable qubits: more qubits than classical bits and no <code>measure_all()</code>) reports line 7, where no instruction lives, so it marks no node. Slice (b) from Bob's final measurement reaches Alice's preparation and measurements (n0, n3–n6) only through the classical edges into the two <code>if_else</code> nodes: each measurement sends a MEASUREMENT and a DATA_CLASSICAL edge to the block it conditions, four edges in all. With DATA_QUBIT alone (c), the slice keeps what reaches q2 through qubits: the Bell preparation (n1, n2), both corrections (n7, n8) and the measurement itself. Each <code>if_else</code> spans its whole block (lines 14–15 and 16–17), so the listing shades the body lines too. Neither slice contains n9 or n10, which is exactly why QD01 reports them.</figcaption>
 </figure>
 </section>
 
 <section>
 <h2><span class="sn">7</span>The lint path</h2>
 <div class="prose">
-<p>Linters are registered in <code>webapp/linters.py</code> as <code>Linter</code> records: an id, a list of rules, a <code>run(context)</code> function, the languages it reads, whether it is on by default, an <code>available()</code> check for external tools, and an optional <code>batch</code> mode. Add-ons are discovered from <code>webapp/linter_plugins/</code> or the <code>QSLICER_LINTER_PLUGINS</code> variable; a module that fails to import is reported and skipped rather than taking the site down.</p>
-<p>A request selects rules by id (<code>quick/QS002</code>, or a bare <code>dependence</code> for all of a linter's rules). <code>linters.run</code> groups the selection by linter, skips linters that do not read the language or are unavailable, and calls each with one shared <code>LintContext</code>. The context parses the source with the same static front end at most once, lazily, under a 5 s limit, and hands out either the program or the failure. A linter that raises becomes one <code>&lt;ID&gt;-CRASH</code> error finding. <code>tag()</code> then keeps only the selected codes and stamps each finding with <code>tool</code> and <code>rule</code>, and the list is sorted by line. Every finding has the same shape: <code>code</code>, <code>severity</code>, <code>line</code>, <code>column</code>, <code>message</code>, <code>hint</code>, plus <code>nodes</code>, <code>lines</code> or <code>qubits</code> where the linter knows them.</p>
+<p>Linters are registered in <code>webapp/linters.py</code> as <code>Linter</code> records: an id, a list of rules, a <code>run(context)</code> function, the languages it reads, whether it is on by default, an <code>available()</code> check for external tools, and an optional <code>batch</code> mode. Only the quick checks are built into <code>linters.py</code>. The other three linters are add-ons: the dependence checks in <code>webapp/linter_plugins/dependence_checks.py</code>, and the LintQ port and its CodeQL counterpart in <code>linter_plugins/lintq.py</code>. On first use the registry imports every module in <code>webapp/linter_plugins/</code>, and any named in the <code>QSLICER_LINTER_PLUGINS</code> variable, and registers the <code>LINTER</code> or <code>LINTERS</code> each defines. A module that fails to import is reported and skipped rather than taking the site down.</p>
+<p>A request selects rules by id (<code>quick/QS002</code>, or a bare <code>dependence</code> for all of a linter's rules). <code>linters.run</code> groups the selection by linter, skips linters that do not read the language or are unavailable, and calls each with one shared <code>LintContext</code>. The context parses the source with the same static front end at most once, lazily, through its own <code>linters._static_parse</code> under a 5 s limit, and hands out either the program or the failure. A linter that raises becomes one <code>&lt;ID&gt;-CRASH</code> error finding. <code>tag()</code> then keeps only the selected codes and stamps each finding with <code>tool</code> and <code>rule</code>, and the list is sorted by line. Every finding has the same shape: <code>code</code>, <code>severity</code>, <code>line</code>, <code>column</code>, <code>message</code>, <code>hint</code>, plus <code>nodes</code>, <code>lines</code> or <code>qubits</code> where the linter knows them.</p>
 
 <h3>7.1 Four linters, four sources of evidence</h3>
 <ul>
 <li><strong>Quick checks</strong> (<code>webapp/lint.py</code>, on, Python only) report what Python or Qiskit would raise. One <code>ast.NodeVisitor</code> pass collects circuits with literal sizes, method calls and attribute reads, and the checks compare literal indices against literal sizes. QS005, QS012 and QS013 look names, methods and keyword arguments up in the installed Qiskit by import and introspection; the submitted file itself is never imported. QS014 reads the lint context's parse failure: the static parser raises Qiskit's <code>CircuitError</code> where Qiskit would, at the line inside a helper or loop iteration, so QS014 catches computed indices that the literal checks cannot see.</li>
-<li><strong>Dependence checks</strong> (<code>webapp/linter_plugins/dependence_checks.py</code>, on, Python and OpenQASM) read the rebuilt program. QD01 builds a QDG with the request's profile and reports every gate outside the union of the backward slices of all measurements. QD05 follows the set of qubits provably still in |0⟩ through diagonal gates and measurements; QD10 follows each qubit's Pauli eigenstate through single-qubit Clifford gates. Findings name the node indices they mean, and findings with the same code and line are merged with a count, so a loop is reported once and marks every iteration.</li>
-<li><strong>LintQ port</strong> (<code>scripts/Linters/lintq_port.py</code>, off by default) reimplements LintQ's ten CodeQL queries on Python's syntax tree. It builds per-scope control-flow graphs, reaching definitions and API paths that mirror LintQ's CodeQL library, and deliberately keeps that library's limits, so it reproduces the original's 190 warnings line for line on 239 test programs.</li>
+<li><strong>Dependence checks</strong> (<code>webapp/linter_plugins/dependence_checks.py</code>, on, Python and OpenQASM) read the rebuilt program. They see only programs the static front end can rebuild, which on Bugs4Q is {{B_READ}} of {{B_PROGRAMS}}. QD01 builds a QDG with the request's profile and reports every gate outside the union of the backward slices of all instructions that write a classical bit. QD05 follows the set of qubits provably still in |0⟩ through diagonal gates and measurements; QD10 follows each qubit's Pauli eigenstate through single-qubit Clifford gates. Findings name the node indices they mean, and findings with the same code and line are merged with a count, so a loop is reported once and marks every iteration.</li>
+<li><strong>LintQ port</strong> (<code>scripts/Linters/lintq_port.py</code>, off by default) reimplements LintQ's ten CodeQL queries on Python's syntax tree. It builds per-scope control-flow graphs, reaching definitions and API paths that mirror LintQ's CodeQL library, and deliberately keeps that library's limits. Its conformance test (<code>tests/lintq/</code>) checks that it gives the original's warnings line for line on 239 files: LintQ's 35 test programs, 4 probe programs written for the queries' edge cases, the 22 bundled examples and the 178 Python files under <code>benchmarks/bugs4q/programs/</code>. That corpus yields 190 warnings; Table 3's combined total of 190 on Bugs4Q is a coincidence.</li>
 <li><strong>LintQ original</strong> (<code>scripts/Linters/codeql_lintq.py</code>, off, needs CodeQL) runs the authors' queries through the CodeQL CLI and reads the SARIF output. It is slow to start, so the benchmark uses its batch mode.</li>
 </ul>
 
 <h3>7.2 Where the slicer and the linter meet</h3>
-<p>QD01 is the slicer used as a checker. With <var>M</var> the measurements of the rebuilt program, the live set is <var>L</var> = ⋃<sub><var>m</var> ∈ <var>M</var></sub> BS(<var>m</var>), and every gate outside <var>L</var> is reported. Because the QDG over-approximates dependence (Section 4), a gate outside <var>L</var> has no dependence path to any measured bit, so removing it cannot change what the program measures. The check reports such gates rather than pruning them; it is a likely mistake, not an optimisation.</p>
+<p>QD01 is the slicer used as a checker. Let <var>W</var> be the instructions of the rebuilt program that write a classical bit: measurements, <code>store</code> copies, and control-flow blocks whose body writes one. The live set is <var>L</var> = ⋃<sub><var>w</var> ∈ <var>W</var></sub> BS(<var>w</var>), and every gate outside <var>L</var> is reported. Blocks are the subtle case. A block lists only its condition bits among its clbits, so QD01 looks into its body to see whether it writes. Because the QDG over-approximates dependence (Section 4), a gate outside <var>L</var> has no dependence path to any bit the program writes, so removing it cannot change the program's classical output. The argument covers only that output. A program read through its statevector has no writers, so QD01 does not run on a circuit that never measures (QD06 reports that case). The check reports dead gates rather than pruning them; it is a likely mistake, not an optimisation.</p>
 
 <h3>7.3 From findings back to nodes</h3>
 <p>The linters parse the source themselves, so their node indices are checked before the graph uses them. <code>attach_lint_nodes</code> keeps a finding's named <code>nodes</code> if at least one of them comes from the finding's line in the main parse; otherwise it marks every node whose source span covers the finding's <code>lines</code> (or <code>line</code>), which is the same lookup as clicking a line number in the editor. This is how a finding inside a loop marks every unrolled iteration, and how a QS finding, which has no node indices, still lights up the gates on its line.</p>
 </div>
 
-<p class="tcap"><span class="cap-n">Table 2.</span>Every registered rule, what it reads to decide, and how it did on Bugs4Q (warnings on buggy / fixed programs, and bugs it detected) with quick, dependence and LintQ selected. LQ00, the port's "program too large" note, is left out. ● decides with this evidence; ○ uses it only to excuse or locate.</p>
+<p class="tcap"><span class="cap-n">Table 2.</span>Every registered rule, what it reads to decide, and how it did on Bugs4Q (warnings on buggy / fixed programs, and bugs it detected) with quick, dependence and LintQ selected. LQ00, the port's "program too large" note, is left out. There is no QD04: it became QS014 in the 2026-10-29 reorganisation, and the codes were not renumbered. A bug two rules detect counts once for each, so the Detected column can sum to more than Table 3's total. ● decides with this evidence; ○ uses it only to excuse or locate.</p>
 <div class="tbl"><table>
 <thead><tr><th>Code</th><th>Rule</th><th>Severity</th><th class="c">AST pattern</th><th class="c">AST data flow</th><th class="c">Installed Qiskit</th><th class="c">Parse failure</th><th class="c">Rebuilt IR</th><th class="c">QDG + slicer</th><th class="num">Bugs4Q warn b / f</th><th class="num">Detected</th></tr></thead>
 <tbody>{{RULETABLE}}</tbody>
@@ -409,7 +429,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <section>
 <h2><span class="sn">8</span>One request, end to end</h2>
 <div class="prose">
-<p>Figure 3 orders the calls inside <code>/api/analyze</code> and a following <code>/api/slice</code>. Two design choices show up here. First, <strong>the program is parsed twice</strong>: once inside the lint context (5 s) and once for the analysis (20 s). Linting runs first because its findings are what explain a failed parse, QS014 needs the failure itself, and a syntax error (QS000, when selected) stops the request before the main parse is attempted. Second, <strong>slicing never re-parses</strong>: the QDG and program are cached in process memory under a token derived from the file name, profile, front end and source, in an LRU of 24 entries. That cache is why the deployment runs one worker process with several threads; a second worker would not recognise the first one's tokens.</p>
+<p>Figure 3 orders the calls inside <code>/api/analyze</code> and a following <code>/api/slice</code>. Two design choices show up here. First, <strong>the program is parsed twice</strong>: once inside the lint context (5 s) and once for the analysis (20 s). Linting runs first because its findings are what explain a failed parse, QS014 needs the failure itself, and a syntax error (QS000, when selected) stops the request before the main parse is attempted. Without QS000 the main parse reports the error itself: the Python front end as a <code>static_error</code> with its line, the OpenQASM one as a <code>qasm_error</code>. The quick checks read only Python, so on OpenQASM with quick rules selected the response carries a QS100 note saying they did not run. Second, <strong>slicing never re-parses</strong>: the QDG and program are cached in process memory under a token derived from the file name, profile, front end and source, in an LRU of 24 entries. That cache is why the deployment runs one worker process with several threads; a second worker would not recognise the first one's tokens.</p>
 </div>
 <figure>
   <div class="scroller mid">{{FIG_SEQUENCE}}</div>
@@ -420,21 +440,21 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <section>
 <h2><span class="sn">9</span>Benchmarking the linters</h2>
 <div class="prose">
-<p>A dataset is any folder under <code>benchmarks/</code> with a <code>manifest.json</code> listing pairs of buggy and fixed programs; the first is the 62 Qiskit bugs of Bugs4Q, vendored at commit <code>bb853b8</code>. Ground truth comes from the fix: <code>ground_truth</code> diffs the two programs with <code>difflib.SequenceMatcher</code> on whitespace-stripped lines, and the <em>fault lines</em> are the buggy program's code lines that the fix deletes or rewrites. A fix that changes more than half the code lines is a <em>rewrite</em> and is reported separately, since any warning in it lands on a fault line; a fix that only adds code is an <em>omission</em>, and the code lines on either side stand in. Of the {{B_BUGS}} fixes, {{B_EDITS}} are edits, {{B_REWRITES}} rewrites and {{B_OMISSIONS}} omissions.</p>
-<p>Each bug is graded per rule set by three nested tests (Figure 4). <em>Detected</em> is the headline: a warning on a fault line whose rule fires fewer times on the fixed program, so the fix is what silenced it. Nothing is executed; the linters see exactly what they see on the slicer page.</p>
+<p>A dataset is any folder under <code>benchmarks/</code> with a <code>manifest.json</code> listing pairs of buggy and fixed programs; the first is the 62 Qiskit bugs of Bugs4Q, vendored at commit <code>bb853b8</code>. Ground truth comes from the fix: <code>ground_truth</code> diffs the two programs with <code>difflib.SequenceMatcher</code> on whitespace-stripped lines, and the <em>fault lines</em> are the buggy program's code lines that the fix deletes or rewrites. A fix that changes more than half the code lines is a <em>rewrite</em> and is reported separately, since any warning in it lands on a fault line; a fix that only adds code is an <em>omission</em>, and the code lines on either side stand in. A pair whose code lines do not differ at all (a fix in comments or whitespace) is kind <em>none</em> and is not graded. Of the {{B_BUGS}} fixes, {{B_EDITS}} are edits, {{B_REWRITES}} rewrites and {{B_OMISSIONS}} omissions; none is of kind none.</p>
+<p>Each bug is graded per rule set by three nested tests (Figure 4). <em>Detected</em> is the headline: a warning on a fault line whose rule fires fewer times on the fixed program, so the fix is what silenced it. Rewrites flatter every measure, since nearly every line of a rewritten program is a fault line. The figure to quote is therefore the one without them: {{B_DETECTED_NR}} of {{B_NR}} bugs detected, at {{B_PREC_NR}} warning precision rather than {{B_PREC}}. Nothing is executed; the linters see exactly what they see on the slicer page.</p>
 </div>
 <figure>
   <div class="scroller mid grade">{{FIG_GRADING}}</div>
   <figcaption><span class="cap-n">Figure 4.</span>Grading as nested sets, with the counts from a run of all three built-in linters on Bugs4Q at this commit (<code>python benchmarks/run_benchmark.py --rules quick,dependence,lintq</code>, {{B_ELAPSED}} s). The static front end read {{B_READ}} of the {{B_PROGRAMS}} programs; the rest use APIs removed before Qiskit 2.6.0 or build no circuit, and get only the AST-based rules.</figcaption>
 </figure>
 
-<p class="tcap"><span class="cap-n">Table 3.</span>Bugs4Q results by linter at this commit. "Precision" is the share of warnings on buggy programs that land on a fault line.</p>
+<p class="tcap"><span class="cap-n">Table 3.</span>Bugs4Q results by linter at this commit. "Precision" is the share of warnings on buggy programs that land on a fault line. The "excl. rewrites" columns leave out the {{B_REWRITES}} bugs whose fix rewrites most of the program. The dependence checks see only the {{B_READ}} programs the static front end reads, so their precision is measured over a different, smaller set of programs from the other linters'. The bar shows the detection rate over all {{B_BUGS}} bugs.</p>
 <div class="tbl"><table>
-<thead><tr><th>Tool</th><th class="num">Detected</th><th class="num">Excl. rewrites</th><th class="num">Hit</th><th class="num">Warned</th><th class="num">Warnings b / f</th><th class="num">Precision</th><th style="width:28%"></th></tr></thead>
+<thead><tr><th>Tool</th><th class="num">Detected</th><th class="num">Excl. rewrites</th><th class="num">Hit</th><th class="num">Warned</th><th class="num">Warnings b / f</th><th class="num">Precision</th><th class="num">Precision excl. rewrites</th><th style="width:22%">Detection rate</th></tr></thead>
 <tbody>{{RESULTS}}</tbody>
 </table></div>
 <div class="prose">
-<p>By source, the combined selection detects {{B_BY_SOURCE}}. The dependence checks have the highest warning precision of the built-in linters and are the ones that find logic bugs (a dead Grover ancilla, two measurements into one bit, an unprepared control, an unused qubit); most quick-check detections are migrations away from removed APIs. The project's research notes conclude from this that Bugs4Q mostly measures old-API code rather than the mistakes students make, and keep it as a regression check and as the comparison with LintQ, whose port and original score identically.</p>
+<p>By source, the combined selection detects {{B_BY_SOURCE}}. The dependence checks have the highest warning precision of the built-in linters and are the ones that find logic bugs (a dead Grover ancilla, two measurements into one bit, an unprepared control, an unused qubit); most quick-check detections are migrations away from removed APIs. The wiki's benchmark page (<code>wiki/Research/Bugs4Q-Benchmark.md</code>) concludes from this that Bugs4Q mostly measures old-API code rather than the mistakes students make, and keep it as a regression check and as the comparison with LintQ, whose port and original score identically.</p>
 </div>
 </section>
 
@@ -458,6 +478,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <li><code>wiki/Research/Static-Parsing.md</code> now lists the OpenQASM features the interpreter supports (run-time <code>while</code>, <code>switch</code>, <code>box</code>, physical qubits, <code>extern</code>) and what it still refuses.</li>
 <li><code>wiki/Research/Bugs4Q-Benchmark.md</code> now reports the current run: {{B_DETECTED}} of {{B_BUGS}} bugs detected, {{B_READ}} of {{B_PROGRAMS}} programs read.</li>
 </ul>
+<p>A review of this note also found a bug in QD01 itself. It counted only <code>measure</code> instructions as outputs, so it reported an <code>if_test</code> block that measures inside, and an OpenQASM <code>store</code> after the last measurement, as dead. Every instruction that writes a classical bit now counts as an output (Section 7.2), with regression tests for both cases.</p>
 <p>The graph is called the QDG throughout, as in <code>scripts/qdg.py</code>. "QPDG" now appears only where a page cites the IEEE paper that introduced it.</p>
 </div>
 </section>
@@ -484,3 +505,124 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </tbody></table></div>
 </section>
 </div>
+
+<div class="fs-overlay" id="fs-overlay" role="dialog" aria-modal="true" aria-label="Figure 1, full screen" hidden>
+  <div class="fs-bar"><b>Figure 1</b><span class="fs-hint">Click to zoom in, click again to fit · drag or scroll to pan · Esc to close</span><button type="button" class="fs-btn fs-close">Close</button></div>
+  <div class="fs-stage"><div class="fs-canvas"></div></div>
+</div>
+<script>
+(function () {
+  var btn = document.getElementById("fig1-fs");
+  var scroller = document.getElementById("fig1-scroller");
+  var ov = document.getElementById("fs-overlay");
+  if (!btn || !scroller || !ov) return;
+  var svg = scroller.querySelector("svg");
+  var stage = ov.querySelector(".fs-stage");
+  var canvas = ov.querySelector(".fs-canvas");
+  var closeBtn = ov.querySelector(".fs-close");
+  var vb = svg.viewBox.baseVal;
+  var aspect = vb.width / vb.height;
+  var isOpen = false, zoomed = false, lastFocus = null, down = null;
+
+  function fitWidth() {
+    var w = stage.clientWidth - 32, h = stage.clientHeight - 32;
+    return Math.max(240, Math.min(w, h * aspect));
+  }
+  function setWidth(w) { svg.style.width = w + "px"; }
+  function fit() {
+    zoomed = false;
+    stage.classList.remove("zoomed");
+    setWidth(fitWidth());
+  }
+  function zoomAt(cx, cy) {
+    var r = svg.getBoundingClientRect();
+    var fx = (cx - r.left) / r.width, fy = (cy - r.top) / r.height;
+    setWidth(Math.max(fitWidth() * 2.5, vb.width * 1.25));
+    zoomed = true;
+    stage.classList.add("zoomed");
+    var n = svg.getBoundingClientRect();     // keep the clicked point under the pointer
+    stage.scrollLeft += n.left + fx * n.width - cx;
+    stage.scrollTop += n.top + fy * n.height - cy;
+  }
+  function fullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement || null;
+  }
+  function open() {
+    if (isOpen) return;
+    isOpen = true;
+    lastFocus = document.activeElement;
+    canvas.appendChild(svg);                 // move, not clone: the markers' ids stay unique
+    ov.hidden = false;
+    document.documentElement.style.overflow = "hidden";
+    fit();
+    var request = ov.requestFullscreen || ov.webkitRequestFullscreen;
+    if (request) {
+      try {
+        var p = request.call(ov);
+        if (p && p.catch) p.catch(function () {});   // refused in a frame: the overlay still fills the window
+      } catch (e) {}
+    }
+    closeBtn.focus();
+  }
+  function close() {
+    if (!isOpen) return;
+    isOpen = false;
+    svg.style.width = "";
+    scroller.appendChild(svg);
+    ov.hidden = true;
+    document.documentElement.style.overflow = "";
+    if (fullscreenElement()) {
+      var exit = document.exitFullscreen || document.webkitExitFullscreen;
+      try { var p = exit.call(document); if (p && p.catch) p.catch(function () {}); } catch (e) {}
+    }
+    if (lastFocus && lastFocus.focus) lastFocus.focus();
+  }
+  function onFullscreenChange() {
+    if (!isOpen) return;
+    if (!fullscreenElement()) close();        // Esc in browser full screen leaves the viewer too
+    else if (!zoomed) fit();
+  }
+
+  btn.addEventListener("click", open);
+  closeBtn.addEventListener("click", close);
+  document.addEventListener("fullscreenchange", onFullscreenChange);
+  document.addEventListener("webkitfullscreenchange", onFullscreenChange);
+  document.addEventListener("keydown", function (e) {
+    if (isOpen && e.key === "Escape") close();
+  });
+  window.addEventListener("resize", function () { if (isOpen && !zoomed) fit(); });
+
+  stage.addEventListener("pointerdown", function (e) {
+    if (e.button !== 0 || !canvas.contains(e.target)) return;   // not on the scroll bars
+    down = { x: e.clientX, y: e.clientY, sl: stage.scrollLeft, st: stage.scrollTop,
+             id: e.pointerId, mouse: e.pointerType === "mouse", moved: false };
+  });
+  stage.addEventListener("pointermove", function (e) {
+    if (!down) return;
+    var dx = e.clientX - down.x, dy = e.clientY - down.y;
+    if (!down.moved && Math.abs(dx) + Math.abs(dy) > 5) {
+      down.moved = true;
+      if (down.mouse) {
+        stage.setPointerCapture(down.id);
+        stage.classList.add("dragging");
+      }
+    }
+    if (down.moved && down.mouse) {          // touch pans by native scrolling
+      stage.scrollLeft = down.sl - dx;
+      stage.scrollTop = down.st - dy;
+    }
+  });
+  stage.addEventListener("pointerup", function (e) {
+    if (!down) return;
+    var d = down;
+    down = null;
+    stage.classList.remove("dragging");
+    if (d.moved) return;
+    if (zoomed) fit(); else zoomAt(e.clientX, e.clientY);
+  });
+  stage.addEventListener("pointercancel", function () {
+    down = null;
+    stage.classList.remove("dragging");
+  });
+})();
+</script>

@@ -98,8 +98,13 @@ Some content is not computed. Check it when the code changes:
 
 Things to settle when this becomes a paper figure:
 
-- **Size.** The page is screen-first. Figure 1 is 1690 units wide, which
-  needs a full-page-width figure or a split into the analysis and lint lanes.
+- **Size.** The page is screen-first. Figure 1 is 1910 units wide and is
+  drawn at the page width (it scrolls only below 1400 px), so its labels
+  render small; a paper needs a full-page-width figure or a split into the
+  analysis and lint lanes.
+- **Headline numbers.** Quote Bugs4Q without the rewrites (Table 3's
+  "excl. rewrites" columns): in a rewrite nearly every line is a fault line,
+  so rewrites inflate both detection and precision.
 - **Grayscale.** The three edge types differ by colour and dash: DATA_CLASSICAL
   is dashed, MEASUREMENT and DATA_QUBIT are both solid. A grayscale print
   needs a second dash pattern.
