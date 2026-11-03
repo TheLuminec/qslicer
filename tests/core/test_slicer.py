@@ -17,10 +17,10 @@ import networkx as nx
 import pytest
 from qiskit import QuantumCircuit
 
-from Parsers.qiskitparser import QiskitParser
-from Dependencies.dependency_rules import DependencyType as D
-from qdg import QDG
-from slicer import QuantumSlicer, SlicingCriterion
+from qslicer.parsers.qiskitparser import QiskitParser
+from qslicer.dependencies.dependency_rules import DependencyType as D
+from qslicer.qdg import QDG
+from qslicer.slicer import QuantumSlicer, SlicingCriterion
 
 pytestmark = [pytest.mark.requirement("VV-03"), pytest.mark.requirement("VV-05")]
 

@@ -40,7 +40,7 @@ cd /home/ubuntu
 git clone <repo> slicing-for-quantum-programs
 cd slicing-for-quantum-programs
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt -r webapp/requirements.txt gunicorn
+.venv/bin/pip install -r requirements.txt -r webapp/requirements.txt gunicorn -e .
 
 # 2. The service
 sudo cp deploy/quantum-slicer.service /etc/systemd/system/

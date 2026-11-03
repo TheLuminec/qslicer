@@ -9,11 +9,11 @@ from contextlib import redirect_stdout
 
 import pytest
 
-from Parsers.qiskitparser import QiskitParser
-from Parsers.staticqiskitparser import StaticParseError, StaticQiskitParser
+from qslicer.parsers.qiskitparser import QiskitParser
+from qslicer.parsers.staticqiskitparser import StaticParseError, StaticQiskitParser
 
 EXAMPLES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))), "webapp", "examples")
+    os.path.abspath(__file__)))), "qslicer", "examples")
 # Built from a library QFT, whose commuting gates Qiskit's decompose() reorders.
 REORDERED = {"library_qft.py"}
 
@@ -62,7 +62,7 @@ qc.measure(0, 0)
 
 def test_does_not_need_qiskit_to_build_the_ir():
     # Nothing in the parser imports qiskit; the IR is built from its own model.
-    import Parsers.staticqiskitparser as module
+    import qslicer.parsers.staticqiskitparser as module
     assert "qiskit" not in module.__dict__
 
 

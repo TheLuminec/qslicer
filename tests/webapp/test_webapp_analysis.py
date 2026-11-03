@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 import analysis
-import gates
+from qslicer import gates
 from webapp_helpers import GHZ_QASM
 
 
@@ -105,7 +105,7 @@ def test_rule_profiles_without_backend(monkeypatch):
 
 
 def test_dependency_types_cover_the_enum():
-    from Dependencies.dependency_rules import DependencyType
+    from qslicer.dependencies.dependency_rules import DependencyType
 
     listed = analysis.dependency_types()
     assert [d["name"] for d in listed] == [d.name for d in DependencyType]
@@ -210,24 +210,6 @@ def test_edge_shape(ghz_qasm_result):
         assert 0 <= edge["source"] < edge["target"] < nodes   # edges run forward in time
         assert edge["dependency"] in {d["name"] for d in analysis.dependency_types()}
         assert edge["rule"]
-
-
-def test_entanglement_shape(ghz_qasm_result):
-    ent = ghz_qasm_result["entanglement"]
-    assert set(ent) == {"groups", "num_groups", "entangled_groups"}
-    assert ent["num_groups"] == len(ent["groups"])
-    assert ent["entangled_groups"] == sum(g["kind"] == "entangled" for g in ent["groups"])
-    keys = {"id", "kind", "depth", "qubits", "parents", "active", "measured", "origin",
-            "computed", "uncomputed", "measurements"}
-    for gid, group in enumerate(ent["groups"]):
-        assert set(group) == keys
-        assert group["id"] == gid
-        assert group["qubits"] == sorted(group["qubits"])
-        for field in ("computed", "uncomputed", "measurements"):
-            assert all(0 <= i < 6 for i in group[field])
-    # One GHZ group spanning all three qubits, measured.
-    entangled = [g for g in ent["groups"] if g["kind"] == "entangled"]
-    assert any(g["qubits"] == [0, 1, 2] and g["measured"] for g in entangled)
 
 
 def test_stats_shape(ghz_qasm_result):

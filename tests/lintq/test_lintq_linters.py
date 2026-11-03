@@ -3,9 +3,9 @@
 import json
 
 import benchmark
-import linters
-from Linters import codeql_lintq
-from linters import Linter, Rule
+from qslicer.lint import registry as linters
+from qslicer.lint.lintq import codeql as codeql_lintq
+from qslicer.lint.registry import Linter, Rule
 
 SHOWCASE = (
     "from qiskit import QuantumCircuit\n"

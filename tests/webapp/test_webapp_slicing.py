@@ -104,7 +104,7 @@ def test_same_qasm_input_twice_is_identical(client, ghz_qasm_result):
     runs = [post_analyze(client, source=GHZ_QASM, filename="ghz.qasm", language="qasm")[1]
             for _ in range(3)]
     for run in runs:
-        for key in ("token", "nodes", "edges", "entanglement", "stats", "dependency_types"):
+        for key in ("token", "nodes", "edges", "stats", "dependency_types"):
             assert run[key] == ghz_qasm_result[key], key
     for idx in range(6):
         for direction in ("backward", "forward"):

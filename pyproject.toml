@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qslicer"
+version = "0.1.0"
+description = "Static slicing and linting for quantum programs written in Qiskit or OpenQASM"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Caleb Turner" }]
+keywords = ["quantum", "qiskit", "openqasm", "slicing", "static analysis", "linter"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Software Development :: Quality Assurance",
+]
+# The static parsers, the quick checks' list of removed APIs (QS011) and the
+# LintQ port are maintained against Qiskit 2.6; requirements.txt pins the exact
+# versions the test suite runs on.
+dependencies = [
+    "qiskit>=2.6,<2.7",
+    "networkx",
+    "openqasm3[parser]>=1.0",
+]
+
+[project.optional-dependencies]
+viz = ["matplotlib"]
+# The web app also offers the qiskit.qasm3-based OpenQASM front end.
+web = ["flask>=3.0", "qiskit-qasm3-import>=0.6"]
+
+[project.scripts]
+qslicer = "qslicer.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["qslicer*"]
+
+[tool.setuptools.package-data]
+qslicer = ["examples/*.py", "examples/*.qasm", "examples/manifest.json", "lint/lintq/README.md", "lint/lintq/codeql_support/*.py"]

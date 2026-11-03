@@ -14,7 +14,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 OUT = HERE / "out"
 sys.path.insert(0, str(REPO / "webapp"))
-sys.path.insert(0, str(REPO / "scripts"))
+sys.path.insert(0, str(REPO))
 import analysis  # noqa: E402
 
 src = (HERE / "worked_example.py").read_text(encoding="utf-8")

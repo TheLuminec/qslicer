@@ -5,8 +5,8 @@ import json
 import pytest
 
 import benchmark
-import linters
-from linters import Linter, Rule
+from qslicer.lint import registry as linters
+from qslicer.lint.registry import Linter, Rule
 
 
 # --------------------------------------------------------------------------

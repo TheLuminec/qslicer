@@ -25,11 +25,11 @@ import sys
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(ROOT, "scripts"))
+sys.path.insert(0, ROOT)
 
-from Linters import codeql_lintq  # noqa: E402
+from qslicer.lint.lintq import codeql as codeql_lintq  # noqa: E402
 
-TREES = ["tests/lintq/programs", "webapp/examples", "benchmarks/bugs4q/programs"]
+TREES = ["tests/lintq/programs", "qslicer/examples", "benchmarks/bugs4q/programs"]
 REFERENCE = os.path.join(ROOT, "tests", "lintq", "reference.json")
 EXTERNAL = os.path.join(ROOT, "benchmarks", "bugs4q", "external", "lintq-codeql.json")
 

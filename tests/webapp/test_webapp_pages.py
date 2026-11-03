@@ -7,7 +7,7 @@ import pytest
 
 import analysis
 import examples
-import gates
+from qslicer import gates
 from team import COURSE, MEMBERS, MISSION, PROJECT_BLURB, VISION
 
 PAGES = {

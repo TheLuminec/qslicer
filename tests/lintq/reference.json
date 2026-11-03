@@ -1388,7 +1388,7 @@
     "Circuit 'qc_module' has more qubits (5) than classical bits (2)"
    ]
   ],
-  "webapp/examples/ancilla_uncompute.py": [
+  "qslicer/examples/ancilla_uncompute.py": [
    [
     "ql-unmeasurable-qubits",
     20,
@@ -1396,9 +1396,9 @@
     "Circuit 'qc' has more qubits (3) than classical bits (2)"
    ]
   ],
-  "webapp/examples/bell_pair.py": [],
-  "webapp/examples/bernstein_vazirani.py": [],
-  "webapp/examples/bit_flip_code.py": [
+  "qslicer/examples/bell_pair.py": [],
+  "qslicer/examples/bernstein_vazirani.py": [],
+  "qslicer/examples/bit_flip_code.py": [
    [
     "ql-unmeasurable-qubits",
     17,
@@ -1406,12 +1406,12 @@
     "Circuit 'qc' has more qubits (5) than classical bits (3)"
    ]
   ],
-  "webapp/examples/deutsch_jozsa.py": [],
-  "webapp/examples/entanglement_swapping.py": [],
-  "webapp/examples/ghz_state.py": [],
-  "webapp/examples/grover_two_qubit.py": [],
-  "webapp/examples/independent_wires.py": [],
-  "webapp/examples/library_qft.py": [
+  "qslicer/examples/deutsch_jozsa.py": [],
+  "qslicer/examples/entanglement_swapping.py": [],
+  "qslicer/examples/ghz_state.py": [],
+  "qslicer/examples/grover_two_qubit.py": [],
+  "qslicer/examples/independent_wires.py": [],
+  "qslicer/examples/library_qft.py": [
    [
     "ql-constant-classic-bit",
     17,
@@ -1419,7 +1419,7 @@
     "Circuit 'qc' measures qubit '1' but never uses it."
    ]
   ],
-  "webapp/examples/linter_showcase.py": [
+  "qslicer/examples/linter_showcase.py": [
    [
     "ql-unmeasurable-qubits",
     13,
@@ -1427,8 +1427,8 @@
     "Circuit 'qc' has more qubits (4) than classical bits (0)"
    ]
   ],
-  "webapp/examples/phase_estimation.py": [],
-  "webapp/examples/phase_kickback.py": [
+  "qslicer/examples/phase_estimation.py": [],
+  "qslicer/examples/phase_kickback.py": [
    [
     "ql-unmeasurable-qubits",
     14,
@@ -1436,10 +1436,10 @@
     "Circuit 'qc' has more qubits (2) than classical bits (1)"
    ]
   ],
-  "webapp/examples/qaoa_maxcut.py": [],
-  "webapp/examples/quantum_fourier_transform.py": [],
-  "webapp/examples/quantum_teleportation.py": [],
-  "webapp/examples/simons_algorithm.py": [
+  "qslicer/examples/qaoa_maxcut.py": [],
+  "qslicer/examples/quantum_fourier_transform.py": [],
+  "qslicer/examples/quantum_teleportation.py": [],
+  "qslicer/examples/simons_algorithm.py": [
    [
     "ql-constant-classic-bit",
     17,
@@ -1447,9 +1447,9 @@
     "Circuit 'qc' measures qubit '1' but never uses it. Circuit 'qc' measures qubit '0' but never uses it."
    ]
   ],
-  "webapp/examples/stress_test.py": [],
-  "webapp/examples/superdense_coding.py": [],
-  "webapp/examples/swap_test.py": [
+  "qslicer/examples/stress_test.py": [],
+  "qslicer/examples/superdense_coding.py": [],
+  "qslicer/examples/swap_test.py": [
    [
     "ql-unmeasurable-qubits",
     15,
@@ -1457,7 +1457,7 @@
     "Circuit 'qc' has more qubits (3) than classical bits (1)"
    ]
   ],
-  "webapp/examples/uncomputation.py": [],
-  "webapp/examples/variational_ansatz.py": []
+  "qslicer/examples/uncomputation.py": [],
+  "qslicer/examples/variational_ansatz.py": []
  }
 }

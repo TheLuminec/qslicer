@@ -52,7 +52,7 @@ Terra #7032, whose "Fixed" link repeats the buggy file.
 ## Comparing another tool
 
 The original LintQ's results are already recorded, in `external/lintq-codeql.json`
-(written by `tests/lintq/record_reference.py`; see `scripts/Linters/README.md`).
+(written by `tests/lintq/record_reference.py`; see `qslicer/lint/lintq/README.md`).
 For any other tool, run it over `programs/`, then record its SARIF output:
 
 ```bash

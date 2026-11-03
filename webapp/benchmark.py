@@ -46,7 +46,7 @@ import time
 from collections import OrderedDict
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-import linters
+from qslicer.lint import registry as linters
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BENCHMARKS_DIR = os.path.join(REPO_ROOT, "benchmarks")

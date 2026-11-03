@@ -316,7 +316,7 @@ def system(Fig):
     f.rect(gx, 680, gw, 252, "box box-group box-lint", 8)
     f.text(gx + 12, 698, "Linters", "bh")
     f.text(gx + 70, 698, "quick is built into linters.py; the other three are plugins the registry loads from "
-           "linter_plugins/. Each gets the same context.", "sub")
+           "qslicer/lint/plugins/. Each gets the same context.", "sub")
     LW = (gw - 24 - 3 * 12) / 4
     lx = [gx + 12 + k * (LW + 12) for k in range(4)]
     ly, lh = 710, 210

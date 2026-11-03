@@ -1,9 +1,7 @@
-"""Bridge between the web mock-up and the analysis code under ``scripts/``.
+"""Bridge between the web pages and the ``qslicer`` package.
 
-The modules in ``scripts/`` import each other by bare name (``from qprogram
-import *``), so that directory has to be on ``sys.path`` rather than imported as
-a package. Everything the web layer needs is converted to plain JSON-safe dicts
-here, so the templates and the JavaScript never touch the analysis objects.
+Everything the web layer needs is converted to plain JSON-safe dicts here, so
+the templates and the JavaScript never touch the analysis objects.
 
 Nothing a user submits is ever executed. The front ends:
 
@@ -26,22 +24,14 @@ relying on it finds out.
 import io
 import os
 import shutil
-import sys
 import tempfile
 from collections import OrderedDict
 from contextlib import redirect_stderr, redirect_stdout
 from hashlib import sha256
 from typing import Any, Dict, List, Optional, Tuple
 
-import gates
-import linters
-import lint
-
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
-
-if SCRIPTS_DIR not in sys.path:
-    sys.path.insert(0, SCRIPTS_DIR)
+from qslicer import gates
+from qslicer.lint import registry as linters
 
 # Seconds a static parse may take before it is stopped.
 PARSE_TIMEOUT = int(os.environ.get("QSLICER_PARSE_TIMEOUT", "20"))
@@ -53,13 +43,12 @@ QASM_SUFFIXES = (".qasm", ".qasm3")
 # networkx are missing from the environment.
 _IMPORT_ERROR: Optional[str] = None
 try:
-    from Dependencies.dependency_rules import DependencyType
-    from entanglement import EntanglementAnalyzer
-    from Parsers.openqasmparser import OpenQASMParser
-    from Parsers.staticopenqasmparser import StaticOpenQASMParser
-    from Parsers.staticqiskitparser import StaticParseError, StaticQiskitParser
-    from qdg import QDG, get_rule_profile, list_rule_profiles
-    from slicer import QuantumSlicer, SlicingCriterion
+    from qslicer.dependencies.dependency_rules import DependencyType
+    from qslicer.parsers.openqasmparser import OpenQASMParser
+    from qslicer.parsers.staticopenqasmparser import StaticOpenQASMParser
+    from qslicer.parsers.staticqiskitparser import StaticParseError, StaticQiskitParser
+    from qslicer.qdg import QDG, get_rule_profile, list_rule_profiles
+    from qslicer.slicer import QuantumSlicer, SlicingCriterion
 except Exception as exc:  # pragma: no cover - depends on the local environment
     _IMPORT_ERROR = f"{type(exc).__name__}: {exc}"
 
@@ -401,7 +390,6 @@ def analyze_source(
         "route": _ROUTES[kind].format(timeout=PARSE_TIMEOUT),
         "nodes": _describe_nodes(program),
         "edges": _describe_edges(qdg),
-        "entanglement": _describe_entanglement(program),
         "rules": [rule.name for rule in rules],
     })
     result["stats"] = _describe_stats(result)
@@ -731,43 +719,6 @@ def _describe_edges(qdg: Any) -> List[Dict[str, Any]]:
             "rule": data.get("rule", ""),
         })
     return edges
-
-
-def _describe_entanglement(program: Any) -> Dict[str, Any]:
-    """Run the entanglement analyzer and flatten its groups for the side panel."""
-    analyzer = EntanglementAnalyzer(program)
-    analyzer.analyze()
-
-    # Group members are QuantumInstruction objects; map them back to indices via
-    # object identity, which holds because the analyzer stores the very objects
-    # the program owns. Synthetic "init" instructions have no index.
-    index_of = {id(program[i]): i for i in range(len(program))}
-
-    def indices(instructions):
-        return [index_of[id(i)] for i in instructions if id(i) in index_of]
-
-    groups = []
-    for gid, group in enumerate(analyzer.get_groups()):
-        groups.append({
-            "id": gid,
-            "kind": group.kind,
-            "depth": group.depth,
-            "qubits": sorted(group.qubits),
-            "parents": sorted(group.parent_groups),
-            "active": bool(group.active),
-            "measured": bool(group.measurement_applied),
-            "origin": _node_label(
-                group.origin.name, list(group.origin.qubits), group.origin.params
-            ),
-            "computed": indices(group.computed_instructions),
-            "uncomputed": indices(group.uncomputed_instructions),
-            "measurements": indices(group.measurement_instructions),
-        })
-    return {
-        "groups": groups,
-        "num_groups": len(groups),
-        "entangled_groups": sum(1 for g in groups if g["kind"] == "entangled"),
-    }
 
 
 def _describe_stats(result: Dict[str, Any]) -> Dict[str, Any]:

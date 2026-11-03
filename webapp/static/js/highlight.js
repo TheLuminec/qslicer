@@ -18,7 +18,7 @@
   'use strict';
 
   /* Gate names get their own color: in a circuit file they are the thing you
-     are actually reading. Kept in step with webapp/gates.py by hand -- a name
+     are actually reading. Kept in step with qslicer/gates.py by hand -- a name
      missing here is simply colored as an ordinary call. */
   var GATE_NAMES = {};
   ('h x y z s sdg t tdg sx sxdg id p u u1 u2 u3 rx ry rz ' +

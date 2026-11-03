@@ -1,6 +1,6 @@
 # Web front end (mock-up)
 
-A Flask front end over the analysis code in `scripts/`. It is a working
+A Flask front end over the `qslicer` package. It is a working
 mock-up: the pages, the interactions and the API are real, and the graph it
 draws comes from the actual parser, QDG and slicer rather than from canned
 data. What is *mocked* is called out under [Mocked or partial](#mocked-or-partial)
@@ -12,9 +12,12 @@ From the repository root:
 
 ```bash
 pip install -r requirements.txt
-pip install -r webapp/requirements.txt
+pip install -e ".[web]"
 python webapp/app.py
 ```
+
+Without the install, `app.py` falls back to the `qslicer/` directory next to
+`webapp/`, so a plain checkout still runs.
 
 Then open <http://127.0.0.1:5000/>.
 
@@ -41,7 +44,7 @@ Both parsers bound their own work: a step limit, and a wall-clock limit of
 and never runs the file. It keeps every instruction's source line. Anything
 only a real run could decide stops it with a `StaticParseError` naming the
 line; what it skipped or approximated comes back as `QS200` warnings. Its
-docstring in `scripts/Parsers/staticqiskitparser.py` lists what it models.
+docstring in `qslicer/parsers/staticqiskitparser.py` lists what it models.
 
 ### OpenQASM 2 and 3 (`.qasm`, `.qasm3`) -- `language="qasm-static"`
 
@@ -62,8 +65,8 @@ process to reach its circuit. That bounded accidents but not attacks: any code
 in the file ran on the server. It has been removed. Asking for it by name
 (`language="qiskit"`, `"python"` or `"py"`) gets a 400 with
 `kind: "execution_disabled"`, so a caller relying on it finds out instead of
-being quietly rerouted. `QiskitParser` still exists in `scripts/` for the
-tests and the desktop tools, but nothing in `webapp/` calls it on submitted
+being quietly rerouted. `QiskitParser` still exists in `qslicer.parsers` for the
+tests, but nothing in `webapp/` calls it on submitted
 text.
 
 `language="qasm"` (OpenQASM through `qiskit.qasm3.load()`) is still accepted
@@ -100,7 +103,7 @@ sends it. `lint_rules` is a list of rule ids such as
 `"quick/QS002"`; leave it out for the default selection, which
 `/api/linters` reports.
 
-`/api/analyze` returns nodes, edges, entanglement groups, lint diagnostics and
+`/api/analyze` returns nodes, edges, lint diagnostics and
 a `token`. The token names the QDG cached server-side, so slicing never
 re-executes the submitted program. The cache holds the 24 most recent analyses
 in memory; after a server restart the client is told to analyze again.
@@ -111,14 +114,10 @@ in memory; after a server restart the client is told to analyze again.
 webapp/
 ├── app.py          Flask routes and the JSON API
 ├── wsgi.py         entry point for running behind gunicorn
-├── analysis.py     bridge to scripts/ -- route, parse, build QDG, slice, serialize
-├── linters.py      linter registry: runs the selected rules across every linter
-├── lint.py         the quick checks: AST-based static checks
-├── linter_plugins/ add-on linters: dependence checks, LintQ (port and CodeQL)
+├── analysis.py     bridge to qslicer -- route, parse, build QDG, slice, serialize
 ├── benchmark.py    grades the selected rules on the Bugs4Q bugs
-├── gates.py        gate reference used by the hover cards and the glossary
-├── examples.py     reads the example catalog (module, not the directory)
-├── examples/       the example circuits themselves, plus manifest.json
+├── examples.py     reads the example catalog in qslicer/examples/
+├── rule_docs.py    what each lint rule checks, for the Lint menu's ? cards
 ├── team.py         team page content
 ├── tools_make_hero_figure.py   regenerates the landing page's graph figure
 ├── templates/      Jinja templates, one per page plus a base layout
@@ -137,9 +136,14 @@ webapp/
 No build step and no CDN: the graph is hand-rolled SVG, so the site works
 offline.
 
+The linters (`qslicer/lint/`: the registry, the quick checks, and the
+dependence and LintQ add-ons in `plugins/`), the gate reference
+(`qslicer/gates.py`) and the example circuits (`qslicer/examples/`) live in the
+package, so the command line and the site share them.
+
 ## Example circuits
 
-`webapp/examples/` holds 22 Qiskit circuits and 2 OpenQASM files, described by
+`qslicer/examples/` holds 22 Qiskit circuits and 2 OpenQASM files, described by
 `manifest.json` alongside them. They are grouped in the dropdown as Basics,
 Algorithms, Communication protocols, Analysis showcases, and OpenQASM.
 
@@ -153,17 +157,14 @@ Every claim in a docstring or blurb was checked against what the analyzer
 actually returns — including the two that turned out to be wrong on the first
 pass — so if you change a circuit, re-check its text.
 
-Do not add an `__init__.py` to `webapp/examples/`: the directory and
-`examples.py` share a name, and a package would shadow the module.
-
 For bulk circuits, [QASMBench](https://github.com/pnnl/QASMBench) and
 [MQT Bench](https://quantum-journal.org/papers/q-2023-07-20-1062/) publish
 large collections, but both ship OpenQASM rather than Python, so they would
 come in through the OpenQASM interpreters -- the static one for OpenQASM 2
 files, since `qiskit.qasm3.load()` reads only OpenQASM 3.
 
-The circuits under `Attachments/Sample Code` are untouched and still drive the
-command-line visualizer. The site no longer lists them: two are named after
+The circuits under `Attachments/Sample Code` are untouched. The site does not
+list them: two are named after
 the opposite of what they contain (`entanglement.py` has no two-qubit gate,
 `independence.py` is a Bell pair) and `test.py` is a pytest module with no
 module-level circuit.
@@ -252,11 +253,11 @@ visible instead of silent.
 * **Follow** chips choose which dependency kinds the traversal may use. They are
   passed to `SlicingCriterion.dep_types`, so this is the real filter, not a
   display effect. The bar is empty until you analyze something, and is then
-  built from the rules that actually ran: the `baseline` profile offers four
-  chips, not six, because it never runs the entanglement or phase rules. Each
-  chip carries the number of edges its rule contributed, and a rule that ran
-  and produced nothing (`control_classical` today) shows a dashed chip with a
-  zero rather than being hidden.
+  built from the rules that actually ran: the `baseline` profile offers three
+  chips, not six, because it never runs the entanglement, phase or
+  control-classical rules. Each chip carries the number of edges its rule
+  contributed, and a rule that ran and produced nothing shows a dashed chip
+  with a zero rather than being hidden.
 
   The bar is rebuilt per analysis, not when the Rules dropdown changes: the
   dropdown says what the next run will use, the chips say what the last run
@@ -283,19 +284,20 @@ of the real thing:
   consume it yet, so there is nothing server-side to call. Also waiting on the
   research; when the slicer grows real vertical and horizontal criteria, the UI
   hooks are already here.
-* **Quick checks** (`QS000`–`QS016`, `lint.py`): errors Python or Qiskit would
+* **Quick checks** (`QS000`–`QS016`, `qslicer/lint/quick_checks.py`): errors Python or Qiskit would
   raise. Most read the Python AST, so they see only literal arguments; QS012
   and QS013 look names and keyword arguments up in the installed Qiskit
   (importing the library's modules, never the checked file), and QS014 reports
   what Qiskit rejects while the static parser rebuilds the circuit.
-* **Dependence checks** (`QD01`–`QD03`, `QD05`–`QD10`, `linter_plugins/dependence_checks.py`):
+* **Dependence checks** (`QD01`–`QD03`, `QD05`–`QD10`, `qslicer/lint/plugins/dependence_checks.py`):
   quantum mistakes in the rebuilt circuit (loops unrolled, helpers followed)
   and its dependence graph. Quick and dependence checks are on by default;
   LintQ (the port, and the original through CodeQL where it is installed) is
   an add-on picked from the **Lint** menu.
 * **Rule profiles.** The dropdown lists whatever `qdg.list_rule_profiles()`
-  returns, which today is just `baseline`. Entanglement and phase rules exist in
-  `scripts/Dependencies/rules.py` but ship disabled, so a profile that enables
+  returns, which today is just `baseline`. Entanglement, phase and
+  control-classical rules exist in `qslicer/dependencies/rules.py` but ship
+  disabled, so a profile that enables
   them is the thing that makes their Follow chips appear.
 
   Which dependency type a rule emits is not something the rules declare -- it is

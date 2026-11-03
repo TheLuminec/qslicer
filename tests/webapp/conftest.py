@@ -1,6 +1,6 @@
 """Fixtures for the web app tests.
 
-The parent ``tests/conftest.py`` puts ``webapp/`` and ``scripts/`` on sys.path,
+The parent ``tests/conftest.py`` puts ``webapp/`` on sys.path,
 so ``import app`` / ``import analysis`` resolve exactly as they do at runtime.
 
 Every route parses in-process and runs nothing. Tests that need a full

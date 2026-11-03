@@ -19,7 +19,7 @@ import pytest
 from qiskit.circuit import library as lib
 from qiskit.quantum_info import Operator
 
-import gates
+from qslicer import gates
 
 THETA, PHI, LAM = 0.7, 0.3, 1.1
 

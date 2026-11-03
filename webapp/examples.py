@@ -1,6 +1,6 @@
 """The example circuits offered on the slicer page.
 
-Sources live in ``webapp/examples/`` as ordinary Qiskit files, described by
+Sources live in ``qslicer/examples/`` as ordinary Qiskit files, described by
 ``manifest.json`` in that directory. To add one: drop the ``.py`` file in and
 add an entry to the manifest. A file with no manifest entry still appears,
 grouped under "Unsorted", so nothing goes missing.
@@ -8,19 +8,13 @@ grouped under "Unsorted", so nothing goes missing.
 The sample circuits under ``Attachments/Sample Code`` are left alone: they are
 what the command-line visualizer points at, and some of them are named after
 something other than what they contain.
-
-Note that this module and the ``examples/`` data directory share a name. A
-plain module wins over a directory with no ``__init__.py``, so the import
-resolves here -- but do not add an ``__init__.py`` to ``webapp/examples/``, or
-it will shadow this file.
 """
 
 import json
 import os
 from typing import Any, Dict, List, Optional
 
-WEBAPP_DIR = os.path.dirname(os.path.abspath(__file__))
-EXAMPLE_DIR = os.path.join(WEBAPP_DIR, "examples")
+from qslicer import EXAMPLES_DIR as EXAMPLE_DIR
 MANIFEST_PATH = os.path.join(EXAMPLE_DIR, "manifest.json")
 
 UNSORTED = {"id": "unsorted", "title": "Unsorted"}

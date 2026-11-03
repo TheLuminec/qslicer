@@ -5,9 +5,9 @@ import time
 
 import pytest
 
-import linters
-from linters import LintContext, Linter, Rule
-from Parsers.staticqiskitparser import StaticParseError, StaticQiskitParser
+from qslicer.lint import registry as linters
+from qslicer.lint.registry import LintContext, Linter, Rule
+from qslicer.parsers.staticqiskitparser import StaticParseError, StaticQiskitParser
 
 BAD_INDEX = "from qiskit import QuantumCircuit\nqc = QuantumCircuit(2)\nqc.h(5)\n"
 
@@ -89,7 +89,7 @@ def test_unavailable_linter_does_not_run(monkeypatch):
 
 def test_add_on_named_in_the_environment_is_loaded(monkeypatch, tmp_path):
     (tmp_path / "my_addon.py").write_text(textwrap.dedent("""
-        from linters import Linter, Rule
+        from qslicer.lint.registry import Linter, Rule
         LINTER = Linter("mine", "Mine", "", [Rule("M1", "m")], lambda c: [], default=False)
     """), encoding="utf-8")
     monkeypatch.syspath_prepend(str(tmp_path))

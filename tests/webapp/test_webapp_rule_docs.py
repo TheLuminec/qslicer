@@ -2,7 +2,7 @@
 
 import pytest
 
-import linters
+from qslicer.lint import registry as linters
 import rule_docs
 
 RULE_IDS = [rule["id"] for linter in linters.catalog() for rule in linter["rules"]]

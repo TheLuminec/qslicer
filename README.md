@@ -16,13 +16,22 @@ line that produced it.
 The analysis is **static**. The recommended front ends read your program
 without running it, so you can analyse code you did not write.
 
+It ships as the `qslicer` Python package, with a `qslicer` command for linting
+and slicing your own files, and a Flask web app built on top of it.
+
+```bash
+pip install .                 # from a checkout; adds the `qslicer` command
+qslicer lint my_circuit.py
+qslicer slice my_circuit.py --line 12
+```
+
 ## Contents
 
 1. [Quick start: the web app](#quick-start-the-web-app)
 2. [Front ends: static first](#front-ends-static-first)
 3. [Using the web app](#using-the-web-app)
 4. [Linters and benchmarks](#linters-and-benchmarks)
-5. [Quick start: the library](#quick-start-the-library)
+5. [Quick start: the package](#quick-start-the-package)
 6. [How it works](#how-it-works)
 7. [Dependency types](#dependency-types)
 8. [Static parsing in detail](#static-parsing-in-detail)
@@ -38,8 +47,8 @@ without running it, so you can analyse code you did not write.
 Requires Python 3.10+.
 
 ```bash
-pip install -r requirements.txt
-pip install -r webapp/requirements.txt
+pip install -r requirements.txt    # the exact versions the tests run on
+pip install -e ".[web]"            # qslicer itself, editable, plus Flask
 python webapp/app.py
 ```
 
@@ -49,7 +58,8 @@ Open <http://127.0.0.1:5000/>, go to **Slicer**, pick an example, press
 ### Supported Qiskit version
 
 The project is frozen at **Qiskit 2.6.0** (with qiskit-aer 0.17.2 and
-qiskit-qasm3-import 0.6.0), pinned in `requirements.txt`. The static parsers,
+qiskit-qasm3-import 0.6.0), pinned in `requirements.txt`; the package itself
+asks for `qiskit>=2.6,<2.7` so it installs beside other 2.6.x tools. The static parsers,
 the quick checks' list of removed APIs (QS011) and the LintQ port are
 maintained against that version only; `tests/core/test_qiskit_version.py`
 fails if a different one is installed. Programs written for older Qiskit still
@@ -144,7 +154,7 @@ The JSON API behind it:
 `language` is `qiskit-static` or `qasm-static` (or, off the page, `qasm`;
 `qiskit` is refused); without it the file extension picks a static one.
 `/api/analyze` returns nodes (each with `line` and `source`), edges,
-entanglement groups, diagnostics and a `token` naming the cached QDG, so
+diagnostics and a `token` naming the cached QDG, so
 slicing never re-parses. The cache holds the 24 most recent analyses in memory.
 
 The full front-end reference (editor, graph view, math notation, the mocked and
@@ -152,25 +162,26 @@ partial features) is in [webapp/README.md](webapp/README.md).
 
 ## Linters and benchmarks
 
-Linters register in `webapp/linters.py`, each with its own rules. A request
+Linters register in `qslicer/lint/registry.py`, each with its own rules. A request
 selects rules by id (`quick/QS002`, `dependence/QD01`, or a bare linter id for
 all of its rules); `lint_rules` omitted means the default selection.
 
 | Linter | Id | Reads | Default |
 |---|---|---|---|
-| Quick checks | `quick` | errors Python or Qiskit would raise (`webapp/lint.py`): syntax, a missing circuit, indices outside the registers, removed or unknown Qiskit APIs, and operations Qiskit rejects while the static parser rebuilds the circuit (QS014) | on |
+| Quick checks | `quick` | errors Python or Qiskit would raise (`qslicer/lint/quick_checks.py`): syntax, a missing circuit, indices outside the registers, removed or unknown Qiskit APIs, and operations Qiskit rejects while the static parser rebuilds the circuit (QS014) | on |
 | Dependence checks | `dependence` | quantum mistakes in the rebuilt circuit and its QDG: dead gates, overwritten and constant measurements, controls never set, missing measurements, idle qubits, cancelling pairs, conditions never set and gates with no effect (QD01-QD03, QD05-QD10; QD04 became QS014) | on |
-| LintQ | `lintq` | LintQ's ten queries, reimplemented on the syntax tree (`scripts/Linters/lintq_port.py`) | off |
+| LintQ | `lintq` | LintQ's ten queries, reimplemented on the syntax tree (`qslicer/lint/lintq/port.py`) | off |
 | LintQ (original, CodeQL) | `lintq-codeql` | LintQ's own CodeQL queries, where `QSLICER_CODEQL` and `QSLICER_LINTQ` are set | off |
 
 The LintQ port gives exactly the original's warnings, line for line, on all
 239 programs of `tests/lintq/` (LintQ's own tests, edge-case probes, the
-examples and Bugs4Q); [scripts/Linters/README.md](scripts/Linters/README.md)
+examples and Bugs4Q); [qslicer/lint/lintq/README.md](qslicer/lint/lintq/README.md)
 says how, and how to run the original.
 
-A new linter is a module in `webapp/linter_plugins/` that defines `LINTER` or
+A new linter is a module in `qslicer/lint/plugins/` that defines `LINTER` or
 `LINTERS` (see `dependence_checks.py`, or `lintq.py` for one that wraps an
-external tool), or any importable module named in
+external tool), an installed package that declares it under the
+`qslicer.linters` entry point group, or any importable module named in
 `QSLICER_LINTER_PLUGINS`. It then appears in the Lint menu, the benchmark and
 the command line with no other change. Each rule also needs an entry in
 `webapp/rule_docs.py` (what it checks, its limits, an example and its fix),
@@ -196,61 +207,63 @@ See [benchmarks/README.md](benchmarks/README.md) for the manifest format and
 how to add a dataset, and [benchmarks/bugs4q/README.md](benchmarks/bugs4q/README.md)
 for Bugs4Q, its license, and how to compare another tool.
 
-## Quick start: the library
+## Quick start: the package
 
-The modules in `scripts/` import each other by bare name, so put `scripts/` on
-the path (or run from inside it):
+```bash
+pip install .            # or pip install -e . while working on it
+pip install ".[viz]"     # adds matplotlib, for `qslicer viz`
+```
+
+### From the command line
+
+```bash
+qslicer lint circuit.py other.py           # every linter's default rules
+qslicer lint circuit.py --select quick lintq --hints
+qslicer lint circuit.py --format json      # for scripts and CI
+qslicer list circuit.py                    # the instructions found, with source lines
+qslicer slice circuit.py 12                # backward slice from instruction 12
+qslicer slice circuit.py --forward --line 8 --deps DATA_QUBIT MEASUREMENT
+qslicer rules                              # every linter and rule id
+qslicer viz circuit.py                     # the QDG in a matplotlib window
+```
+
+`lint` exits 1 when it reports anything at `--fail-on` (default `warning`) or
+above, so it can gate CI or a pre-commit hook. `.qasm` files go to the
+OpenQASM front end; `--language` overrides the extension. `python -m qslicer`
+works too.
+
+### From Python
 
 ```python
-import sys
-sys.path.insert(0, "scripts")
-
-from Parsers.staticqiskitparser import StaticQiskitParser
-from qdg import QDG
-from slicer import QuantumSlicer, SlicingCriterion
+import qslicer
 
 # Read a Qiskit program WITHOUT executing it
-parser = StaticQiskitParser()
-program = parser.parse_file("webapp/examples/bell_pair.py")
-print(parser.warnings)                        # anything skipped or approximated
+program = qslicer.parse_file("my_circuit.py")      # .qasm goes to the OpenQASM front end
 
 # Every instruction knows its source line
 for i, ins in enumerate(program.instructions):
     print(i, ins.name, "line", ins.location.line)
 
-graph = QDG(program)                          # default rules
+last = len(program) - 1
+print(sorted(qslicer.backward_slice(program, last)))
+print(sorted(qslicer.forward_slice(program, 0, dep_types=[qslicer.DependencyType.DATA_QUBIT])))
 
-# Backward slice from the last instruction
-last = len(program.instructions) - 1
-print(sorted(QuantumSlicer.backward_slice(graph, SlicingCriterion(node_idx=last))))
+for finding in qslicer.lint_file("my_circuit.py"):  # or lint_source(text, filename)
+    print(finding["line"], finding["code"], finding["message"])
 ```
 
-OpenQASM works the same way:
+`parse` and `parse_file` raise `StaticParseError` with a line number when the
+circuit cannot be determined. The slice functions take a program or a `QDG`
+you built (`qslicer.QDG(program, rules)`), and `select=` picks lint rules the
+way `lint_rules` does on the API. The parser classes (`StaticQiskitParser`,
+`StaticOpenQASMParser`, whose `warnings` list what was skipped or
+approximated), `QuantumSlicer` and `SlicingCriterion` are exported too, and
+`qslicer.example_path("bell_pair.py")` finds the bundled examples.
 
-```python
-from Parsers.staticopenqasmparser import StaticOpenQASMParser
-
-program = StaticOpenQASMParser().parse_file("webapp/examples/ghz_openqasm.qasm")
-```
-
-Both parsers raise `StaticParseError` with a line number when the circuit
-cannot be determined. Restrict a slice with
-`SlicingCriterion(node_idx, dep_types={DependencyType.DATA_QUBIT})` (import
-`DependencyType` from `Dependencies.dependency_rules`) and use
-`QuantumSlicer.forward_slice` for the other direction.
-
-### Command-line visualisation
-
-`scripts/combined_visualizer.py` draws the QDG and the entanglement graph with
-matplotlib. It still uses the executing `QiskitParser`, so use it on circuits
-you trust:
-
-```bash
-python scripts/combined_visualizer.py --circuit_path 'Attachments/Sample Code/grovers_algorithm_exception.py'
-```
+`qslicer viz` reads the file with the static front ends, so it is safe on
+circuits you did not write.
 
 ![QDG](Attachments/Images/g1.png)
-![Entanglement graph](Attachments/Images/g2.png)
 
 ## How it works
 
@@ -268,8 +281,6 @@ python scripts/combined_visualizer.py --circuit_path 'Attachments/Sample Code/gr
 3. **Slice.** Breadth-first traversal along incoming (backward) or outgoing
    (forward) edges, optionally filtered by dependency type. A slice always
    contains its criterion.
-4. **Analyse entanglement (optional).** `EntanglementAnalyzer` approximates
-   entanglement groups and marks each active, uncomputed or measured.
 
 Everything after the IR is independent of which front end produced it. Adding a
 dependency type needs only a new rule class, with no change to the slicer.
@@ -281,21 +292,20 @@ dependency type needs only a new rule class, with no change to the slicer.
 | **DataQubit** | A gate writes a qubit; later gates on it depend on the writer | on |
 | **Measurement** | An operation conditioned on a measurement depends on it | on |
 | **DataClassical** | Reaching definitions on classical bits | on |
-| **ControlClassical** | Control dependence; a placeholder emitting no edges yet | on, empty |
+| **ControlClassical** | Control dependence; a placeholder emitting no edges yet | off |
 | **Entanglement** | Links an entangling gate to later operations on entangled qubits | off |
 | **Phase** | Dependencies through phase-changing gates | off |
 
 Entanglement matters because a gate that entangles two qubits changes what a
 later measurement of either means, unless it is **uncomputed** first (applied
-again in reverse). Entanglement is approximated syntactically: groups merge when
-an entangling gate spans them, and self-inverse gates applied twice cancel. It
-misses cancellations that need state tracking, such as `S` then `S†`.
+again in reverse). The rule is off for now; the dependence checks flag the
+simplest uncomputation, a self-inverse gate applied twice in a row (QD08).
 
 ## Static parsing in detail
 
 ### Qiskit (Python)
 
-`StaticQiskitParser` (`scripts/Parsers/staticqiskitparser.py`) does not
+`StaticQiskitParser` (`qslicer/parsers/staticqiskitparser.py`) does not
 pattern-match `qc.h(0)`-shaped lines. It **interprets** the module's syntax
 tree over a value domain it fully controls:
 
@@ -396,28 +406,31 @@ and it is why parse errors and warnings land on a line.
 
 ```
 .
-├── scripts/                     Analysis library
-│   ├── Parsers/
+├── qslicer/                     The package (pip install .)
+│   ├── __init__.py              Public API: parse, slices, lint_file, ...
+│   ├── cli.py                   The `qslicer` command
+│   ├── ir/                      QuantumInstruction, SourceLocation, QuantumProgram
+│   ├── parsers/
 │   │   ├── staticqiskitparser.py     Static Qiskit front end (interpreter)
 │   │   ├── staticopenqasmparser.py   Static OpenQASM 2/3 front end
 │   │   ├── qiskitparser.py           Executing Qiskit front end
-│   │   └── openqasmparser.py         qiskit.qasm3-based front end
-│   ├── Dependencies/            Dependency types and the rules that emit edges
-│   ├── qinstruction.py          QuantumInstruction and SourceLocation
-│   ├── qprogram.py              QuantumProgram (the IR)
-│   ├── parser.py                Abstract parser base class
+│   │   ├── openqasmparser.py         qiskit.qasm3-based front end
+│   │   └── base.py                   Abstract parser base class
+│   ├── dependencies/            Dependency types and the rules that emit edges
 │   ├── qdg.py                   QDG construction and rule profiles
 │   ├── slicer.py                Backward and forward slicing
-│   ├── Linters/                 LintQ: the port and the CodeQL adapter
-│   ├── entanglement.py          Approximate entanglement analysis
-│   └── visualizer.py, entangle_viewer.py, combined_visualizer.py
+│   ├── gates.py                 The gate reference and gate flag sets
+│   ├── lint/
+│   │   ├── registry.py               Linter registry and rule selection
+│   │   ├── quick_checks.py           The quick checks (QS codes)
+│   │   ├── plugins/                  Dependence checks (QD codes) and LintQ
+│   │   └── lintq/                    LintQ: the port and the CodeQL adapter
+│   ├── viz/                     Matplotlib QDG viewer
+│   └── examples/                Bundled circuits and manifest.json
 ├── webapp/                      Flask web app (see webapp/README.md)
-│   ├── app.py, analysis.py      Routes and the bridge to scripts/
-│   ├── lint.py, gates.py        Static checks and the gate reference
-│   ├── linters.py               Linter registry and rule selection
-│   ├── linter_plugins/          Linter add-ons (dependence checks)
+│   ├── app.py, analysis.py      Routes and the bridge to qslicer
 │   ├── benchmark.py             Benchmark datasets, grading and comparison
-│   ├── examples/                Bundled circuits and manifest.json
+│   ├── rule_docs.py             What each lint rule checks, shown in the Lint menu
 │   └── templates/, static/      Pages, CSS, JavaScript (no build step, no CDN)
 ├── benchmarks/                  run_benchmark.py and the datasets (Bugs4Q, vendored)
 ├── deploy/                      nginx config and systemd unit
@@ -429,12 +442,13 @@ and it is why parse errors and warnings land on a line.
 ## Testing
 
 ```bash
+pip install -r requirements.txt -e ".[web,viz]"
 pytest                       # everything
 pytest -m "not slow"         # skip the multi-second tests
 ```
 
-The suites are `tests/core` (parsers, QDG, rules, slicer, entanglement,
-including both static parsers), `tests/webapp` (API, pages, routes, source
+The suites are `tests/core` (parsers, QDG, rules, slicer, the package API and
+the `qslicer` command, including both static parsers), `tests/webapp` (API, pages, routes, source
 locations, lint, benchmark pages), `tests/benchmark` (the datasets,
 grading, the linter registry and dependence checks), `tests/lintq`
 (the LintQ port against the original's recorded warnings; with CodeQL
@@ -479,8 +493,8 @@ It is a proposal, not yet implemented.
 This is a research prototype. It analyses statically only, and conservative
 approximations are accepted. Specifically:
 
-- **Entanglement and phase rules ship disabled.** Only the `baseline` profile
-  exists, so there is no per-analysis toggle yet.
+- **Entanglement, phase and control-classical rules ship disabled.** Only the
+  `baseline` profile exists, so there is no per-analysis toggle yet.
 - **Classical control dependence** (`ControlClassical`) is a placeholder, and
   slices do not yet exclude an entangling gate that is uncomputed before the
   criterion.

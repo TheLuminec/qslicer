@@ -3,9 +3,9 @@
 import pytest
 from qiskit import QuantumCircuit, qasm3
 
-from Parsers.qiskitparser import QiskitParser
-from Parsers.openqasmparser import OpenQASMParser
-from qprogram import QuantumProgram
+from qslicer.parsers.qiskitparser import QiskitParser
+from qslicer.parsers.openqasmparser import OpenQASMParser
+from qslicer.ir.qprogram import QuantumProgram
 
 QASM_BELL = """OPENQASM 3.0;
 include "stdgates.inc";

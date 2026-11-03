@@ -6,7 +6,7 @@ import os
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 WEBAPP_DIR = os.path.join(ROOT, "webapp")
-EXAMPLES_DIR = os.path.join(WEBAPP_DIR, "examples")
+EXAMPLES_DIR = os.path.join(ROOT, "qslicer", "examples")
 MANIFEST_PATH = os.path.join(EXAMPLES_DIR, "manifest.json")
 
 

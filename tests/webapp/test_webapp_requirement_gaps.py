@@ -19,7 +19,7 @@ def test_ir_fields_present_in_nodes(ghz_qasm_result):
 
 @pytest.mark.requirement("FR-10")
 @pytest.mark.xfail(strict=True, reason="FR-10: there is only the 'baseline' rule profile, with "
-                   "the entanglement and phase rules commented out in scripts/qdg.py, and no "
+                   "the entanglement and phase rules left out of qslicer/qdg.py, and no "
                    "per-analysis toggle; the API cannot enable them")
 def test_entanglement_and_phase_rules_can_be_enabled_per_analysis(client):
     offered = set()

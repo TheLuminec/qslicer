@@ -3,12 +3,12 @@
 import pytest
 from qiskit import QuantumCircuit
 
-from Parsers.qiskitparser import QiskitParser
-from Dependencies.dependency_rules import DependencyType
-from Dependencies.rules import (
-    ControlClassicalRule, DataClassicalRule, DataQubitRule, MeasurementRule,
+from qslicer.parsers.qiskitparser import QiskitParser
+from qslicer.dependencies.dependency_rules import DependencyType
+from qslicer.dependencies.rules import (
+    DataClassicalRule, DataQubitRule, MeasurementRule,
 )
-from qdg import QDG, QDGNode, get_rule_profile, list_rule_profiles
+from qslicer.qdg import QDG, QDGNode, get_rule_profile, list_rule_profiles
 
 
 def sample_program():
@@ -53,7 +53,7 @@ def test_default_rule_profile():
     assert "baseline" in list_rule_profiles()
     rules = get_rule_profile("baseline")
     assert [type(r) for r in rules] == [
-        DataQubitRule, MeasurementRule, DataClassicalRule, ControlClassicalRule,
+        DataQubitRule, MeasurementRule, DataClassicalRule,
     ]
     assert [type(r) for r in QDG(sample_program()).rules] == [type(r) for r in rules]
 

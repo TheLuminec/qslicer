@@ -25,12 +25,12 @@ import os
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for path in (os.path.join(ROOT, "webapp"), os.path.join(ROOT, "scripts")):
+for path in (os.path.join(ROOT, "webapp"), ROOT):
     if path not in sys.path:
         sys.path.insert(0, path)
 
 import benchmark  # noqa: E402
-import linters  # noqa: E402
+from qslicer.lint import registry as linters  # noqa: E402
 
 
 def _pct(value):

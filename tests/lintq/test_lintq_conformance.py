@@ -13,7 +13,7 @@ import shutil
 
 import pytest
 
-from Linters import codeql_lintq, lintq_port
+from qslicer.lint.lintq import codeql as codeql_lintq, port as lintq_port
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -33,7 +33,7 @@ def _original(rel):
 
 def test_reference_covers_every_fixture_example_and_bugs4q_program():
     expected = set()
-    for tree in ("tests/lintq/programs", "webapp/examples", "benchmarks/bugs4q/programs"):
+    for tree in ("tests/lintq/programs", "qslicer/examples", "benchmarks/bugs4q/programs"):
         for dirpath, _dirs, names in os.walk(os.path.join(ROOT, tree)):
             expected |= {os.path.relpath(os.path.join(dirpath, n), ROOT).replace(os.sep, "/")
                          for n in names if n.endswith(".py")}

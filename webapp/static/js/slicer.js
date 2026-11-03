@@ -631,7 +631,6 @@
       graph.clear();
       $('graph-empty').hidden = false;
       renderInstructions(null);
-      renderEntanglement(null);
       renderQubitFilter(null);
       renderDepFilter(null);
       updateGutter(data.error && data.error.line);
@@ -660,7 +659,6 @@
     $('range-to').max = data.nodes.length - 1;
 
     renderInstructions(data);
-    renderEntanglement(data);
     renderQubitFilter(data);
 
     var program = data.program;
@@ -1142,80 +1140,6 @@
       (touching.length ? ': #' + touching.join(', #') : '.'));
   }
 
-  /* ---------------------------------------------------- entanglement ---- */
-
-  function renderEntanglement(data) {
-    var container = $('entanglement-body');
-    container.textContent = '';
-
-    if (!data) {
-      container.innerHTML = '<p class="placeholder">Analyze a circuit to see its groups.</p>';
-      return;
-    }
-
-    var intro = document.createElement('p');
-    intro.className = 'console-note';
-    intro.textContent = data.entanglement.num_groups + ' groups, of which ' +
-      data.entanglement.entangled_groups + ' were created by an entangling gate. ' +
-      'Every wire starts in a group of its own.';
-    container.appendChild(intro);
-
-    // Newest group first: the measurement and classical groups that close a
-    // program are usually what you came to look at, and the per-wire init
-    // groups that open it are the least interesting rows on the panel.
-    data.entanglement.groups.slice().reverse().forEach(function (group) {
-      var card = document.createElement('div');
-      card.className = 'group-card';
-
-      var title = document.createElement('h4');
-      title.innerHTML = 'Group ' + group.id +
-        ' <span class="group-kind kind-' + group.kind + '">' + group.kind + '</span>' +
-        (group.measured ? ' <span class="group-kind kind-measurement">measured</span>' : '') +
-        (group.active ? '' : ' <span class="group-kind kind-init">closed</span>');
-      card.appendChild(title);
-
-      var dl = document.createElement('dl');
-      dl.innerHTML =
-        '<dt>qubits</dt><dd>' + (group.qubits.length ? 'q' + group.qubits.join(', q') : '—') + '</dd>' +
-        '<dt>origin</dt><dd>' + escapeHtml(group.origin) + '</dd>' +
-        '<dt>depth</dt><dd>' + group.depth + '</dd>' +
-        '<dt>parents</dt><dd>' + (group.parents.length ? group.parents.join(', ') : '—') + '</dd>';
-      card.appendChild(dl);
-
-      card.appendChild(indexRow('computed', group.computed));
-      card.appendChild(indexRow('uncomputed', group.uncomputed));
-      card.appendChild(indexRow('measurements', group.measurements));
-      container.appendChild(card);
-    });
-  }
-
-  function indexRow(label, indices) {
-    var wrapper = document.createElement('dl');
-    var terms = document.createElement('dt');
-    terms.textContent = label;
-    var values = document.createElement('dd');
-    if (!indices.length) {
-      values.textContent = '—';
-    } else {
-      indices.forEach(function (index, position) {
-        var link = document.createElement('span');
-        link.className = 'idx-link';
-        link.textContent = '#' + index;
-        link.title = 'Slice from this instruction';
-        link.addEventListener('click', function () {
-          requestSlice(index);
-          document.querySelector('.tab[data-tab="graph"]').click();
-        });
-        values.appendChild(link);
-        if (position < indices.length - 1) values.appendChild(document.createTextNode(', '));
-      });
-    }
-    wrapper.appendChild(terms);
-    wrapper.appendChild(values);
-    return wrapper;
-  }
-
-
   /* ---------------------------------------------------------- splitter -- */
 
   var SPLIT_KEY = 'qslicer.split';
@@ -1497,7 +1421,6 @@
     graph.clear();
     $('graph-empty').hidden = false;
     renderInstructions(null);
-    renderEntanglement(null);
     renderQubitFilter(null);
     renderDepFilter(null);
     state.activeDeps = null;

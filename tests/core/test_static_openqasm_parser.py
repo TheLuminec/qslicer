@@ -6,15 +6,15 @@ import os
 import pytest
 from qiskit import QuantumCircuit, qasm3
 
-from Parsers.openqasmparser import OpenQASMParser
-from Parsers.staticopenqasmparser import StaticOpenQASMParser
-from Parsers.staticqiskitparser import StaticParseError
-from Dependencies.dependency_rules import DependencyType
-from qdg import QDG
-from slicer import QuantumSlicer, SlicingCriterion
+from qslicer.parsers.openqasmparser import OpenQASMParser
+from qslicer.parsers.staticopenqasmparser import StaticOpenQASMParser
+from qslicer.parsers.staticqiskitparser import StaticParseError
+from qslicer.dependencies.dependency_rules import DependencyType
+from qslicer.qdg import QDG
+from qslicer.slicer import QuantumSlicer, SlicingCriterion
 
 EXAMPLES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))), "webapp", "examples")
+    os.path.abspath(__file__)))), "qslicer", "examples")
 
 HEAD = 'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[3] q;\nbit[3] c;\n'
 

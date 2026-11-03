@@ -320,7 +320,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <div><span class="lbl">DATA_CLASSICAL</span><var>u</var> → <var>v</var> &nbsp;iff&nbsp; ∃ <var>c</var> ∈ <var>R</var>(<var>v</var>) : <var>u</var> = max { <var>w</var> &lt; <var>v</var> : <var>c</var> ∈ <var>C</var>(<var>w</var>) }</div>
 </div>
 
-<p class="tcap"><span class="cap-n">Table 1.</span>Dependency rules (<code>scripts/Dependencies/rules.py</code>). The baseline profile is the only profile; the last two rules exist but are commented out of it.</p>
+<p class="tcap"><span class="cap-n">Table 1.</span>Dependency rules (<code>qslicer/dependencies/rules.py</code>). The baseline profile is the only profile; the last two rules exist but are commented out of it.</p>
 <div class="tbl"><table>
 <thead><tr><th>Rule</th><th>State kept</th><th>On instruction <var>i</var></th><th>Edge type</th><th>Baseline</th></tr></thead>
 <tbody>
@@ -401,15 +401,15 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <section>
 <h2><span class="sn">7</span>The lint path</h2>
 <div class="prose">
-<p>Linters are registered in <code>webapp/linters.py</code> as <code>Linter</code> records: an id, a list of rules, a <code>run(context)</code> function, the languages it reads, whether it is on by default, an <code>available()</code> check for external tools, and an optional <code>batch</code> mode. Only the quick checks are built into <code>linters.py</code>. The other three linters are add-ons: the dependence checks in <code>webapp/linter_plugins/dependence_checks.py</code>, and the LintQ port and its CodeQL counterpart in <code>linter_plugins/lintq.py</code>. On first use the registry imports every module in <code>webapp/linter_plugins/</code>, and any named in the <code>QSLICER_LINTER_PLUGINS</code> variable, and registers the <code>LINTER</code> or <code>LINTERS</code> each defines. A module that fails to import is reported and skipped rather than taking the site down.</p>
+<p>Linters are registered in <code>qslicer/lint/registry.py</code> as <code>Linter</code> records: an id, a list of rules, a <code>run(context)</code> function, the languages it reads, whether it is on by default, an <code>available()</code> check for external tools, and an optional <code>batch</code> mode. Only the quick checks are built into <code>registry.py</code>. The other three linters are add-ons: the dependence checks in <code>qslicer/lint/plugins/dependence_checks.py</code>, and the LintQ port and its CodeQL counterpart in <code>qslicer/lint/plugins/lintq.py</code>. On first use the registry imports every module in <code>qslicer/lint/plugins/</code>, and any named in the <code>QSLICER_LINTER_PLUGINS</code> variable, and registers the <code>LINTER</code> or <code>LINTERS</code> each defines. A module that fails to import is reported and skipped rather than taking the site down.</p>
 <p>A request selects rules by id (<code>quick/QS002</code>, or a bare <code>dependence</code> for all of a linter's rules). <code>linters.run</code> groups the selection by linter, skips linters that do not read the language or are unavailable, and calls each with one shared <code>LintContext</code>. The context parses the source with the same static front end at most once, lazily, through its own <code>linters._static_parse</code> under a 5 s limit, and hands out either the program or the failure. A linter that raises becomes one <code>&lt;ID&gt;-CRASH</code> error finding. <code>tag()</code> then keeps only the selected codes and stamps each finding with <code>tool</code> and <code>rule</code>, and the list is sorted by line. Every finding has the same shape: <code>code</code>, <code>severity</code>, <code>line</code>, <code>column</code>, <code>message</code>, <code>hint</code>, plus <code>nodes</code>, <code>lines</code> or <code>qubits</code> where the linter knows them.</p>
 
 <h3>7.1 Four linters, four sources of evidence</h3>
 <ul>
-<li><strong>Quick checks</strong> (<code>webapp/lint.py</code>, on, Python only) report what Python or Qiskit would raise. One <code>ast.NodeVisitor</code> pass collects circuits with literal sizes, method calls and attribute reads, and the checks compare literal indices against literal sizes. QS005, QS012 and QS013 look names, methods and keyword arguments up in the installed Qiskit by import and introspection; the submitted file itself is never imported. QS014 reads the lint context's parse failure: the static parser raises Qiskit's <code>CircuitError</code> where Qiskit would, at the line inside a helper or loop iteration, so QS014 catches computed indices that the literal checks cannot see.</li>
-<li><strong>Dependence checks</strong> (<code>webapp/linter_plugins/dependence_checks.py</code>, on, Python and OpenQASM) read the rebuilt program. They see only programs the static front end can rebuild, which on Bugs4Q is {{B_READ}} of {{B_PROGRAMS}}. QD01 builds a QDG with the request's profile and reports every gate outside the union of the backward slices of all instructions that write a classical bit. QD05 follows the set of qubits provably still in |0⟩ through diagonal gates and measurements; QD10 follows each qubit's Pauli eigenstate through single-qubit Clifford gates. Findings name the node indices they mean, and findings with the same code and line are merged with a count, so a loop is reported once and marks every iteration.</li>
+<li><strong>Quick checks</strong> (<code>qslicer/lint/quick_checks.py</code>, on, Python only) report what Python or Qiskit would raise. One <code>ast.NodeVisitor</code> pass collects circuits with literal sizes, method calls and attribute reads, and the checks compare literal indices against literal sizes. QS005, QS012 and QS013 look names, methods and keyword arguments up in the installed Qiskit by import and introspection; the submitted file itself is never imported. QS014 reads the lint context's parse failure: the static parser raises Qiskit's <code>CircuitError</code> where Qiskit would, at the line inside a helper or loop iteration, so QS014 catches computed indices that the literal checks cannot see.</li>
+<li><strong>Dependence checks</strong> (<code>qslicer/lint/plugins/dependence_checks.py</code>, on, Python and OpenQASM) read the rebuilt program. They see only programs the static front end can rebuild, which on Bugs4Q is {{B_READ}} of {{B_PROGRAMS}}. QD01 builds a QDG with the request's profile and reports every gate outside the union of the backward slices of all instructions that write a classical bit. QD05 follows the set of qubits provably still in |0⟩ through diagonal gates and measurements; QD10 follows each qubit's Pauli eigenstate through single-qubit Clifford gates. Findings name the node indices they mean, and findings with the same code and line are merged with a count, so a loop is reported once and marks every iteration.</li>
 <li><strong>LintQ port</strong> (<code>scripts/Linters/lintq_port.py</code>, off by default) reimplements LintQ's ten CodeQL queries on Python's syntax tree. It builds per-scope control-flow graphs, reaching definitions and API paths that mirror LintQ's CodeQL library, and deliberately keeps that library's limits. Its conformance test (<code>tests/lintq/</code>) checks that it gives the original's warnings line for line on 239 files: LintQ's 35 test programs, 4 probe programs written for the queries' edge cases, the 22 bundled examples and the 178 Python files under <code>benchmarks/bugs4q/programs/</code>. That corpus yields 190 warnings; Table 3's combined total of 190 on Bugs4Q is a coincidence.</li>
-<li><strong>LintQ original</strong> (<code>scripts/Linters/codeql_lintq.py</code>, off, needs CodeQL) runs the authors' queries through the CodeQL CLI and reads the SARIF output. It is slow to start, so the benchmark uses its batch mode.</li>
+<li><strong>LintQ original</strong> (<code>qslicer/lint/lintq/codeql.py</code>, off, needs CodeQL) runs the authors' queries through the CodeQL CLI and reads the SARIF output. It is slow to start, so the benchmark uses its batch mode.</li>
 </ul>
 
 <h3>7.2 Where the slicer and the linter meet</h3>
@@ -474,12 +474,12 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <p>While this note was written, the README and the project wiki had drifted from the code in four places. They were brought in line on 3 Nov 2026:</p>
 <ul>
 <li>Both READMEs now list the dependence checks as QD01–QD03 and QD05–QD10. QD04 became QS014 in the 2026-10-29 reorganisation.</li>
-<li><code>wiki/Research/Linting.md</code> now describes the current design. The dependence checks are a plugin in <code>webapp/linter_plugins/</code>, the LintQ port works on the syntax tree and keeps the original's limits, and the rule tables match the registry.</li>
+<li><code>wiki/Research/Linting.md</code> now describes the current design. The dependence checks are a plugin in <code>qslicer/lint/plugins/</code>, the LintQ port works on the syntax tree and keeps the original's limits, and the rule tables match the registry.</li>
 <li><code>wiki/Research/Static-Parsing.md</code> now lists the OpenQASM features the interpreter supports (run-time <code>while</code>, <code>switch</code>, <code>box</code>, physical qubits, <code>extern</code>) and what it still refuses.</li>
 <li><code>wiki/Research/Bugs4Q-Benchmark.md</code> now reports the current run: {{B_DETECTED}} of {{B_BUGS}} bugs detected, {{B_READ}} of {{B_PROGRAMS}} programs read.</li>
 </ul>
 <p>A review of this note also found a bug in QD01 itself. It counted only <code>measure</code> instructions as outputs, so it reported an <code>if_test</code> block that measures inside, and an OpenQASM <code>store</code> after the last measurement, as dead. Every instruction that writes a classical bit now counts as an output (Section 7.2), with regression tests for both cases.</p>
-<p>The graph is called the QDG throughout, as in <code>scripts/qdg.py</code>. "QPDG" now appears only where a page cites the IEEE paper that introduced it.</p>
+<p>The graph is called the QDG throughout, as in <code>qslicer/qdg.py</code>. "QPDG" now appears only where a page cites the IEEE paper that introduced it.</p>
 </div>
 </section>
 
@@ -488,19 +488,18 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <div class="tbl"><table>
 <thead><tr><th>Stage</th><th>Entry point</th><th>File</th></tr></thead>
 <tbody>
-<tr><td>Qiskit front end</td><td><code>StaticQiskitParser.parse</code>, <code>_Interpreter</code>, <code>_choose_circuit</code></td><td><code>scripts/Parsers/staticqiskitparser.py</code></td></tr>
-<tr><td>OpenQASM front end</td><td><code>StaticOpenQASMParser.parse</code>, <code>_QasmInterpreter</code></td><td><code>scripts/Parsers/staticopenqasmparser.py</code></td></tr>
-<tr><td>Circuit model and lowering</td><td><code>StaticCircuit</code>, <code>StaticInstruction</code>, <code>circuit_to_program</code></td><td><code>scripts/Parsers/staticqiskitparser.py</code></td></tr>
-<tr><td>IR</td><td><code>QuantumProgram</code>, <code>QuantumInstruction</code>, <code>SourceLocation</code></td><td><code>scripts/qprogram.py</code>, <code>scripts/qinstruction.py</code></td></tr>
-<tr><td>Dependency rules</td><td><code>DependencyRule.build</code> and six rules</td><td><code>scripts/Dependencies/</code></td></tr>
-<tr><td>QDG and profiles</td><td><code>QDG</code>, <code>get_rule_profile</code></td><td><code>scripts/qdg.py</code></td></tr>
-<tr><td>Slicer</td><td><code>QuantumSlicer.backward_slice</code>, <code>forward_slice</code></td><td><code>scripts/slicer.py</code></td></tr>
-<tr><td>Entanglement groups</td><td><code>EntanglementAnalyzer</code></td><td><code>scripts/entanglement.py</code></td></tr>
+<tr><td>Qiskit front end</td><td><code>StaticQiskitParser.parse</code>, <code>_Interpreter</code>, <code>_choose_circuit</code></td><td><code>qslicer/parsers/staticqiskitparser.py</code></td></tr>
+<tr><td>OpenQASM front end</td><td><code>StaticOpenQASMParser.parse</code>, <code>_QasmInterpreter</code></td><td><code>qslicer/parsers/staticopenqasmparser.py</code></td></tr>
+<tr><td>Circuit model and lowering</td><td><code>StaticCircuit</code>, <code>StaticInstruction</code>, <code>circuit_to_program</code></td><td><code>qslicer/parsers/staticqiskitparser.py</code></td></tr>
+<tr><td>IR</td><td><code>QuantumProgram</code>, <code>QuantumInstruction</code>, <code>SourceLocation</code></td><td><code>qslicer/ir/qprogram.py</code>, <code>qslicer/ir/qinstruction.py</code></td></tr>
+<tr><td>Dependency rules</td><td><code>DependencyRule.build</code> and six rules</td><td><code>qslicer/dependencies/</code></td></tr>
+<tr><td>QDG and profiles</td><td><code>QDG</code>, <code>get_rule_profile</code></td><td><code>qslicer/qdg.py</code></td></tr>
+<tr><td>Slicer</td><td><code>QuantumSlicer.backward_slice</code>, <code>forward_slice</code></td><td><code>qslicer/slicer.py</code></td></tr>
 <tr><td>Request handling</td><td><code>analyze_source</code>, <code>slice_program</code>, <code>attach_lint_nodes</code></td><td><code>webapp/analysis.py</code>, <code>webapp/app.py</code></td></tr>
-<tr><td>Linter registry</td><td><code>Linter</code>, <code>LintContext</code>, <code>run</code>, <code>tag</code></td><td><code>webapp/linters.py</code></td></tr>
-<tr><td>Quick checks</td><td><code>check_source</code>, <code>rejected_operation</code></td><td><code>webapp/lint.py</code></td></tr>
-<tr><td>Dependence checks</td><td><code>run</code> and one function per rule</td><td><code>webapp/linter_plugins/dependence_checks.py</code></td></tr>
-<tr><td>LintQ</td><td><code>LintQAnalysis</code>; CodeQL adapter</td><td><code>scripts/Linters/lintq_port.py</code>, <code>codeql_lintq.py</code></td></tr>
+<tr><td>Linter registry</td><td><code>Linter</code>, <code>LintContext</code>, <code>run</code>, <code>tag</code></td><td><code>qslicer/lint/registry.py</code></td></tr>
+<tr><td>Quick checks</td><td><code>check_source</code>, <code>rejected_operation</code></td><td><code>qslicer/lint/quick_checks.py</code></td></tr>
+<tr><td>Dependence checks</td><td><code>run</code> and one function per rule</td><td><code>qslicer/lint/plugins/dependence_checks.py</code></td></tr>
+<tr><td>LintQ</td><td><code>LintQAnalysis</code>; CodeQL adapter</td><td><code>qslicer/lint/lintq/port.py</code>, <code>codeql.py</code></td></tr>
 <tr><td>Benchmark</td><td><code>ground_truth</code>, <code>grade_bug</code>, <code>run</code></td><td><code>webapp/benchmark.py</code>, <code>benchmarks/run_benchmark.py</code></td></tr>
 </tbody></table></div>
 </section>

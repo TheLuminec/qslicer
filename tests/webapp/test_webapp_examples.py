@@ -231,14 +231,6 @@ def test_claim_qasm_examples_skip_static_checks(example_results):
 
 
 @pytest.mark.slow
-def test_claim_uncomputation_instruction_3_is_uncomputed(example_results):
-    body = _ok(example_results, "uncomputation")
-    groups = body["entanglement"]["groups"]
-    assert any(3 in g["uncomputed"] for g in groups)
-    assert not any(3 in g["computed"] for g in groups)
-
-
-@pytest.mark.slow
 def test_claim_linter_showcase_diagnostics(example_results):
     body = _ok(example_results, "linter_showcase")
     assert {"QD06", "QD07", "QD08"} <= {d["code"] for d in body["diagnostics"]}

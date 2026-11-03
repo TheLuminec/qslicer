@@ -1,0 +1,547 @@
+"""Dependence checks: quantum mistakes in the circuit the static front end rebuilds.
+
+The static parser rebuilds the circuit without running the program (loops
+unrolled, helpers followed), so these checks see what a literal reading of the
+source misses. Some use the dependence graph: the slicer keeps every
+instruction that could change a measured bit, and QD01 reports those that
+provably cannot. The others follow the rebuilt circuit: measurements that are
+overwritten or constant, controls that are never set, a circuit that measures
+nothing, idle qubits, gates that cancel. A file the static parser cannot read
+gets no findings (the errors Qiskit raises while rebuilding it are the quick
+checks' QS014).
+
+Findings name the instructions they are about (``nodes``: indices into the
+rebuilt circuit, which are the slicer's graph node ids), so the graph marks
+exactly those, even inside a loop.
+
+This module is also the reference for writing an add-on: define ``LINTER``,
+give each rule a code, and return diagnostics from ``run``.
+"""
+
+from typing import Any, Dict, Iterable, List, Optional, Set
+
+from ..registry import Linter, LintContext, Rule
+
+# Instructions that are bookkeeping rather than gates: never reported as dead.
+_NOT_GATES = frozenset({"barrier", "delay", "snapshot", "measure", "measure_all"})
+_PREPARING = frozenset({"barrier", "delay", "snapshot", "measure", "reset"})
+
+RULES = [
+    Rule("QD01", "Dead gate", "warning",
+         "No classical bit the circuit writes (by a measurement, a store or a block that "
+         "measures inside) depends on this gate, so removing it cannot change the output."),
+    Rule("QD02", "Measurement overwritten", "warning",
+         "A measurement writes a classical bit that a later measurement overwrites before "
+         "anything reads it."),
+    Rule("QD03", "Constant measurement", "warning",
+         "A qubit is measured before any gate has acted on it, so the result is always 0."),
+    Rule("QD05", "Control never set", "warning",
+         "A controlled gate whose control qubit is still |0> when it runs, so the gate never "
+         "acts: control and target swapped, or the gate preparing the control is missing or "
+         "comes later."),
+    Rule("QD06", "No measurement", "warning",
+         "The circuit never measures anything (helpers and loops included), and its state is "
+         "not read another way (Statevector, Operator, an Estimator)."),
+    Rule("QD07", "Idle qubit", "info",
+         "A declared qubit that no instruction of the rebuilt circuit ever touches."),
+    Rule("QD08", "Cancelling pair", "info",
+         "Two identical self-inverse gates back to back on the same wires (loops and helpers "
+         "included) cancel; a barrier in between keeps them apart."),
+    Rule("QD09", "Condition never set", "warning",
+         "An if_test (or other classical condition) reads only bits no earlier measurement "
+         "wrote: they are still 0, so the branch is decided before the program runs."),
+    Rule("QD10", "Gate has no effect", "warning",
+         "A gate that leaves its qubit's state unchanged, because its own code just put the "
+         "qubit in an eigenstate of it: x after h (x leaves |+> as it is), y on |+i>."),
+]
+
+# QD10: single-qubit Clifford gates as maps of a qubit's stabilizer, one of
+# "+Z" (|0>), "-Z" (|1>), "+X" (|+>), "-X" (|->), "+Y" (|+i>), "-Y" (|-i>).
+_CLIFFORD = {
+    "h": {"X": "+Z", "Z": "+X", "Y": "-Y"},
+    "x": {"X": "+X", "Y": "-Y", "Z": "-Z"},
+    "y": {"X": "-X", "Y": "+Y", "Z": "-Z"},
+    "z": {"X": "-X", "Y": "-Y", "Z": "+Z"},
+    "s": {"X": "+Y", "Y": "-X", "Z": "+Z"},
+    "sdg": {"X": "-Y", "Y": "+X", "Z": "+Z"},
+    "id": {"X": "+X", "Y": "+Y", "Z": "+Z"},
+}
+# Gates (non-diagonal ones only) and the axis whose eigenstates they leave alone.
+_FIXES = {"x": "X", "sx": "X", "sxdg": "X", "rx": "X", "y": "Y", "ry": "Y"}
+# Diagonal gates: they keep a Z eigenstate as it is.
+_DIAGONAL = frozenset({"z", "s", "sdg", "t", "tdg", "p", "rz", "u1", "id", "i"})
+_KET = {"+Z": "|0>", "-Z": "|1>", "+X": "|+>", "-X": "|->", "+Y": "|+i>", "-Y": "|-i>"}
+
+# QD05: how many leading qubits of a controlled gate are controls.
+_CONTROLS = {
+    "cx": 1, "cy": 1, "cz": 1, "ch": 1, "cs": 1, "csdg": 1, "csx": 1, "cp": 1, "cu1": 1,
+    "crx": 1, "cry": 1, "crz": 1, "cu": 1, "cu3": 1, "cswap": 1,
+    "ccx": 2, "ccz": 2, "rccx": 2, "c3x": 3, "c3sx": 3, "rc3x": 3, "c4x": 4,
+}
+_ALL_BUT_LAST = frozenset({"mcx", "mcp", "mcphase", "mcrx", "mcry", "mcrz", "mcx_gray",
+                           "mcx_recursive", "mcx_vchain"})
+# Instructions after which a qubit that was |0> still is: diagonal gates, and the
+# bookkeeping that does not change a state (a measured |0> stays |0>).
+_KEEP_ZERO = frozenset({"z", "s", "sdg", "t", "tdg", "p", "rz", "u1", "id", "i", "barrier",
+                        "delay", "measure", "global_phase", "cz", "cp", "cu1", "ccz", "cs",
+                        "csdg", "crz", "mcp", "mcphase", "mcrz", "rzz"})
+
+# QD07: instructions that span qubits without using them.
+_NOT_A_USE = frozenset({"barrier", "delay"})
+
+
+def _line(instruction) -> int:
+    location = getattr(instruction, "location", None)
+    return getattr(location, "line", 0) or 0
+
+
+def _finding(code: str, line: int, message: str, hint: str,
+             nodes: Iterable[int] = ()) -> Dict[str, Any]:
+    """A finding; ``nodes`` are the instructions it is about (indices into the rebuilt
+    circuit, which are also the slicer's graph node ids), for the graph to mark."""
+    severity = next(rule.severity for rule in RULES if rule.code == code)
+    finding = {"code": code, "severity": severity, "line": line, "column": 0,
+               "message": message, "hint": hint}
+    if nodes:
+        finding["nodes"] = list(nodes)
+    return finding
+
+
+def _writes_a_bit(instruction) -> bool:
+    """Whether an instruction writes a classical bit: a measurement, a store, or a
+    control-flow block whose body (at any depth) writes one. A block lists its
+    condition bits among its clbits, so its body is what tells."""
+    bodies = [p for p in instruction.params if hasattr(p, "data")]
+    if not bodies:
+        return bool(instruction.clbits)
+    return any(_body_writes(body) for body in bodies)
+
+
+def _body_writes(circuit) -> bool:
+    for inner in circuit.data:
+        bodies = [p for p in inner.operation.params if hasattr(p, "data")]
+        if bodies:
+            if any(_body_writes(body) for body in bodies):
+                return True
+        elif inner.clbits:
+            return True
+    return False
+
+
+def _dead_gates(program, qdg) -> List[Dict[str, Any]]:
+    from ...slicer import QuantumSlicer, SlicingCriterion
+
+    # The program's output is every classical bit it writes, so every writer is a
+    # criterion: measurements, stores, and blocks that measure inside.
+    writers = [i for i in range(len(program)) if _writes_a_bit(program[i])]
+    if not any(program[i].name == "measure" for i in writers):
+        return []
+    live: Set[int] = set()
+    for idx in writers:
+        if idx not in live:
+            live |= QuantumSlicer.backward_slice(qdg, SlicingCriterion(node_idx=idx))
+    findings = []
+    for idx in range(len(program)):
+        instruction = program[idx]
+        if idx in live or instruction.name in _NOT_GATES or not _line(instruction):
+            continue
+        findings.append(_finding(
+            "QD01", _line(instruction),
+            f"{instruction.name} on qubit(s) {list(instruction.qubits)} cannot affect any "
+            "classical bit the circuit writes.",
+            "Either it is left over, or a measurement that should follow it is missing.",
+            nodes=[idx],
+        ))
+    return findings
+
+
+def _overwritten_measurements(program) -> List[Dict[str, Any]]:
+    pending: Dict[int, int] = {}     # clbit -> the measurement whose result nothing read yet
+    findings = []
+    for idx in range(len(program)):
+        instruction = program[idx]
+        for clbit in instruction.metadata.get("condition_clbits", []) or []:
+            pending.pop(clbit, None)
+        if instruction.name != "measure":
+            continue
+        for clbit in instruction.clbits:
+            earlier = pending.get(clbit)
+            if earlier is not None and _line(instruction):
+                findings.append(_finding(
+                    "QD02", _line(instruction),
+                    f"Classical bit {clbit} is overwritten here; the measurement at line "
+                    f"{_line(program[earlier]) or '?'} never reaches the output.",
+                    "Measure into a different classical bit if both results are wanted.",
+                    nodes=[earlier, idx],
+                ))
+            pending[clbit] = idx
+    return findings
+
+
+def _constant_measurements(program, source: str) -> List[Dict[str, Any]]:
+    """QD03: a measurement of a qubit no gate has acted on yet. Not judged inside a
+    function that receives its circuit: there the caller prepares the qubit, and the
+    rebuilt circuit only shows one caller (often a test passing |0>)."""
+    given = _lines_given_a_circuit(source)
+    touched: Set[int] = set()
+    findings = []
+    for idx in range(len(program)):
+        instruction = program[idx]
+        if instruction.name == "measure":
+            untouched = [q for q in instruction.qubits if q not in touched]
+            if untouched and _line(instruction) and _line(instruction) not in given:
+                findings.append(_finding(
+                    "QD03", _line(instruction),
+                    f"Qubit(s) {untouched} are measured before any gate acts on them; the "
+                    "result is always 0.",
+                    "A preparation gate may be missing, or the wrong qubit is measured.",
+                    nodes=[idx],
+                ))
+        elif instruction.name == "reset":
+            touched.difference_update(instruction.qubits)
+        elif instruction.name not in _PREPARING:
+            touched.update(instruction.qubits)
+    return findings
+
+
+def _controls(instruction) -> List[int]:
+    if instruction.name in _CONTROLS:
+        return list(instruction.qubits[:_CONTROLS[instruction.name]])
+    if instruction.name in _ALL_BUT_LAST:
+        return list(instruction.qubits[:-1])
+    return []
+
+
+def _lines_given_a_circuit(source: str) -> Set[int]:
+    """Lines of gate calls on a circuit that a function receives as a parameter.
+
+    Such a function (an oracle, a QFT, an adder) is written for any input; the
+    rebuilt circuit only shows it run on one, where a control may well be |0>.
+    """
+    import ast
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+    found: Set[int] = set()
+    for func in ast.walk(tree):
+        if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        params = {a.arg for a in func.args.posonlyargs + func.args.args + func.args.kwonlyargs}
+        for node in ast.walk(func):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name) and node.func.value.id in params):
+                found.add(node.lineno)
+    return found
+
+
+def _unset_controls(program, source: str) -> List[Dict[str, Any]]:
+    """Controlled gates run while a control qubit is provably still |0>.
+
+    Every qubit starts in |0>. It stays there through diagonal gates and
+    measurements, returns there on reset, and leaves for good on anything
+    else: another gate, a classically conditioned one, a control-flow block, an
+    instruction the rule does not know. A gate written with ``ctrl_state`` is
+    skipped, since the IR does not record which controls are open, and so is a
+    gate on a circuit a function receives (see ``_lines_given_a_circuit``).
+    """
+    lines = source.splitlines()
+    given = _lines_given_a_circuit(source)
+    zero: Set[int] = set(q for i in range(len(program)) for q in program[i].qubits)
+    idle: Dict[int, List[tuple]] = {}   # line -> (gate, unset controls, index) per idle instance
+    acting: Set[int] = set()                  # lines with at least one gate that can act
+    for idx in range(len(program)):
+        instruction = program[idx]
+        qubits = list(instruction.qubits)
+        name = instruction.name
+        conditioned = instruction.metadata.get("condition") is not None
+        line = _line(instruction)
+        text = lines[line - 1] if 0 < line <= len(lines) else ""
+        unset = [q for q in _controls(instruction) if q in zero]
+        if unset and not conditioned and "ctrl_state" not in text:
+            idle.setdefault(line, []).append((name, unset, idx))
+            continue                          # the gate does nothing, so no state changes
+        if _controls(instruction):
+            acting.add(line)
+        if name == "reset":
+            zero.update(qubits)
+        elif conditioned or name not in _KEEP_ZERO:
+            zero.difference_update(qubits)
+    # A line is reported only when no gate it produced could act: a loop whose
+    # other iterations do act is general code meeting one particular input.
+    findings = []
+    for line, instances in idle.items():
+        if not line or line in acting or line in given:
+            continue
+        name, unset, _ = instances[0]
+        findings.append(_finding(
+            "QD05", line,
+            f"{name} never acts: its control qubit(s) {unset} are always |0> here"
+            + (f" ({len(instances)} instances from this line, none of which act)."
+               if len(instances) > 1 else "."),
+            "Control and target may be swapped, or the gate that should put the control "
+            "into superposition (h) or |1> (x) is missing or comes after this one.",
+            nodes=[idx for _, _, idx in instances],
+        ))
+    return findings
+
+
+def _operation_names(program) -> Set[str]:
+    """Every instruction name, those inside control-flow bodies included."""
+    names: Set[str] = set()
+
+    def walk(circuit) -> None:
+        for item in circuit.data:
+            names.add(item.operation.name)
+            for param in item.operation.params:
+                if hasattr(param, "data"):
+                    walk(param)
+
+    for idx in range(len(program)):
+        names.add(program[idx].name)
+        for param in program[idx].params or []:
+            if hasattr(param, "data"):
+                walk(param)
+    return names
+
+
+def _no_measurement(program, source: str) -> List[Dict[str, Any]]:
+    """QD06: the rebuilt circuit never measures, and nothing reads its state instead."""
+    from .. import quick_checks as lint
+    if len(program) == 0 or "measure" in _operation_names(program) \
+            or lint.measurement_excused(source):
+        return []
+    line = lint.circuit_line(source) or _line(program[0])
+    return [_finding(
+        "QD06", line, "This circuit never measures anything.",
+        "Sampling it returns nothing useful. Add measure_all() (or measure the qubits you "
+        "want), or read its state with Statevector if that is what you meant. Slicing still "
+        "works on the gate graph, but a backward slice usually starts from a measurement.",
+    )]
+
+
+def _idle_qubits(program, source: str) -> List[Dict[str, Any]]:
+    """QD07: declared qubits no instruction touches (barriers and delays do not count)."""
+    from .. import quick_checks as lint
+    used: Set[int] = set()
+    for idx in range(len(program)):
+        if program[idx].name not in _NOT_A_USE:
+            used.update(program[idx].qubits)
+    idle = sorted(set(range(program.num_qubits)) - used)
+    if not idle or len(program) == 0:
+        return []
+    line = lint.circuit_line(source) or _line(program[0])
+    finding = _finding(
+        "QD07", line, f"Qubit(s) {idle} are declared but never used.",
+        "They show up in the graph as empty wires, marked in red. Shrink the register if they "
+        "are left over from an earlier draft, or check whether a gate meant for them names "
+        "another qubit.",
+    )
+    finding["qubits"] = idle                   # the graph marks these wires
+    return [finding]
+
+
+def _call_chain(instruction) -> tuple:
+    """The lines of the calls that led to an instruction (empty at module level)."""
+    return tuple(getattr(getattr(instruction, "location", None), "via", None) or ())
+
+
+def _cancelling_pairs(program, source: str) -> List[Dict[str, Any]]:
+    """QD08: a self-inverse gate followed, on its wires, by the very same gate.
+
+    The next instruction to touch any of the first gate's qubits or bits must be
+    the same gate on the same qubits in the same order, with the same
+    parameters, and neither may be classically conditioned. Anything else on
+    those wires in between, a barrier included, keeps them apart.
+
+    Both gates must also come from the same code: the same chain of calls (the
+    location's ``via``). A gate the caller applies and one the helper it calls
+    applies, or two calls of one helper, only cancel for the input the program
+    happens to build, as when a test prepares x(0) and the solution's own x(0)
+    undoes it; the helper is not wrong for other inputs. For the same reason,
+    gates on a circuit a function receives (``_lines_given_a_circuit``: an
+    oracle's compute/uncompute meets nothing in between only on some inputs)
+    are not judged, as for QD05.
+    """
+    from ...gates import SELF_INVERSE
+
+    given = _lines_given_a_circuit(source)
+    findings = []
+    paired: Set[int] = set()
+    for first in range(len(program)):
+        a = program[first]
+        if first in paired or a.name not in SELF_INVERSE or a.metadata.get("condition") is not None:
+            continue
+        wires = set(a.qubits)
+        bits = set(a.clbits)
+        for second in range(first + 1, len(program)):
+            b = program[second]
+            if not (wires & set(b.qubits) or bits & set(b.clbits)):
+                continue
+            if (b.name == a.name and list(b.qubits) == list(a.qubits)
+                    and list(b.params or []) == list(a.params or [])
+                    and b.metadata.get("condition") is None and _line(b)
+                    and _call_chain(a) == _call_chain(b)
+                    and _line(a) not in given and _line(b) not in given):
+                paired.add(second)
+                where = f"line {_line(a)}" if _line(a) != _line(b) else "this same line"
+                finding = _finding(
+                    "QD08", _line(b),
+                    f"{b.name} on qubit(s) {list(b.qubits)} directly follows the identical gate "
+                    f"from {where}; the pair cancels.",
+                    "This reads as an uncomputation. If that is what "
+                    "you meant, fine -- if not, one of the two is probably a typo. A barrier "
+                    "between them marks a deliberate pair.",
+                    nodes=[first, second],
+                )
+                finding["lines"] = sorted({_line(a), _line(b)})
+                findings.append(finding)
+            break
+    return findings
+
+
+def _conditions_never_set(program) -> List[Dict[str, Any]]:
+    """QD09: a condition none of whose bits an earlier measurement (or store) wrote.
+
+    Classical bits start at 0, so such a branch always goes the same way; usually
+    the measurement is missing, comes after the if_test, or writes another bit.
+    A control-flow block may write bits inside it, so its bits count as written
+    afterwards.
+    """
+    written: Set[int] = set()
+    findings = []
+    for idx in range(len(program)):
+        instruction = program[idx]
+        bits = list(instruction.metadata.get("condition_clbits") or [])
+        if bits and _line(instruction) and not any(bit in written for bit in bits):
+            findings.append(_finding(
+                "QD09", _line(instruction),
+                f"This condition reads classical bit(s) {bits}, which no earlier measurement "
+                "wrote: they are still 0, so the branch never changes.",
+                "Measure into those bits before the if_test, or check that the measurement "
+                "writes the bit the condition reads.",
+                nodes=[idx],
+            ))
+        if instruction.name in ("measure", "store") or bits:
+            written.update(instruction.clbits)
+    return findings
+
+
+def _no_effect_gates(program) -> List[Dict[str, Any]]:
+    """QD10: a non-diagonal gate on a qubit already in one of its eigenstates.
+
+    Each qubit's state is followed while it is a Pauli eigenstate: from |0>
+    through single-qubit Clifford gates, back to |0> on reset, lost on anything
+    else (a multi-qubit or conditioned gate, a measurement, an unknown gate).
+    A gate is reported when it leaves that state as it is, the gate that put
+    the qubit there came from the same code (the same call chain), and the
+    qubit is not about to be used as a control (x ... x around a control is a
+    pattern). Like QD05, a line is reported only when none of its gates act.
+    """
+    state: Dict[int, Optional[str]] = {}
+    setter: Dict[int, Optional[int]] = {}
+    idle: Dict[int, List[tuple]] = {}
+    acting: Set[int] = set()
+
+    def next_use_is_control(start: int, qubit: int) -> bool:
+        for later in range(start + 1, len(program)):
+            if qubit in program[later].qubits:
+                return qubit in _controls(program[later])
+        return False
+
+    for idx in range(len(program)):
+        instruction = program[idx]
+        name, qubits = instruction.name, list(instruction.qubits)
+        conditioned = instruction.metadata.get("condition") is not None
+        if len(qubits) == 1 and not conditioned and name not in ("barrier", "delay"):
+            q = qubits[0]
+            current = state.get(q, "+Z")
+            source = setter.get(q)
+            axis = _FIXES.get(name)
+            if (current and axis and current[1] == axis and source is not None
+                    and _call_chain(program[source]) == _call_chain(instruction)
+                    and not next_use_is_control(idx, q)):
+                idle.setdefault(_line(instruction), []).append((name, q, current, source, idx))
+                continue                       # no effect: the state stays
+            acting.add(_line(instruction))
+            if name == "reset":
+                state[q], setter[q] = "+Z", idx
+            elif name in _CLIFFORD and current:
+                state[q], setter[q] = _apply(name, current), idx
+            elif not (name in _DIAGONAL and current and current[1] == "Z"):
+                state[q], setter[q] = None, None
+        elif name not in ("barrier", "delay"):
+            for q in qubits:
+                state[q], setter[q] = None, None
+    findings = []
+    for line, instances in idle.items():
+        if not line or line in acting:
+            continue
+        name, q, current, source, _ = instances[0]
+        findings.append(_finding(
+            "QD10", line,
+            f"{name} on qubit {q} has no effect: the {program[source].name} at line "
+            f"{_line(program[source])} left it in {_KET[current]}, which {name} does not change.",
+            "A different gate was probably meant (z turns |+> into |->), or the two are in the "
+            "wrong order (x before h).",
+            nodes=[source] + [i for *_, i in instances],
+        ))
+    return findings
+
+
+def _apply(gate: str, stabilizer: str) -> str:
+    """A single-qubit Clifford gate's action on a Pauli stabilizer such as "-X"."""
+    sign, axis = stabilizer[0], stabilizer[1]
+    mapped = _CLIFFORD[gate][axis]
+    flip = (sign == "-") != (mapped[0] == "-")
+    return ("-" if flip else "+") + mapped[1]
+
+
+def _merge(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """One finding per (code, line): a gate inside a loop is reported once, with a count."""
+    merged: Dict[tuple, Dict[str, Any]] = {}
+    counts: Dict[tuple, int] = {}
+    for finding in findings:
+        key = (finding["code"], finding["line"])
+        counts[key] = counts.get(key, 0) + 1
+        if key in merged:
+            nodes = merged[key].setdefault("nodes", [])
+            nodes.extend(n for n in finding.get("nodes", []) if n not in nodes)
+        else:
+            merged[key] = finding
+    for key, finding in merged.items():
+        if counts[key] > 1:
+            finding["message"] += f" ({counts[key]} instances from this line)"
+    return list(merged.values())
+
+
+def run(context: LintContext) -> List[Dict[str, Any]]:
+    program, _error = context.program()
+    if program is None or len(program) == 0:
+        return []
+    from ...qdg import QDG, get_rule_profile
+
+    try:
+        rules = get_rule_profile(context.profile)
+    except ValueError:
+        rules = get_rule_profile("baseline")
+    qdg = QDG(program, rules=rules)
+    return _merge(_dead_gates(program, qdg) + _overwritten_measurements(program)
+                  + _constant_measurements(program, context.source) + _unset_controls(program, context.source)
+                  + _no_measurement(program, context.source)
+                  + _idle_qubits(program, context.source) + _cancelling_pairs(program, context.source)
+                  + _conditions_never_set(program) + _no_effect_gates(program))
+
+
+LINTER = Linter(
+    id="dependence",
+    label="Dependence checks",
+    description="Quantum mistakes in the circuit the static front end rebuilds (loops "
+                "unrolled, helpers followed) and its dependence graph: dead gates, overwritten "
+                "or constant measurements, controls never set, missing measurements, idle "
+                "qubits, cancelling pairs.",
+    rules=RULES,
+    run=run,
+    languages=("python", "qasm"),
+    default=True,
+)

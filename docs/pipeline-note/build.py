@@ -28,7 +28,8 @@ OUT = HERE / "out"
 RULES = "quick,dependence,lintq"
 
 sys.path.insert(0, str(REPO / "webapp"))
-import linters  # noqa: E402
+sys.path.insert(0, str(REPO))
+from qslicer.lint import registry as linters  # noqa: E402
 
 
 def step(name, args):
@@ -62,9 +63,9 @@ READS.update({
 for n in range(1, 11):
     READS[f"LQ{n:02d}"] = {"ast": "D", "flow": "D"}
 
-GROUPS = {"quick": "Quick checks · webapp/lint.py · on by default",
-          "dependence": "Dependence checks · linter_plugins/dependence_checks.py · on by default",
-          "lintq": "LintQ port · scripts/Linters/lintq_port.py · off by default "
+GROUPS = {"quick": "Quick checks · qslicer/lint/quick_checks.py · on by default",
+          "dependence": "Dependence checks · qslicer/lint/plugins/dependence_checks.py · on by default",
+          "lintq": "LintQ port · qslicer/lint/lintq/port.py · off by default "
                    "(the CodeQL original has the same codes)"}
 
 RESULT_ROWS = [("selection", "All three combined"), ("quick", "Quick checks"),

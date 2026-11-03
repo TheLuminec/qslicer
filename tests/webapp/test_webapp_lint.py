@@ -4,7 +4,7 @@ import textwrap
 
 import pytest
 
-import lint
+from qslicer.lint import quick_checks as lint
 
 HEADER = "from qiskit import QuantumCircuit\n"
 

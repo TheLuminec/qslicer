@@ -4,9 +4,9 @@ import networkx as nx
 import pytest
 from qiskit import QuantumCircuit
 
-from Parsers.qiskitparser import QiskitParser
-from Dependencies.dependency_rules import DependencyRule, DependencyType
-from Dependencies.rules import (
+from qslicer.parsers.qiskitparser import QiskitParser
+from qslicer.dependencies.dependency_rules import DependencyRule, DependencyType
+from qslicer.dependencies.rules import (
     ControlClassicalRule,
     DataClassicalRule,
     DataQubitRule,

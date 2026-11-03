@@ -34,13 +34,20 @@ WEBAPP_DIR = os.path.dirname(os.path.abspath(__file__))
 if WEBAPP_DIR not in sys.path:
     sys.path.insert(0, WEBAPP_DIR)
 
+# The analysis lives in the qslicer package (pip install -e ".[web]"). Run from a
+# checkout without installing it, the copy next to webapp/ is used instead.
+try:
+    import qslicer  # noqa: F401
+except ImportError:
+    sys.path.append(os.path.dirname(WEBAPP_DIR))
+
 from flask import Flask, abort, jsonify, render_template, request  # noqa: E402
 
 import analysis  # noqa: E402
 import benchmark  # noqa: E402
 import examples  # noqa: E402
-import gates  # noqa: E402
-import linters  # noqa: E402
+from qslicer import gates  # noqa: E402
+from qslicer.lint import registry as linters  # noqa: E402
 import rule_docs  # noqa: E402
 from team import (  # noqa: E402
     COURSE, MEMBERS, MISSION, PROJECT_BLURB, VISION,
