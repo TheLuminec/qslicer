@@ -318,9 +318,9 @@ if __name__ == "__main__":
     qc = QuantumCircuit(1)
     qc.x(0)
 """
+    assert len(parse(source).program) == 1          # read as a script by default
     with pytest.raises(ValueError):
-        parse(source)
-    assert len(parse(source, run_name="__main__").program) == 1
+        parse(source, run_name="<run_path>")
 
 
 @pytest.mark.requirement("NFR-08")
@@ -370,3 +370,105 @@ def test_star_import_name_a_circuit_depends_on_still_stops_the_parse():
 def test_without_a_star_import_an_undefined_name_is_still_an_error():
     with pytest.raises(StaticParseError, match="NameError"):
         parse("from qiskit import QuantumCircuit\nqc = QuantumCircuit(2)\nqc.h(0)\nAer.x\n")
+
+
+# --------------------------------------------------------------------------
+# Scripts: main(), argparse, values only a run decides, several circuits
+# --------------------------------------------------------------------------
+
+SCRIPT = '''
+import argparse
+import random
+from functools import lru_cache
+from qiskit import QuantumCircuit
+
+
+def ghz(n):
+    qc = QuantumCircuit(n, name=f"ghz{n}")
+    qc.h(0)
+    for i in range(n - 1):
+        qc.cx(i, i + 1)
+    return qc
+
+
+@lru_cache(maxsize=None)
+def build(n, k):
+    outer = QuantumCircuit(n, n, name="outer")
+    outer.compose(ghz(n), inplace=True)
+    outer.rz(0.5, k - 1)       # k picks the qubit, so the circuit depends on it
+    outer.measure(range(n), range(n))
+    return outer
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("n", type=int, nargs="?", default="3")
+    ap.add_argument("--seed", type=int, default=None)
+    ap.add_argument("--verbose", action="store_true")
+    args = ap.parse_args()
+    rng = random.Random(args.seed)
+    k = rng.randrange(1, 4)
+    for _ in range(5):
+        circuit = build(args.n, k)
+    return circuit
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def test_script_asks_for_an_unseeded_draw_by_its_variable():
+    with pytest.raises(StaticParseError) as info:
+        parse(SCRIPT)
+    assert info.value.needs == {"name": "k", "line": 32, "kind": "variable",
+                                "expression": "rng.randrange(1, 4)"}
+
+
+def test_bindings_fill_in_the_value_and_argparse_defaults_apply():
+    parser = parse(SCRIPT, bindings={(32, "k"): 2})
+    assert parser.used_bindings == [(32, "k")]
+    # n comes from the string default "3", run through type=int as argparse would.
+    assert parser.circuit.name == "outer" and parser.circuit.num_qubits == 3
+    assert ("rz", [1], []) in shape(parser.program)
+    assert any("take their defaults (n=3, seed=None, verbose=False)" in w for w in parser.warnings)
+
+
+def test_lru_cache_returns_the_same_circuit_and_circuits_are_listed():
+    parser = parse(SCRIPT, bindings={(32, "k"): 2})
+    # Five calls, one cached circuit: "outer" appears once, the GHZ inside it after.
+    assert [(c["name"], c["used_inside"]) for c in parser.circuits] == [
+        ("outer", False), ("ghz3", True)]
+    assert parser.circuits[0]["line"] == 18 and parser.circuits[1]["line"] == 9
+    sub = parser.select(1)
+    assert shape(sub) == [("h", [0], []), ("cx", [0, 1], []), ("cx", [1, 2], [])]
+
+
+def test_required_command_line_argument_asks_for_a_value():
+    source = '''
+import argparse
+from qiskit import QuantumCircuit
+
+ap = argparse.ArgumentParser()
+ap.add_argument("qubits", type=int)
+args = ap.parse_args()
+qc = QuantumCircuit(args.qubits)
+qc.h(0)
+'''
+    with pytest.raises(StaticParseError) as info:
+        parse(source)
+    assert info.value.needs["name"] == "qubits" and info.value.needs["kind"] == "argument"
+    assert info.value.needs["line"] == 6
+    assert parse(source, bindings={(6, "qubits"): 4}).circuit.num_qubits == 4
+
+
+def test_module_level_circuits_keep_the_largest_as_main_and_list_the_rest():
+    parser = parse('''
+from qiskit import QuantumCircuit
+small = QuantumCircuit(1)
+small.x(0)
+big = QuantumCircuit(2)
+big.h(0)
+big.cx(0, 1)
+''')
+    assert [(c["variable"], c["size"]) for c in parser.circuits] == [("big", 2), ("small", 1)]

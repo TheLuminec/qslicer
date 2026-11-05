@@ -85,20 +85,34 @@ class LintContext:
     and returns ``(program, error)`` with exactly one of them set. When it
     fails, ``failure()`` is the front end's exception, for the line and the
     class of anything the program itself raised.
+
+    ``parse``, when given, does that parse instead: a callable returning
+    ``(program, exception)`` with one of them None. The web page passes its
+    own, so the linters read the circuit it shows -- with the values the user
+    picked, and whichever of the file's circuits is selected -- and the file
+    is interpreted once.
     """
 
     def __init__(self, source: str, filename: str = "", kind: str = "python-static",
-                 profile: str = "baseline") -> None:
+                 profile: str = "baseline",
+                 parse: Optional[Callable[[], Tuple[Any, Optional[Exception]]]] = None) -> None:
         self.source = source
         self.filename = filename or ("circuit.qasm" if kind in QASM_KINDS else "circuit.py")
         self.kind = kind
         self.profile = profile
+        self._parse = parse
         self._parsed: Optional[Tuple[Any, Optional[str]]] = None
         self._failure: Optional[Exception] = None
 
     def program(self) -> Tuple[Any, Optional[str]]:
         if self._parsed is None:
-            self._parsed, self._failure = _static_parse(self.source, self.filename, self.kind)
+            if self._parse is not None:
+                program, failure = self._parse()
+                self._parsed = (program, None) if program is not None else (
+                    None, (str(failure) or type(failure).__name__) if failure else "no circuit")
+                self._failure = failure
+            else:
+                self._parsed, self._failure = _static_parse(self.source, self.filename, self.kind)
         return self._parsed
 
     def failure(self) -> Optional[Exception]:

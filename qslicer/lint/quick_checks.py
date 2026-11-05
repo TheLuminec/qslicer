@@ -306,8 +306,9 @@ def _check_has_circuit(tree: ast.AST, collector: _CircuitCollector) -> List[Dict
     return [_Finding(
         "QS001", "error", root,
         "No QuantumCircuit is constructed anywhere in this file.",
-        "The static parser reads the file and then looks for the QuantumCircuit it builds. "
-        "Assign one at module level, for example qc = QuantumCircuit(3, 3).",
+        "The static parser reads the file, main() and `if __name__ == \"__main__\":` "
+        "blocks included, and looks for the QuantumCircuits it builds. Build one, for "
+        "example qc = QuantumCircuit(3, 3).",
     )]
 
 

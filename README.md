@@ -107,7 +107,7 @@ API but is not on the page.
 
 On the slicer page:
 
-- **Example, upload or paste.** 24 bundled circuits (22 Qiskit, 2 OpenQASM)
+- **Example, upload or paste.** 25 bundled circuits (23 Qiskit, 2 OpenQASM)
   are grouped as Basics, Algorithms, Communication protocols, Analysis
   showcases and OpenQASM.
 - **Click a node** to slice from it. Toggle backward or forward in the toolbar.
@@ -320,7 +320,7 @@ closures, lambdas, `try`/`except`, a whitelist of pure built-ins, `math`,
 `itertools`, the basics of `numpy`, and **seeded** randomness, which calls the
 real generator so angles match a real run. On the Qiskit side it handles every
 standard gate with argument broadcasting, `measure`/`measure_all`, `barrier`,
-`reset`, `mcx`, `append`, `compose`, `to_gate`, `inverse`, `decompose`,
+`reset`, `mcx`, `mcp`, `append`, `compose`, `to_gate`, `inverse`, `decompose`,
 `if_test`/`else`, parameters and the `qiskit.circuit.library` gates.
 
 **Unknowns are harmless until the circuit needs them.** Post-processing such as

@@ -21,6 +21,10 @@
     activeDeps: null,   // Set of dependency names
     busy: false,
     sliceSeq: 0,       // guards against an older slice response landing last
+    // Values the user picked for what only a run could decide, as the API
+    // takes them: {name, line, value}. Cleared when another file is loaded.
+    bindings: [],
+    circuit: 0,        // which of the file's circuits the output shows
     // FR-07: which source lines are linked to the graph right now. Cleared
     // whenever the text changes, since the payload no longer describes it.
     source: { linked: false, hover: [], slice: [], criterion: [], picked: null }
@@ -104,6 +108,7 @@
     $('btn-clear').addEventListener('click', function () {
       code.value = '';
       state.filename = '';
+      forgetProgramChoices();
       $('example-select').value = '';
       $('example-blurb').textContent = '';
       updateGutter();
@@ -114,6 +119,11 @@
       var file = event.target.files && event.target.files[0];
       if (file) readFile(file);
       event.target.value = '';
+    });
+
+    $('circuit-select').addEventListener('change', function (event) {
+      state.circuit = parseInt(event.target.value, 10) || 0;
+      analyze();
     });
 
     $('interpreter-select').addEventListener('change', function () {
@@ -159,6 +169,7 @@
     reader.onload = function () {
       $('code').value = reader.result;
       state.filename = file.name;
+      forgetProgramChoices();
       setInterpreter(interpreterForFilename(file.name));
       $('example-select').value = '';
       $('example-blurb').textContent = 'Loaded from ' + file.name + '.';
@@ -180,6 +191,7 @@
       .then(function (data) {
         $('code').value = data.source;
         state.filename = data.filename;
+        forgetProgramChoices();
         setInterpreter(data.interpreter || interpreterForFilename(data.filename));
         var blurb = data.blurb || '';
         $('example-blurb').innerHTML = escapeHtml(blurb) +
@@ -208,6 +220,7 @@
       .then(function (bug) {
         $('code').value = bug.sources[version];
         state.filename = bug[version].split('/').pop();
+        forgetProgramChoices();
         setInterpreter(interpreterForFilename(state.filename));
         var other = version === 'buggy' ? 'fixed' : 'buggy';
         var faults = bug.truth.lines.length
@@ -302,6 +315,12 @@
     var text = code.value;
     var sourceLines = text.split('\n');
 
+    // The gutter goes first: it is as wide as its longest number, and the
+    // textarea gets what is left. Measured before a paste takes it from 1 digit
+    // to 3, the colored layer comes out wider than the text, wraps less, and
+    // every line number and the caret drift from what is drawn.
+    renderGutter(sourceLines.length, errorLine || 0);
+
     // Wrapping has to match the textarea exactly or the two layers drift, and
     // the textarea's own scrollbar changes how much room the text has.
     highlight.style.width = code.clientWidth + 'px';
@@ -317,7 +336,6 @@
       .map(function (line) { return '<div class="hl-line">' + line + '</div>'; })
       .join('');
 
-    renderGutter(sourceLines.length, errorLine || 0);
     applySourceMarks();
     syncGutterHeights(sourceLines.length);
     syncEditorScroll();
@@ -592,7 +610,9 @@
         profile: $('profile-select').value || 'baseline',
         language: interpreter(),
         lint_rules: lintPicker ? lintPicker.selection()
-          : (window.LintRules ? window.LintRules.stored() : null)
+          : (window.LintRules ? window.LintRules.stored() : null),
+        bindings: state.bindings,
+        circuit: state.circuit
       })
     })
       .then(function (response) { return response.json(); })
@@ -616,6 +636,7 @@
   function handleAnalysis(data) {
     state.lintMark = null;
     renderDiagnostics(data.diagnostics || [], data.error);
+    renderCircuitBar(data);
     $('console-out').textContent = data.stdout ? data.stdout : '(no output)';
     $('console-error').textContent = data.error
       ? formatErrorForConsole(data.error)
@@ -693,7 +714,8 @@
         message: error.message,
         hint: error.hint || '',
         detail: error.detail || '',
-        traceback: error.traceback || null
+        traceback: error.traceback || null,
+        needs: error.needs || null
       });
     }
     items = items.concat(diagnostics);
@@ -754,6 +776,7 @@
         hint.textContent = item.hint;
         li.appendChild(hint);
       }
+      if (item.needs) li.appendChild(pickValueForm(item.needs));
       if (item.traceback && item.traceback.length) {
         var trace = document.createElement('pre');
         trace.className = 'diag-trace';
@@ -769,6 +792,125 @@
       }
       list.appendChild(li);
     });
+  }
+
+  /* ------------------------------------------- run-time values ---- */
+
+  /* The form under a needs_value error: the parser stopped on something only a
+     run could decide (an unseeded random draw, a required command-line
+     argument), and names the variable it came from. Whatever the user types is
+     read as a Python literal where that variable is assigned. */
+  function pickValueForm(needs) {
+    var form = document.createElement('form');
+    form.className = 'pick-value';
+    var id = 'pick-' + needs.name + '-' + needs.line;
+    var label = document.createElement('label');
+    label.htmlFor = id;
+    label.textContent = needs.name + ' =';
+    var input = document.createElement('input');
+    input.id = id;
+    input.type = 'text';
+    input.required = true;
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.placeholder = 'a Python value';
+    input.title = 'A Python literal: a number, a quoted string, True/False/None, or a list';
+    var button = document.createElement('button');
+    button.type = 'submit';
+    button.className = 'btn btn-small btn-primary';
+    button.textContent = 'Use and analyze';
+    form.appendChild(label);
+    form.appendChild(input);
+    form.appendChild(button);
+    // Typing or clicking here must not count as clicking the finding.
+    form.addEventListener('click', function (event) { event.stopPropagation(); });
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      var value = input.value.trim();
+      if (!value) return;
+      setBinding(needs.name, needs.line, value);
+      analyze();
+    });
+    // Focus without scrolling the page; the diagnostics list scrolls itself.
+    setTimeout(function () {
+      try { input.focus({ preventScroll: true }); } catch (e) { input.focus(); }
+    }, 0);
+    return form;
+  }
+
+  function setBinding(name, line, value) {
+    state.bindings = state.bindings.filter(function (b) {
+      return !(b.name === name && b.line === line);
+    });
+    state.bindings.push({ name: name, line: line, value: value });
+    renderBindings();
+  }
+
+  /* The picked values, as chips under the example line; x removes one. */
+  function renderBindings() {
+    var box = $('bindings');
+    box.textContent = '';
+    box.hidden = !state.bindings.length;
+    if (!state.bindings.length) return;
+    var label = document.createElement('span');
+    label.textContent = 'Run-time values:';
+    box.appendChild(label);
+    state.bindings.forEach(function (binding, index) {
+      var chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.title = 'Used where ' + binding.name + ' is assigned on line ' + binding.line;
+      chip.textContent = binding.name + ' = ' + binding.value + '  (line ' + binding.line + ')';
+      var remove = document.createElement('button');
+      remove.type = 'button';
+      remove.textContent = '\u00d7';
+      remove.setAttribute('aria-label', 'Forget the value of ' + binding.name);
+      remove.addEventListener('click', function () {
+        state.bindings.splice(index, 1);
+        renderBindings();
+        analyze();
+      });
+      chip.appendChild(remove);
+      box.appendChild(chip);
+    });
+  }
+
+  /* A different program: its values and circuits are not this one's. */
+  function forgetProgramChoices() {
+    state.bindings = [];
+    state.circuit = 0;
+    renderBindings();
+    renderCircuitBar(null);
+  }
+
+  /* The circuit picker, shown when the file builds more than one circuit. */
+  function renderCircuitBar(data) {
+    var circuits = (data && data.ok && data.circuits) || [];
+    var bar = $('circuit-bar');
+    bar.hidden = circuits.length < 2;
+    if (circuits.length < 2) return;
+    var select = $('circuit-select');
+    select.textContent = '';
+    circuits.forEach(function (info) {
+      var option = document.createElement('option');
+      option.value = String(info.index);
+      option.textContent = circuitLabel(info);
+      select.appendChild(option);
+    });
+    state.circuit = data.circuit || 0;
+    select.value = String(state.circuit);
+    var inside = circuits.filter(function (info) { return info.used_inside; }).length;
+    $('circuit-count').textContent = circuits.length + ' circuits' +
+      (inside ? ', ' + inside + ' used inside another' : '');
+  }
+
+  function circuitLabel(info) {
+    var name = info.variable && info.variable !== info.name
+      ? info.variable + ' (' + info.name + ')' : info.name;
+    return (info.index === 0 ? 'Main: ' : '') + name + ' \u2014 ' +
+      info.num_qubits + ' qubit' + (info.num_qubits === 1 ? '' : 's') + ', ' +
+      info.size + ' instruction' + (info.size === 1 ? '' : 's') +
+      (info.line ? ', line ' + info.line : '') +
+      (info.index !== 0 && info.used_inside ? ', used inside another' : '');
   }
 
   /* A finding's nodes: marked in the graph and the instruction table, and

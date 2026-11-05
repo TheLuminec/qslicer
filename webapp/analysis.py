@@ -21,6 +21,7 @@ refused with ``execution_disabled`` rather than quietly rerouted, so a caller
 relying on it finds out.
 """
 
+import ast
 import io
 import os
 import shutil
@@ -275,6 +276,8 @@ def analyze_source(
     profile: str = "baseline",
     language: Optional[str] = None,
     lint_rules: Optional[List[str]] = None,
+    bindings: Optional[List[Dict[str, Any]]] = None,
+    circuit: int = 0,
 ) -> Dict[str, Any]:
     """Lint, parse, build the QDG, and describe everything as JSON-safe data.
 
@@ -283,6 +286,12 @@ def analyze_source(
     always passes one; without it the filename extension decides.
     ``lint_rules`` are the rule ids to lint with (see ``linters.py``); None
     means the default selection.
+
+    ``bindings`` are values the user picked for things only a run could
+    decide, as ``{"name", "line", "value"}`` with ``value`` a Python literal
+    (see parse_bindings); a parse that stops on such a value says which in
+    ``error.needs``. ``circuit`` picks one of the ``circuits`` a Python file
+    builds; 0, the default, is the main one.
 
     Always returns a dict with an ``ok`` flag. Lint findings are returned even
     when the run fails, because they are usually what explains the failure.
@@ -294,8 +303,35 @@ def analyze_source(
     kind = source_kind(filename, language)
     filename = filename or default_filename(kind)
 
+    try:
+        parsed_bindings = parse_bindings(bindings)
+    except ValueError as exc:
+        parsed_bindings = None
+        binding_error = str(exc)
+
+    # The file is interpreted once, on first use: by a linter that reads the
+    # circuit, or below. Both then see the same circuit -- the one picked, with
+    # the user's values -- so a finding's node ids are the graph's.
+    parsed: Dict[str, Any] = {}
+
+    def parse_once() -> Tuple[Any, str, Optional["_ParseFailure"]]:
+        if not parsed:
+            try:
+                program, captured = _parse_source(source, filename, kind, parsed_bindings, circuit)
+                parsed["value"] = (program, captured, None)
+            except _ParseFailure as failure:
+                parsed["value"] = (None, failure.stdout, failure)
+        return parsed["value"]
+
+    def parse_for_linters() -> Tuple[Any, Optional[Exception]]:
+        program, _, failure = parse_once()
+        return program, (failure.cause or failure) if failure is not None else None
+
     selection = linters.normalize_selection(lint_rules)
-    diagnostics = linters.run(source, filename, kind, selection, profile)
+    context = None
+    if kind == "python-static" and parsed_bindings is not None and _IMPORT_ERROR is None:
+        context = linters.LintContext(source, filename, kind, profile, parse=parse_for_linters)
+    diagnostics = linters.run(source, filename, kind, selection, profile, context=context)
     # With QS000 deselected, a syntax error goes on to the parser, which
     # reports it in its own words.
     syntax = next((d for d in diagnostics if d.get("code") == "QS000"), None)
@@ -344,15 +380,28 @@ def analyze_source(
         _note_interpreter_mismatch(result["error"], source, kind)
         return result
 
-    try:
-        program, captured = _parse_source(source, filename, kind)
-    except _ParseFailure as failure:
+    if parsed_bindings is None:
+        result["error"] = {
+            "kind": "invalid_binding",
+            "message": "One of the values you picked is not a Python literal.",
+            "detail": binding_error,
+            "hint": "Use a number, a string in quotes, True/False/None, or a list or tuple of those.",
+            "line": 0,
+        }
+        return result
+
+    program, captured, failure = parse_once()
+    if failure is not None:
         result["error"] = failure.payload
         _note_interpreter_mismatch(result["error"], source, kind)
         result["stdout"] = failure.stdout
         return result
 
     result["stdout"] = captured
+    # The circuits a Python file builds, for the page to switch between.
+    result["circuits"] = getattr(program, "static_circuits", [])
+    result["circuit"] = getattr(program, "static_circuit_index", 0)
+    result["bindings"] = bindings or []
     notes = getattr(program, "static_notes", None)
     if notes:
         result["diagnostics"] = sorted(diagnostics + _static_diagnostics(notes),
@@ -376,7 +425,8 @@ def analyze_source(
     qdg = QDG(program, rules=rules)
 
     # The front end is part of the key: the two Python routes must not share an entry.
-    token = sha256(f"{filename}\x00{profile}\x00{kind}\x00{source}".encode("utf-8")).hexdigest()[:32]
+    token = sha256(f"{filename}\x00{profile}\x00{kind}\x00{result['circuit']}\x00"
+                   f"{sorted(parsed_bindings.items())!r}\x00{source}".encode("utf-8")).hexdigest()[:32]
     _cache_put(token, {"qdg": qdg, "program": program})
 
     result.update({
@@ -426,10 +476,13 @@ def attach_lint_nodes(diagnostics: List[Dict[str, Any]], nodes: List[Dict[str, A
 
 
 class _ParseFailure(Exception):
-    def __init__(self, payload: Dict[str, Any], stdout: str = "") -> None:
+    def __init__(self, payload: Dict[str, Any], stdout: str = "",
+                 cause: Optional[Exception] = None) -> None:
         super().__init__(payload.get("message", "parse failure"))
         self.payload = payload
         self.stdout = stdout
+        # The front end's own exception, which the quick checks read (QS014).
+        self.cause = cause
 
 
 # The front ends the Interpreter dropdown offers. ``id`` is what the API takes
@@ -529,14 +582,42 @@ def default_filename(kind: str) -> str:
     return "pasted_circuit.qasm" if kind in QASM_KINDS else "pasted_circuit.py"
 
 
-def _parse_source(source: str, filename: str, kind: str) -> Tuple[Any, str]:
+def parse_bindings(bindings: Any) -> Dict[Tuple[int, str], Any]:
+    """``[{"name", "line", "value"}, ...]`` as the parser takes them: ``{(line, name): value}``.
+
+    ``value`` is text the user typed, read as a Python literal (never run).
+    Raises ValueError, naming the entry, for anything else.
+    """
+    out: Dict[Tuple[int, str], Any] = {}
+    for entry in bindings or []:
+        if not isinstance(entry, dict):
+            raise ValueError("each binding must be an object with name, line and value")
+        name, line, text = entry.get("name"), entry.get("line"), entry.get("value")
+        if not isinstance(name, str) or not name.isidentifier():
+            raise ValueError(f"{name!r} is not a variable name")
+        if isinstance(line, bool) or not isinstance(line, int) or line < 1:
+            raise ValueError(f"the line of {name} must be a positive integer")
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError(f"no value given for {name}")
+        if len(text) > 10_000:
+            raise ValueError(f"the value of {name} is too long")
+        try:
+            out[(line, name)] = ast.literal_eval(text.strip())
+        except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+            raise ValueError(f"{name} = {text.strip()} is not a Python literal") from None
+    return out
+
+
+def _parse_source(source: str, filename: str, kind: str,
+                  bindings: Optional[Dict[Tuple[int, str], Any]] = None,
+                  circuit: int = 0) -> Tuple[Any, str]:
     """Turn submitted text into a QuantumProgram, by the route the caller chose."""
     if kind == "qasm":
         return _parse_qasm_source(source, filename)
     if kind == "qasm-static":
         return _parse_qasm_static_source(source)
     if kind == "python-static":
-        return _parse_static_source(source, filename)
+        return _parse_static_source(source, filename, bindings or {}, circuit)
     # There is deliberately no route that executes the submission.
     raise ValueError(f"no front end for {kind!r}")
 
@@ -591,40 +672,86 @@ def _parse_qasm_source(source: str, filename: str) -> Tuple[Any, str]:
 # Python, static: interpreted, never executed
 # --------------------------------------------------------------------------
 
-def _parse_static_source(source: str, filename: str) -> Tuple[Any, str]:
+# Parsed Python files, so switching between the circuits of one file does not
+# interpret it again. Keyed by the source, its filename and the user's values.
+_PARSES: "OrderedDict[str, Any]" = OrderedDict()
+_PARSE_LIMIT = 6
+
+
+def _parse_static_source(source: str, filename: str,
+                         bindings: Optional[Dict[Tuple[int, str], Any]] = None,
+                         circuit: int = 0) -> Tuple[Any, str]:
     """Rebuild the circuit with StaticQiskitParser, which never runs the file.
 
     Nothing is executed, so there is no worker process; the parser bounds its
     own work, in steps and in PARSE_TIMEOUT seconds. What it had to skip or approximate is attached
     to the program as ``static_notes``, which analyze_source reports as
-    warning diagnostics.
+    warning diagnostics. The circuits the file builds go on ``static_circuits``
+    and the one this program is, on ``static_circuit_index``.
     """
-    parser = StaticQiskitParser(filename=os.path.basename(filename) or "pasted_circuit.py",
-                                time_limit=PARSE_TIMEOUT)
-    parser.source = source
-    try:
-        program = parser.parse()
-    except StaticParseError as exc:
-        raise _ParseFailure({
-            "kind": "static_error",
-            "message": "The static parser could not work out the circuit.",
-            "detail": exc.message,
-            "hint": "The file is read without running it, so the parser stops at anything "
-                    "only a real run could decide. Make that value a literal, or build the "
-                    "circuit without it.",
-            "line": exc.lineno or 0,
-        })
-    except ValueError as exc:
-        no_circuit = "No QuantumCircuit" in str(exc)
-        raise _ParseFailure({
-            "kind": "no_circuit" if no_circuit else "static_error",
-            "message": ("No QuantumCircuit was left in the file's module namespace."
-                        if no_circuit else "The static parser could not work out the circuit."),
-            "detail": str(exc),
-            "hint": _HINTS["no_circuit"] if no_circuit else "",
-        })
+    bindings = bindings or {}
+    name = os.path.basename(filename) or "pasted_circuit.py"
+    key = sha256(f"{name}\x00{sorted(bindings.items())!r}\x00{source}".encode("utf-8")).hexdigest()
+    parser = _PARSES.get(key)
+    if parser is not None:
+        _PARSES.move_to_end(key)
+        program = parser.select(circuit)
+    else:
+        parser = StaticQiskitParser(filename=name, time_limit=PARSE_TIMEOUT, bindings=bindings,
+                                    circuit_index=circuit)
+        parser.source = source
+        try:
+            program = parser.parse()
+        except StaticParseError as exc:
+            raise _ParseFailure(_static_error_payload(exc), cause=exc)
+        except ValueError as exc:
+            no_circuit = "No QuantumCircuit" in str(exc)
+            hint = _HINTS["no_circuit"] if no_circuit else ""
+            if no_circuit and bindings:
+                hint = ("With the values you picked, the program never gets as far as building "
+                        "a circuit (it may take a classical shortcut). Try a different value.")
+            raise _ParseFailure({
+                "kind": "no_circuit" if no_circuit else "static_error",
+                "message": ("The program never builds a QuantumCircuit."
+                            if no_circuit else "The static parser could not work out the circuit."),
+                "detail": str(exc),
+                "hint": hint,
+            }, cause=exc)
+        _PARSES[key] = parser
+        while len(_PARSES) > _PARSE_LIMIT:
+            _PARSES.popitem(last=False)
     program.static_notes = list(parser.notes)
+    program.static_circuits = [dict(info) for info in parser.circuits]
+    # Read from the request, not the shared parser, which another request may re-select.
+    program.static_circuit_index = circuit if 0 <= circuit < len(parser.circuits) else 0
     return program, ""
+
+
+def _static_error_payload(exc: Any) -> Dict[str, Any]:
+    """The error for a StaticParseError; a ``needs_value`` one when the user can supply it."""
+    needs = getattr(exc, "needs", None)
+    if needs:
+        what = ("the command-line argument" if needs["kind"] == "argument" else "the variable")
+        return {
+            "kind": "needs_value",
+            "message": f"Pick a value for {what} `{needs['name']}` (line {needs['line']}).",
+            # The error points at the line to change; where the parse stopped is detail.
+            "detail": (f"line {exc.lineno}: {exc.message}" if exc.lineno else exc.message),
+            "hint": f"`{needs['expression']}` only has a value when the program runs, and the "
+                    "circuit depends on it. Whatever you pick is used where it is assigned, "
+                    "as if a run had produced it.",
+            "line": needs["line"],
+            "needs": dict(needs),
+        }
+    return {
+        "kind": "static_error",
+        "message": "The static parser could not work out the circuit.",
+        "detail": exc.message,
+        "hint": "The file is read without running it, so the parser stops at anything "
+                "only a real run could decide. Make that value a literal, or build the "
+                "circuit without it.",
+        "line": exc.lineno or 0,
+    }
 
 
 def _static_diagnostics(notes: List[Tuple[Any, str]]) -> List[Dict[str, Any]]:
@@ -666,8 +793,9 @@ def _parse_qasm_static_source(source: str) -> Tuple[Any, str]:
 
 
 _HINTS = {
-    "no_circuit": "Assign the circuit to a module-level variable. A circuit built inside a "
-                  "function and never returned into a global is invisible to the parser.",
+    "no_circuit": "Build the circuit at module level, or call the function that builds it "
+                  "(from main() or an `if __name__ == \"__main__\":` block, which the parser "
+                  "follows).",
     "backend_unavailable": "Install the project requirements: pip install -r requirements.txt",
 }
 

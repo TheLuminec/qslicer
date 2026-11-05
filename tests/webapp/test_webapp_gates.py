@@ -35,6 +35,7 @@ QISKIT_GATES = {
     "crx": lib.CRXGate(THETA), "cry": lib.CRYGate(THETA), "crz": lib.CRZGate(THETA),
     "cp": lib.CPhaseGate(LAM), "csx": lib.CSXGate(),
     "ccx": lib.CCXGate(), "c3x": lib.C3XGate(), "c4x": lib.C4XGate(), "mcx": lib.MCXGate(2),
+    "mcphase": lib.MCPhaseGate(LAM, 2),
     "swap": lib.SwapGate(), "iswap": lib.iSwapGate(), "cswap": lib.CSwapGate(),
     "dcx": lib.DCXGate(), "ecr": lib.ECRGate(),
     "rxx": lib.RXXGate(THETA), "ryy": lib.RYYGate(THETA), "rzz": lib.RZZGate(THETA),

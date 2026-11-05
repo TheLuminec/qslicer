@@ -413,6 +413,47 @@ body.page-slicer main { overflow: hidden; }
 }
 .example-blurb .highlight { color: var(--accent-2); }
 
+/* Values the user picked for what only a run could decide. */
+.bindings {
+  display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center;
+  padding: 0.45rem 0.9rem; border-bottom: 1px solid var(--line);
+  font-size: 0.78rem; color: var(--text-faint); flex: none;
+}
+.bindings .chip { cursor: default; font-family: var(--mono); color: var(--text); }
+.bindings .chip button {
+  border: 0; background: none; color: var(--text-faint); cursor: pointer;
+  font: inherit; padding: 0 0 0 0.15rem; line-height: 1;
+}
+.bindings .chip button:hover { color: var(--err); }
+
+/* The "pick a value" form inside a needs_value error. */
+.pick-value { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-top: 0.45rem; }
+.pick-value label { font-family: var(--mono); font-size: 0.85rem; color: var(--text); }
+.pick-value input {
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--surface-3); border-radius: var(--radius-sm);
+  padding: 0.3rem 0.5rem; font-family: var(--mono); font-size: 0.85rem;
+  width: 9rem; min-width: 0;
+}
+
+/* Which of a file's circuits the output shows. */
+.circuit-bar {
+  display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;
+  padding: 0.45rem 0.9rem; border-bottom: 1px solid var(--line);
+  background: var(--bg-sunken); flex: none;
+}
+.circuit-field { display: flex; gap: 0.5rem; align-items: center; min-width: 0; flex: 1 1 16rem; }
+.circuit-field span {
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint);
+}
+.circuit-field select {
+  flex: 1 1 auto; min-width: 0; max-width: 34rem;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--surface-3); border-radius: var(--radius-sm);
+  padding: 0.35rem 0.5rem; font: inherit; font-size: 0.84rem;
+}
+.circuit-count { font-size: 0.75rem; color: var(--text-faint); white-space: nowrap; }
+
 /* editor */
 
 .editor-shell { position: relative; flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }

@@ -16,6 +16,10 @@ Python, and just enough of Qiskit, to rebuild the circuit:
 * ``math``, ``itertools``, the scalar/array basics of ``numpy``, and *seeded*
   random numbers (``np.random.default_rng(7)``, ``np.random.seed(1)``,
   ``random.seed(1)``), which give exactly the values a real run would;
+* ``argparse``: a parser's arguments take their defaults, as a run with no
+  command-line arguments would; a required argument is unknown;
+* ``functools.lru_cache``/``cache`` on a function in the file, which then
+  returns the same object for the same arguments, as it would at run time;
 * the Qiskit circuit API: ``QuantumCircuit`` and registers, every standard gate
   method with Qiskit's argument broadcasting, ``measure``/``measure_all``,
   ``barrier``, ``reset``, ``append``, ``compose``, ``to_gate``, ``inverse``,
@@ -32,8 +36,10 @@ unknown values that cannot change a circuit are skipped and reported in
 ``parser.warnings``.
 
 The circuit chosen is the one QiskitParser would choose: the module-level
-QuantumCircuit with the most instructions. ``if __name__ == "__main__":``
-blocks are skipped, as they are under ``runpy.run_path``.
+QuantumCircuit with the most instructions. The file is read as a script, so
+``if __name__ == "__main__":`` blocks are followed: most programs build their
+circuit from ``main()``. Pass ``run_name="<run_path>"`` to skip them, as
+``runpy.run_path`` would.
 
 Known differences from executing the file:
 
@@ -96,10 +102,16 @@ class StaticParseError(ValueError):
     itself raises one (``CircuitError``, ``NameError``, ...), else it is None.
     """
 
-    def __init__(self, message, lineno=None, raised=None):
+    def __init__(self, message, lineno=None, raised=None, needs=None):
         self.message = message
         self.lineno = lineno
         self.raised = raised
+        # When an unknown value stopped the parse and it came from a variable or
+        # a command-line argument, a dict saying which: ``name``, ``line`` (where
+        # it is assigned or declared), ``kind`` ("variable" or "argument") and
+        # ``expression`` (what produced it). Passing a value for it in
+        # ``bindings`` lets the next parse go further.
+        self.needs = needs
         super().__init__(f"line {lineno}: {message}" if lineno else message)
 
 
@@ -121,7 +133,15 @@ class _ProgramError(Exception):
 
 
 class _NeedsUnknown(Exception):
-    """An Unknown value was used where a concrete value was needed."""
+    """An Unknown value was used where a concrete value was needed.
+
+    Raised with the Unknown itself where it is at hand, so its origin survives
+    to the error; ``str(exc)`` is the text either way.
+    """
+
+    def __init__(self, value):
+        self.unknown = value if isinstance(value, Unknown) else None
+        super().__init__(value.text if isinstance(value, Unknown) else value)
 
 
 class _Break(Exception):
@@ -164,16 +184,20 @@ class Unknown:
     a circuit depends on it, becomes a StaticParseError.
     """
 
-    __slots__ = ("text",)
+    __slots__ = ("text", "origin")
 
-    def __init__(self, text="?"):
+    def __init__(self, text="?", origin=None):
         self.text = text
+        # (name, lineno, kind, expression) of the variable or argument this value
+        # first came from, or None. Values computed from it keep the same origin,
+        # so the user is asked for the root cause, not each thing derived from it.
+        self.origin = origin
 
     def __repr__(self):
         return f"<unknown: {self.text}>"
 
     def _needed(self, *_args):
-        raise _NeedsUnknown(self.text)
+        raise _NeedsUnknown(self)
 
     __bool__ = __index__ = __int__ = __float__ = __complex__ = _needed
     __len__ = __iter__ = __getitem__ = __contains__ = _needed
@@ -183,6 +207,25 @@ class Unknown:
     __mod__ = __rmod__ = __pow__ = __rpow__ = __matmul__ = __rmatmul__ = _needed
     __neg__ = __pos__ = __abs__ = __round__ = _needed
     __hash__ = object.__hash__
+
+
+def _needs_of(cause):
+    """The ``needs`` dict of a StaticParseError caused by ``cause``, or None."""
+    unknown = cause.unknown if isinstance(cause, _NeedsUnknown) else cause
+    if not isinstance(unknown, Unknown) or unknown.origin is None:
+        return None
+    name, line, kind, expression = unknown.origin
+    return {"name": name, "line": line, "kind": kind, "expression": expression}
+
+
+def _derived(text, *values):
+    """An Unknown for ``text`` that keeps the origin of the first unknown it came from."""
+    for value in values:
+        if isinstance(value, _NeedsUnknown):
+            value = value.unknown
+        if isinstance(value, Unknown) and value.origin is not None:
+            return Unknown(text, value.origin)
+    return Unknown(text)
 
 
 _SYMBOL_FUNCS = {
@@ -348,7 +391,7 @@ class _BoundMethod:
 class _UserFunction:
     """A function or lambda defined in the file being parsed."""
 
-    __slots__ = ("node", "name", "defaults", "kw_defaults", "closure", "is_generator")
+    __slots__ = ("node", "name", "defaults", "kw_defaults", "closure", "is_generator", "memo")
 
     def __init__(self, node, name, defaults, kw_defaults, closure, is_generator=False):
         self.node = node
@@ -357,9 +400,39 @@ class _UserFunction:
         self.kw_defaults = kw_defaults
         self.closure = closure
         self.is_generator = is_generator
+        self.memo = None        # {arguments: result} under @lru_cache / @cache
 
     def __repr__(self):
         return f"<function {self.name}>"
+
+
+class _ArgParser:
+    """argparse.ArgumentParser, as far as knowing what parse_args() returns goes.
+
+    Arguments take their defaults: the file is read as if it were run with no
+    command-line arguments. A required one is unknown, and asks for a value.
+    """
+
+    __slots__ = ("arguments", "defaults")
+
+    def __init__(self):
+        self.arguments = []     # (dest, value) in the order they were added
+        self.defaults = {}      # set_defaults()
+
+    def __repr__(self):
+        return "<ArgumentParser>"
+
+
+class _Namespace:
+    """argparse.Namespace: the attributes parse_args() sets."""
+
+    __slots__ = ("values",)
+
+    def __init__(self, values):
+        self.values = dict(values)
+
+    def __repr__(self):
+        return "Namespace(" + ", ".join(f"{k}={v!r}" for k, v in self.values.items()) + ")"
 
 
 class _RandomSource:
@@ -986,8 +1059,20 @@ def _is_generator(function_node):
 class _Interpreter:
     """Walks a module's AST, building circuits instead of running code."""
 
-    def __init__(self, filename="<source>", run_name="<run_path>", time_limit=None):
+    def __init__(self, filename="<source>", run_name="__main__", time_limit=None,
+                 bindings=None):
         self.filename = filename
+        # {(lineno, name): value} the user picked for values only a run could give.
+        self.bindings = dict(bindings or {})
+        self.used_bindings = set()
+        # Every circuit the program got hold of, in the order it did, with the
+        # line that made it -- including ones built inside functions, which are
+        # gone from every scope by the end of the run.
+        self.circuits = []
+        self._circuit_ids = set()
+        # Circuits that went into another one (compose, append, to_gate) or were
+        # replaced by a derived copy (inverse, copy, decompose ...).
+        self.consumed = set()
         # Wall-clock seconds the run may take, on top of MAX_STEPS; None for no limit.
         self.deadline = None if time_limit is None else time.monotonic() + time_limit
         self.globals = {"__name__": run_name, "__file__": filename}
@@ -1016,8 +1101,31 @@ class _Interpreter:
             self.warnings.append(text)
             self.notes.append((lineno, message))
 
-    def error(self, message, lineno=None):
-        return StaticParseError(message, self.lineno if lineno is None else lineno)
+    def error(self, message, lineno=None, cause=None):
+        """A StaticParseError at ``lineno`` (default: the current line).
+
+        ``cause`` is the Unknown (or _NeedsUnknown) that stopped the parse, if
+        any; when it came from a variable or argument, the error says which, so
+        the caller can ask the user for a value.
+        """
+        return StaticParseError(message, self.lineno if lineno is None else lineno,
+                                needs=_needs_of(cause))
+
+    def unknown_value(self, name, value, lineno=None, kind="variable"):
+        """What ``name`` gets when it is assigned the unknown ``value`` at ``lineno``.
+
+        The user's value for that name and line if they gave one (see
+        StaticQiskitParser's ``bindings``); otherwise ``value``, marked as coming
+        from here unless it already traces back to somewhere earlier.
+        """
+        lineno = self.lineno if lineno is None else lineno
+        key = (lineno, name)
+        if key in self.bindings:
+            self.used_bindings.add(key)
+            return _copy.deepcopy(self.bindings[key])
+        if value.origin is None:
+            value.origin = (name, lineno, kind, value.text)
+        return value
 
     def next_name(self, prefix):
         count = self.counters.get(prefix, 0)
@@ -1071,7 +1179,8 @@ class _Interpreter:
                 f"the program raises {type(err.exc).__name__}: {err.exc}", err.lineno,
                 raised=type(err.exc).__name__) from None
         except _NeedsUnknown as exc:
-            raise self.error(f"`{exc}` cannot be determined without running the program") from None
+            raise self.error(f"`{exc}` cannot be determined without running the program",
+                             cause=exc) from None
         except (_Break, _Continue):
             raise self.error("'break' or 'continue' outside a loop") from None
         except _Return:
@@ -1091,7 +1200,7 @@ class _Interpreter:
         try:
             handler(node, frame)
         except _NeedsUnknown as exc:
-            self.skip(node, frame, f"statement that depends on unknown `{exc}`")
+            self.skip(node, frame, f"statement that depends on unknown `{exc}`", cause=exc)
         except _PASSTHROUGH:
             raise
         except (RecursionError, MemoryError):
@@ -1155,14 +1264,19 @@ class _Interpreter:
 
     # -- skipping code that depends on unknown values -------------------------
 
-    def skip(self, node, frame, what):
-        """Skip ``node`` because ``what`` is unknown -- if no circuit can depend on it."""
+    def skip(self, node, frame, what, cause=None):
+        """Skip ``node`` because ``what`` is unknown -- if no circuit can depend on it.
+
+        ``cause`` is the unknown value responsible, when there is one.
+        """
+        lineno = getattr(node, "lineno", None)
         if self.touches_circuits(node, frame):
             raise self.error(
                 f"cannot analyse a {what}: only running the program could tell, and the "
-                "code it controls works on a circuit", getattr(node, "lineno", None))
+                "code it controls works on a circuit", lineno, cause=cause)
         for name in _stored_names([node]):
-            self.store(name, Unknown(name), frame)
+            # Whatever the skipped code would have set is as unknown as its cause.
+            self.store(name, self.unknown_value(name, _derived(name, cause), lineno), frame)
         # The skipped code may also have changed objects in place. Forgetting
         # them is what ends a polling loop such as
         #     while jobs:
@@ -1342,7 +1456,24 @@ class _Interpreter:
                        for d in node.args.kw_defaults]
         function = _UserFunction(node, node.name, defaults, kw_defaults, frame,
                                  _is_generator(node))
+        # Other decorators are not applied: the function is called as written.
+        if any(self._is_memoizer(d, frame) for d in node.decorator_list):
+            function.memo = {}
         self.store(node.name, function, frame)
+
+    def _is_memoizer(self, decorator, frame):
+        """Whether a decorator is functools.lru_cache / cache, used bare or called."""
+        target = decorator.func if isinstance(decorator, ast.Call) else decorator
+        root = target
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        if not isinstance(root, ast.Name):
+            return False
+        try:
+            value = self.eval(target, frame)
+        except StaticParseError:
+            return False
+        return isinstance(value, _Native) and value.name in ("lru_cache", "cache")
 
     def _exec_AsyncFunctionDef(self, node, frame):
         self.store(node.name, Unknown(f"async function {node.name}"), frame)
@@ -1354,21 +1485,22 @@ class _Interpreter:
     # -- compound statements ------------------------------------------------
 
     def _exec_If(self, node, frame):
-        truth = self.truth(self.eval(node.test, frame))
+        test = self.eval(node.test, frame)
+        truth = self.truth(test)
         if truth is None:
-            self.skip(node, frame, "`if` with an unknown condition")
+            self.skip(node, frame, "`if` with an unknown condition", cause=test)
             return
         self.exec_block(node.body if truth else node.orelse, frame)
 
     def _exec_For(self, node, frame):
         iterable = self.eval(node.iter, frame)
         if isinstance(iterable, Unknown):
-            self.skip(node, frame, "`for` loop over an unknown sequence")
+            self.skip(node, frame, "`for` loop over an unknown sequence", cause=iterable)
             return
         try:
             iterator = iter(self.iterable(iterable))
-        except _NeedsUnknown:
-            self.skip(node, frame, "`for` loop over an unknown sequence")
+        except _NeedsUnknown as exc:
+            self.skip(node, frame, "`for` loop over an unknown sequence", cause=exc)
             return
         for item in iterator:
             self._tick(node)
@@ -1384,18 +1516,20 @@ class _Interpreter:
     def _exec_While(self, node, frame):
         first = True
         while True:
-            truth = self.truth(self.eval(node.test, frame))
+            test = self.eval(node.test, frame)
+            truth = self.truth(test)
             if truth is None:
                 if first:
-                    self.skip(node, frame, "`while` loop with an unknown condition")
+                    self.skip(node, frame, "`while` loop with an unknown condition", cause=test)
                     return
                 # The iterations already run stand; the rest are skipped like any
                 # unknown code, as long as no circuit depends on them.
                 if not self.touches_circuits(node, frame):
-                    self.skip(node, frame, "`while` loop whose condition stops being known")
+                    self.skip(node, frame, "`while` loop whose condition stops being known",
+                              cause=test)
                     return
                 raise self.error("the condition of this `while` loop stops being known "
-                                 "part-way through", node.lineno)
+                                 "part-way through", node.lineno, cause=test)
             first = False
             if not truth:
                 break
@@ -1538,6 +1672,8 @@ class _Interpreter:
 
     def assign(self, target, value, frame):
         if isinstance(target, ast.Name):
+            if isinstance(value, Unknown):
+                value = self.unknown_value(target.id, value)
             self.store(target.id, value, frame)
         elif isinstance(target, (ast.Tuple, ast.List)):
             self._unpack(target.elts, value, frame)
@@ -1554,7 +1690,7 @@ class _Interpreter:
         if isinstance(value, Unknown):
             for target in targets:
                 inner = target.value if isinstance(target, ast.Starred) else target
-                self.assign(inner, Unknown(_text(inner)), frame)
+                self.assign(inner, _derived(_text(inner), value), frame)
             return
         items = self.bounded(self.iterable(value))
         starred = [i for i, t in enumerate(targets) if isinstance(t, ast.Starred)]
@@ -1578,7 +1714,7 @@ class _Interpreter:
         if isinstance(obj, Unknown):
             return
         if isinstance(key, Unknown):
-            raise _NeedsUnknown(key.text)
+            raise _NeedsUnknown(key)
         if isinstance(obj, (list, dict)) or (_np is not None and isinstance(obj, _np.ndarray)):
             obj[key] = value
             return
@@ -1586,6 +1722,9 @@ class _Interpreter:
 
     def setattr(self, obj, name, value):
         if isinstance(obj, Unknown):
+            return
+        if isinstance(obj, _Namespace):
+            obj.values[name] = value
             return
         if isinstance(obj, StaticCircuit) and name == "name":
             obj.name = value if isinstance(value, str) else str(value)
@@ -1604,8 +1743,8 @@ class _Interpreter:
                              getattr(node, "lineno", None))
         try:
             return handler(node, frame)
-        except _NeedsUnknown:
-            return Unknown(_text(node))
+        except _NeedsUnknown as exc:
+            return _derived(_text(node), exc)
 
     def truth(self, value):
         """True/False, or None when the value is unknown."""
@@ -1618,7 +1757,7 @@ class _Interpreter:
 
     def iterable(self, value):
         if isinstance(value, Unknown):
-            raise _NeedsUnknown(value.text)
+            raise _NeedsUnknown(value)
         if isinstance(value, (StaticRegister, StaticCircuit)):
             return list(value)
         if isinstance(value, (str, bytes, list, tuple, dict, set, frozenset, range)):
@@ -1659,10 +1798,10 @@ class _Interpreter:
         if isinstance(node.op, ast.Not):
             truth = self.truth(value)
             if truth is None:
-                raise _NeedsUnknown(_text(node))
+                raise _NeedsUnknown(_derived(_text(node), value))
             return not truth
         if isinstance(value, Unknown):
-            raise _NeedsUnknown(value.text)
+            raise _NeedsUnknown(value)
         if isinstance(value, Symbol):
             if isinstance(node.op, ast.USub):
                 return _negate(value)
@@ -1677,7 +1816,7 @@ class _Interpreter:
         for value in node.values[1:]:
             truth = self.truth(result)
             if truth is None:
-                raise _NeedsUnknown(_text(node))
+                raise _NeedsUnknown(_derived(_text(node), result))
             if isinstance(node.op, ast.And) and not truth:
                 return result
             if isinstance(node.op, ast.Or) and truth:
@@ -1693,7 +1832,7 @@ class _Interpreter:
             result = self.compare(op, left, right)
             truth = self.truth(result)
             if truth is None:
-                raise _NeedsUnknown(_text(node))
+                raise _NeedsUnknown(_derived(_text(node), result))
             if not truth:
                 return result
             left = right
@@ -1702,11 +1841,11 @@ class _Interpreter:
     def compare(self, op, left, right):
         if isinstance(op, (ast.Is, ast.IsNot)):
             if isinstance(left, Unknown) or isinstance(right, Unknown):
-                raise _NeedsUnknown(_text(op))
+                raise _NeedsUnknown(_derived(_text(op), left, right))
             return (left is right) if isinstance(op, ast.Is) else (left is not right)
         for side in (left, right):
             if isinstance(side, Unknown):
-                raise _NeedsUnknown(side.text)
+                raise _NeedsUnknown(side)
         if isinstance(op, (ast.In, ast.NotIn)):
             container = list(right) if isinstance(right, (StaticRegister, StaticCircuit)) else right
             found = any(left is item for item in container) if isinstance(
@@ -1715,9 +1854,10 @@ class _Interpreter:
         return _COMPARE_OPS[type(op)](left, right)
 
     def _eval_IfExp(self, node, frame):
-        truth = self.truth(self.eval(node.test, frame))
+        test = self.eval(node.test, frame)
+        truth = self.truth(test)
         if truth is None:
-            raise _NeedsUnknown(_text(node.test))
+            raise _NeedsUnknown(_derived(_text(node.test), test))
         return self.eval(node.body if truth else node.orelse, frame)
 
     def _display(self, elements, frame):
@@ -1746,7 +1886,7 @@ class _Interpreter:
             if key is None:
                 mapping = self.eval(value, frame)
                 if isinstance(mapping, Unknown):
-                    raise _NeedsUnknown(mapping.text)
+                    raise _NeedsUnknown(mapping)
                 out.update(mapping)
             else:
                 out[self.eval(key, frame)] = self.eval(value, frame)
@@ -1766,9 +1906,10 @@ class _Interpreter:
                 self.assign(generator.target, item, inner)
                 keep = True
                 for condition in generator.ifs:
-                    truth = self.truth(self.eval(condition, inner))
+                    test = self.eval(condition, inner)
+                    truth = self.truth(test)
                     if truth is None:
-                        raise _NeedsUnknown(_text(condition))
+                        raise _NeedsUnknown(_derived(_text(condition), test))
                     if not truth:
                         keep = False
                         break
@@ -1827,7 +1968,7 @@ class _Interpreter:
     def _eval_FormattedValue(self, node, frame):
         value = self.eval(node.value, frame)
         if isinstance(value, Unknown):
-            raise _NeedsUnknown(value.text)
+            raise _NeedsUnknown(value)
         if node.conversion == ord("s"):
             value = str(value)
         elif node.conversion == ord("r"):
@@ -1836,7 +1977,7 @@ class _Interpreter:
             value = ascii(value)
         spec = "" if node.format_spec is None else self.eval(node.format_spec, frame)
         if isinstance(spec, Unknown):
-            raise _NeedsUnknown(spec.text)
+            raise _NeedsUnknown(spec)
         self.check_format_spec(spec)
         return format(value, spec)
 
@@ -1859,7 +2000,7 @@ class _Interpreter:
     def binop(self, op, left, right):
         for side in (left, right):
             if isinstance(side, Unknown):
-                raise _NeedsUnknown(side.text)
+                raise _NeedsUnknown(side)
         if isinstance(left, Symbol) or isinstance(right, Symbol):
             symbol = _SYMBOLIC_BINOPS.get(type(op))
             if (symbol and isinstance(left, (Symbol, numbers.Number))
@@ -1875,7 +2016,7 @@ class _Interpreter:
         """``left op= right``: in place for mutable containers, as Python does."""
         if isinstance(left, list) and isinstance(op, ast.Add):
             if isinstance(right, Unknown):
-                raise _NeedsUnknown(right.text)
+                raise _NeedsUnknown(right)
             items = self.bounded(self.iterable(right))
             if len(left) + len(items) > MAX_COLLECTION:
                 self.check_size(left + items)
@@ -1883,7 +2024,7 @@ class _Interpreter:
             return left
         if isinstance(left, (set, dict)) and type(op) in _INPLACE_OPS:
             if isinstance(right, Unknown):
-                raise _NeedsUnknown(right.text)
+                raise _NeedsUnknown(right)
             return _INPLACE_OPS[type(op)](left, right)
         return self.binop(op, left, right)
 
@@ -1913,9 +2054,9 @@ class _Interpreter:
 
     def getitem(self, obj, key):
         if isinstance(obj, Unknown):
-            raise _NeedsUnknown(obj.text)
+            raise _NeedsUnknown(obj)
         if isinstance(key, Unknown):
-            raise _NeedsUnknown(key.text)
+            raise _NeedsUnknown(key)
         if isinstance(obj, StaticRegister):
             return obj.bits[key]
         if isinstance(obj, StaticCircuit):
@@ -1932,7 +2073,7 @@ class _Interpreter:
         if name.startswith("_"):
             raise self.error(f"access to the private attribute `{name}` is not supported")
         if isinstance(obj, Unknown):
-            return Unknown(f"{obj.text}.{name}")
+            return _derived(f"{obj.text}.{name}", obj)
         if isinstance(obj, _ModuleRef):
             value = self.module_attr(obj.path, name)
             return value if value is not None else _ModuleRef(f"{obj.path}.{name}")
@@ -1968,8 +2109,12 @@ class _Interpreter:
             if name == "name":
                 return str(obj)
             raise self.error(f"`Parameter.{name}` is not supported")
-        if isinstance(obj, (_InstructionSet, _RandomSource)):
+        if isinstance(obj, (_InstructionSet, _RandomSource, _ArgParser)):
             return _BoundMethod(obj, name)
+        if isinstance(obj, _Namespace):
+            if name in obj.values:
+                return obj.values[name]
+            raise AttributeError(f"'Namespace' object has no attribute '{name}'")
         if isinstance(obj, StaticBit):
             return Unknown(f"{obj!r}.{name}")
         if _np is not None and isinstance(obj, (_np.ndarray, _np.generic)):
@@ -2007,7 +2152,7 @@ class _Interpreter:
                 if keyword.arg is not None:
                     kwargs[keyword.arg] = value
                 elif isinstance(value, Unknown):
-                    raise _NeedsUnknown(value.text)
+                    raise _NeedsUnknown(value)
                 else:
                     kwargs.update(value)
             self._call_node = node
@@ -2015,7 +2160,7 @@ class _Interpreter:
         except _NeedsUnknown as exc:
             if relevant:
                 raise self.error(f"`{_text(node)}` depends on `{exc}`, which cannot be "
-                                 "determined without running the program") from None
+                                 "determined without running the program", cause=exc) from None
             raise
         finally:
             self._call_node = saved
@@ -2032,20 +2177,54 @@ class _Interpreter:
         if isinstance(func, _UserFunction):
             return self.call_user(func, args, kwargs)
         if isinstance(func, _Native):
-            return func.fn(self, args, kwargs)
+            return self.note_circuit(func.fn(self, args, kwargs))
         if isinstance(func, _BoundMethod):
-            return self.call_method(func.obj, func.name, args, kwargs)
+            result = self.call_method(func.obj, func.name, args, kwargs)
+            if isinstance(func.obj, StaticCircuit):
+                self.note_circuit_use(func.obj, func.name, args, kwargs)
+            return self.note_circuit(result)
         if isinstance(func, (Unknown, _ModuleRef)):
             for value in itertools.chain(args, kwargs.values()):
                 if isinstance(value, StaticCircuit):
                     self.warn(f"`{self.call_text()}` is not modelled; the circuit passed to it "
                               "is assumed to be left unchanged")
-            return Unknown(self.call_text())
+            return _derived(self.call_text(), func)
         if isinstance(func, type) and issubclass(func, BaseException):
             return func(*args)
         raise TypeError(f"'{type(func).__name__}' object is not callable")
 
+    def note_circuit(self, value):
+        """Remember a circuit the program has just been handed; returns ``value``."""
+        if isinstance(value, StaticCircuit) and id(value) not in self._circuit_ids:
+            self._circuit_ids.add(id(value))
+            self.circuits.append((value, self.lineno))
+        return value
+
+    def note_circuit_use(self, circuit, method, args, kwargs):
+        """Mark circuits that ``circuit.method(...)`` builds into or derives from."""
+        if method in ("compose", "append"):
+            for value in itertools.chain(args, kwargs.values()):
+                if isinstance(value, StaticCircuit) and value is not circuit:
+                    self.consumed.add(id(value))
+        elif method in _DERIVING_METHODS:
+            self.consumed.add(id(circuit))
+
     def call_user(self, function, args, kwargs):
+        if function.memo is not None:
+            # @lru_cache: the same arguments give back the same object.
+            key = (tuple(args), tuple(sorted(kwargs.items(), key=lambda kv: kv[0])))
+            try:
+                if key in function.memo:
+                    return function.memo[key]
+            except (TypeError, _NeedsUnknown):
+                key = None
+            result = self._call_user(function, args, kwargs)
+            if key is not None:
+                function.memo[key] = result
+            return result
+        return self._call_user(function, args, kwargs)
+
+    def _call_user(self, function, args, kwargs):
         if function.is_generator:
             self.warn(f"generator function `{function.name}` is not interpreted")
             return Unknown(self.call_text())
@@ -2130,7 +2309,8 @@ class _Interpreter:
     def flag(self, value, what):
         truth = self.truth(value)
         if truth is None:
-            raise self.error(f"`{what}` cannot be determined without running the program")
+            raise self.error(f"`{what}` cannot be determined without running the program",
+                             cause=value)
         return truth
 
     # -- handing values to real Python code ----------------------------------
@@ -2162,7 +2342,7 @@ class _Interpreter:
         for value in itertools.chain(args, kwargs.values()):
             unknown = _find_unknown(value, 2 if deep else 0)
             if unknown is not None:
-                raise _NeedsUnknown(unknown.text)
+                raise _NeedsUnknown(unknown)
         result = fn(*[self.to_py(a) for a in args],
                     **{k: self.to_py(v) for k, v in kwargs.items()})
         return self.check_size(result)
@@ -2190,17 +2370,91 @@ class _Interpreter:
             raise self.error(f"`Register.{name}()` is not supported by the static parser")
         if isinstance(obj, _RandomSource):
             return self.random_call(obj, name, args, kwargs)
+        if isinstance(obj, _ArgParser):
+            return self.argparse_method(obj, name, args, kwargs)
         return self.plain_method(obj, name, args, kwargs)
+
+    # -- argparse -------------------------------------------------------------
+
+    def argparse_method(self, parser, name, args, kwargs):
+        if name == "add_argument":
+            return self._add_argument(parser, args, kwargs)
+        if name in ("add_argument_group", "add_mutually_exclusive_group"):
+            return parser           # its arguments land in the same namespace
+        if name == "set_defaults":
+            parser.defaults.update(kwargs)
+            return None
+        if name in ("parse_args", "parse_known_args", "parse_intermixed_args"):
+            argv = args[0] if args else kwargs.get("args")
+            if argv is not None:
+                self.warn(f"`{self.call_text()}` is given its own argument list; the parser "
+                          "ignores it and uses the defaults")
+            values = dict(parser.arguments)
+            values.update(parser.defaults)
+            namespace = _Namespace(values)
+            shown = ", ".join(f"{k}={'?' if isinstance(v, Unknown) else repr(v)}"
+                              for k, v in values.items())
+            self.warn(f"command-line arguments take their defaults ({shown})")
+            return (namespace, []) if name == "parse_known_args" else namespace
+        if name in ("print_help", "print_usage", "format_help", "format_usage"):
+            return "" if name.startswith("format") else None
+        if name in ("error", "exit"):
+            raise SystemExit(args[0] if args else 0)
+        self.warn(f"`ArgumentParser.{name}()` is not modelled; its result is unknown")
+        return Unknown(self.call_text())
+
+    def _add_argument(self, parser, flags, kwargs):
+        for flag in flags:
+            if not isinstance(flag, str):
+                raise _NeedsUnknown(flag) if isinstance(flag, Unknown) else TypeError(
+                    "argument names must be strings")
+        if not flags and "dest" not in kwargs:
+            raise TypeError("add_argument() needs a name or flag")
+        positional = bool(flags) and not flags[0].startswith("-")
+        dest = kwargs.get("dest")
+        if dest is None:
+            if positional:
+                dest = flags[0]
+            else:
+                long = next((f for f in flags if f.startswith("--")), flags[0])
+                dest = long.lstrip("-").replace("-", "_")
+        action = kwargs.get("action", "store")
+        if action in ("help", "version"):
+            return None
+        nargs = kwargs.get("nargs")
+        if "default" in kwargs:
+            value = kwargs["default"]
+        elif action == "store_true":
+            value = False
+        elif action == "store_false":
+            value = True
+        elif positional and nargs == "*":
+            value = []
+        else:
+            value = None
+        # argparse runs a string default through `type`, as if it had been typed.
+        if (isinstance(value, str) and "type" in kwargs and action == "store"
+                and kwargs["type"] is not None):
+            value = self.call(kwargs["type"], [value], {})
+        required = (positional and nargs not in ("?", "*")) or kwargs.get("required") is True
+        if required:
+            flag = flags[0] if flags else dest
+            value = self.unknown_value(dest, Unknown(f"command-line argument {flag}"),
+                                       kind="argument")
+        parser.arguments.append((dest, value))
+        return None
 
     def plain_method(self, obj, name, args, kwargs):
         """A whitelisted method of a str, list, dict, set, number or numpy array."""
         if name not in _STORING_METHODS:
             for value in itertools.chain(args, kwargs.values()):
                 if isinstance(value, Unknown):
-                    raise _NeedsUnknown(value.text)
-                if isinstance(value, (list, tuple)) and any(
-                        isinstance(v, Unknown) for v in itertools.islice(value, 10_000)):
-                    raise _NeedsUnknown(_text(self._call_node))
+                    raise _NeedsUnknown(value)
+                if isinstance(value, (list, tuple)):
+                    inner = next((v for v in itertools.islice(value, 10_000)
+                                  if isinstance(v, Unknown)), None)
+                    if inner is not None:
+                        raise _NeedsUnknown(_derived(_text(self._call_node), inner))
         if name in ("zfill", "ljust", "rjust", "center", "expandtabs") and args:
             if isinstance(args[0], numbers.Integral) and int(args[0]) > MAX_COLLECTION:
                 raise self.error("this string would be too large to analyse")
@@ -2242,7 +2496,7 @@ class _Interpreter:
         """The bits a qubit/clbit argument names: an index, a bit, a register or a list."""
         if isinstance(spec, Unknown):
             raise self.error(f"the {kind} argument `{spec.text}` cannot be determined "
-                             "without running the program")
+                             "without running the program", cause=spec)
         if isinstance(spec, (StaticBit, numbers.Integral)):
             return [self._one_bit(circuit, spec, kind)]
         if isinstance(spec, StaticRegister):
@@ -2259,7 +2513,7 @@ class _Interpreter:
     def _one_bit(self, circuit, spec, kind):
         if isinstance(spec, Unknown):
             raise self.error(f"the {kind} argument `{spec.text}` cannot be determined "
-                             "without running the program")
+                             "without running the program", cause=spec)
         if isinstance(spec, StaticBit):
             if spec.kind != kind or not circuit.has(spec):
                 raise CircuitError(f"{spec!r} is not a {kind} of circuit '{circuit.name}'")
@@ -2314,7 +2568,8 @@ class _Interpreter:
         if value is None:
             return []
         if isinstance(value, Unknown):
-            raise self.error(f"`{what}` cannot be determined without running the program")
+            raise self.error(f"`{what}` cannot be determined without running the program",
+                             cause=value)
         if isinstance(value, StaticRegister):
             return list(value.bits)
         if isinstance(value, (list, tuple, range)) or (
@@ -2503,12 +2758,14 @@ class _Interpreter:
                              "use `with qc.if_test(...):`")
         condition = bound["condition"]
         if isinstance(condition, Unknown):
-            raise self.error(f"the condition `{condition.text}` cannot be determined statically")
+            raise self.error(f"the condition `{condition.text}` cannot be determined statically",
+                             cause=condition)
         if not (isinstance(condition, tuple) and len(condition) == 2):
             raise self.error("only (clbit, value) and (register, value) conditions are supported")
         target, value = condition
         if isinstance(target, Unknown):
-            raise self.error(f"the condition `{target.text}` cannot be determined statically")
+            raise self.error(f"the condition `{target.text}` cannot be determined statically",
+                             cause=target)
         if isinstance(target, StaticRegister):
             if target.kind != "clbit":
                 raise CircuitError("a condition must test classical bits")
@@ -2572,7 +2829,7 @@ class _Interpreter:
                              {"inplace": False})
         values = bound["parameters"]
         if isinstance(values, Unknown):
-            raise self.error("the parameter values cannot be determined statically")
+            raise self.error("the parameter values cannot be determined statically", cause=values)
         mapping = {}
         if isinstance(values, dict):
             for key, value in values.items():
@@ -2606,7 +2863,8 @@ class _Interpreter:
                                  kwargs, {"num_ctrl_qubits": 1, "label": None, "ctrl_state": None})
             count = bound["num_ctrl_qubits"]
             if not isinstance(count, numbers.Integral):
-                raise self.error("the number of control qubits cannot be determined statically")
+                raise self.error("the number of control qubits cannot be determined statically",
+                                 cause=count)
             return gate.control(int(count))
         if name == "copy":
             return gate.with_params(list(gate.params))
@@ -2637,7 +2895,7 @@ class _Interpreter:
         total = 1
         for dim in dims:
             if isinstance(dim, Unknown):
-                raise _NeedsUnknown(dim.text)
+                raise _NeedsUnknown(dim)
             total *= max(int(dim), 0)
         if total > MAX_COLLECTION:
             raise self.error("this random sample is too large to analyse")
@@ -2668,6 +2926,8 @@ class _Interpreter:
             return _FUNCTOOLS_MODEL.get(name)
         if path == "copy":
             return _COPY_MODEL.get(name)
+        if path == "argparse":
+            return _ARGPARSE_MODEL.get(name)
         return None
 
     def _seed(self, value, kind):
@@ -2744,7 +3004,7 @@ class _Interpreter:
         for arg in args:
             if isinstance(arg, Unknown):
                 raise self.error(f"the circuit size `{arg.text}` cannot be determined "
-                                 "without running the program")
+                                 "without running the program", cause=arg)
         if args and all(isinstance(a, numbers.Integral) for a in args):
             if len(args) > 2:
                 raise CircuitError("QuantumCircuit takes at most two integer sizes")
@@ -2773,7 +3033,7 @@ class _Interpreter:
         size = bound["size"]
         if isinstance(size, Unknown):
             raise self.error(f"the register size `{size.text}` cannot be determined "
-                             "without running the program")
+                             "without running the program", cause=size)
         if not isinstance(size, numbers.Integral) or not 0 <= int(size) <= MAX_BITS:
             raise CircuitError(f"invalid register size: {size!r}")
         name = bound["name"]
@@ -2803,7 +3063,7 @@ class _Interpreter:
 
     def _size_arg(self, value):
         if isinstance(value, Unknown) or value is None:
-            raise self.error("the number of qubits cannot be determined statically")
+            raise self.error("the number of qubits cannot be determined statically", cause=value)
         if not isinstance(value, numbers.Integral) or not 0 <= int(value) <= MAX_BITS:
             raise CircuitError(f"invalid number of qubits: {value!r}")
         return int(value)
@@ -2857,7 +3117,7 @@ def _b_isinstance(interp, args, kwargs):
         raise TypeError("isinstance expected 2 arguments")
     value, kinds = args
     if isinstance(value, Unknown):
-        raise _NeedsUnknown(value.text)
+        raise _NeedsUnknown(value)
 
     def as_type(kind):
         if isinstance(kind, tuple):
@@ -2953,7 +3213,7 @@ def _numeric(name, fn, guard=None):
         if guard is not None:
             for value in itertools.chain(args, kwargs.values()):
                 if isinstance(value, Unknown):
-                    raise _NeedsUnknown(value.text)
+                    raise _NeedsUnknown(value)
             guard(interp, args, kwargs)
         return interp.call_python(fn, args, kwargs, deep=True)
     return _Native(name, call)
@@ -3040,7 +3300,14 @@ _ITERTOOLS_MODEL = {
     for name in ("product", "combinations", "permutations", "combinations_with_replacement",
                  "chain", "zip_longest", "islice", "accumulate", "starmap")
 }
-_FUNCTOOLS_MODEL = {"reduce": _pure("reduce", functools.reduce)}
+def _memoizer(interp, args, kwargs):
+    """lru_cache(maxsize=...) returns the decorator; used bare it is the decorator."""
+    return _FUNCTOOLS_MODEL["lru_cache"]
+
+
+_FUNCTOOLS_MODEL = {"reduce": _pure("reduce", functools.reduce),
+                    "lru_cache": _Native("lru_cache", _memoizer),
+                    "cache": _Native("cache", _memoizer)}
 
 
 def _copy_value(deep):
@@ -3152,7 +3419,26 @@ _QISKIT_MODEL = {
 }
 _QISKIT_MODEL.update({cls: _gate_class(cls, *spec) for cls, spec in _GATE_CLASSES.items()})
 
-_MODELLED_ROOTS = {"qiskit", "numpy", "math", "cmath", "random", "itertools", "functools", "copy"}
+def _argparse_parser(interp, args, kwargs):
+    return _ArgParser()
+
+
+def _argparse_namespace(interp, args, kwargs):
+    return _Namespace(kwargs)
+
+
+_ARGPARSE_MODEL = {
+    "ArgumentParser": _Native("ArgumentParser", _argparse_parser, cls=_ArgParser),
+    "Namespace": _Native("Namespace", _argparse_namespace, cls=_Namespace),
+}
+
+_MODELLED_ROOTS = {"qiskit", "numpy", "math", "cmath", "random", "itertools", "functools", "copy",
+                   "argparse"}
+
+# Circuit methods whose result stands in for the circuit they are called on.
+_DERIVING_METHODS = {"to_gate", "to_instruction", "inverse", "copy", "decompose",
+                     "assign_parameters", "copy_empty_like", "reverse_ops", "power", "repeat",
+                     "control"}
 
 # Random methods and where their output size comes from: an argument position,
 # "dims" (every argument is a dimension), "perm" (an int argument is the size) or None.
@@ -3245,22 +3531,37 @@ class StaticQiskitParser(AbstractParser):
     """
 
     def __init__(self, source: str = None, filename: str = "<source>",
-                 circuit_name: str = None, run_name: str = "<run_path>",
-                 time_limit: float = None) -> None:
+                 circuit_name: str = None, run_name: str = "__main__",
+                 time_limit: float = None, bindings: dict = None,
+                 circuit_index: int = 0) -> None:
         """Initialize the parser, optionally parsing the source immediately.
 
         ``circuit_name`` picks a module-level variable instead of the largest
-        circuit; ``run_name`` is the ``__name__`` the file sees (pass
-        ``"__main__"`` to follow ``if __name__ == "__main__":`` blocks).
+        circuit; ``run_name`` is the ``__name__`` the file sees. The default,
+        ``"__main__"``, follows ``if __name__ == "__main__":`` blocks; any other
+        name skips them.
         ``time_limit`` caps the wall-clock seconds a parse may take, for
         callers that read many files and cannot wait out MAX_STEPS on each.
+
+        ``bindings`` maps ``(line, name)`` to a value, for a value only running
+        the program could give: the variable ``name`` gets it where it is
+        assigned on ``line`` (or the command-line argument ``name`` declared
+        there). A StaticParseError's ``needs`` says which one stopped a parse.
+
+        ``circuit_index`` picks one of ``circuits`` (see ``parse``); 0 is the
+        main circuit.
         """
         super().__init__(source)
         self.filename = filename
         self.circuit_name = circuit_name
         self.run_name = run_name
         self.time_limit = time_limit
+        self.bindings = dict(bindings or {})
+        self.circuit_index = circuit_index
         self.circuit = None
+        self.circuits = []
+        self._candidate_circuits = []
+        self.used_bindings = []
         self.warnings = []
         self.notes = []
         if source is not None:
@@ -3276,14 +3577,25 @@ class StaticQiskitParser(AbstractParser):
         except SyntaxError as exc:
             raise StaticParseError(f"syntax error: {exc.msg}", exc.lineno) from None
 
-        interpreter = _Interpreter(self.filename, self.run_name, self.time_limit)
+        interpreter = _Interpreter(self.filename, self.run_name, self.time_limit, self.bindings)
         try:
             interpreter.run(tree)
         finally:
             self.warnings = interpreter.warnings
             self.notes = interpreter.notes
+            self.used_bindings = sorted(interpreter.used_bindings)
 
-        self.circuit = self._choose_circuit(interpreter.globals)
+        candidates = self._candidates(interpreter)
+        self._candidate_circuits = [circuit for circuit, _ in candidates]
+        self.circuits = [info for _, info in candidates]
+        return self.select(self.circuit_index)
+
+    def select(self, index: int) -> QuantumProgram:
+        """Build the IR of ``circuits[index]`` (the main one if out of range), after parse()."""
+        if not 0 <= index < len(self._candidate_circuits):
+            index = 0
+        self.circuit_index = index
+        self.circuit = self._candidate_circuits[index]
         self.program = self._build_program(self.circuit)
         self.validate()
         return self.program
@@ -3295,22 +3607,88 @@ class StaticQiskitParser(AbstractParser):
         self.filename = path
         return self.parse()
 
-    def _choose_circuit(self, namespace):
+    MAX_CIRCUITS = 30       # circuits offered besides the main one
+
+    def _candidates(self, interpreter):
+        """The circuits worth showing, main one first, as (circuit, info) pairs.
+
+        The main circuit is the one QiskitParser would pick: the module-level
+        circuit with the most instructions. A program that keeps no circuit at
+        module level -- everything built inside functions, as in a ``main()`` --
+        gets the largest circuit that did not go into another one instead.
+
+        The others follow: module-level circuits, then the rest that stand on
+        their own, then the ones used inside another (a subroutine composed into
+        the main circuit, the gate a circuit was turned into ...). Empty
+        circuits and exact repeats (a helper called twice with the same
+        arguments) are left out.
+        """
+        namespace = interpreter.globals
         if self.circuit_name is not None:
             circuit = namespace.get(self.circuit_name)
             if not isinstance(circuit, StaticCircuit):
                 raise ValueError(f"No QuantumCircuit assigned to '{self.circuit_name}'")
-            return circuit
-        circuits = [v for v in namespace.values() if isinstance(v, StaticCircuit)]
-        if not circuits:
+            return [(circuit, self._describe(circuit, interpreter, 0))]
+
+        names = {}
+        for key, value in namespace.items():
+            if isinstance(value, StaticCircuit):
+                names.setdefault(id(value), key)
+        module_level = [v for v in namespace.values() if isinstance(v, StaticCircuit)]
+        made = [c for c, _ in interpreter.circuits]
+        standalone = [c for c in made if id(c) not in interpreter.consumed]
+        if module_level:
+            # The most complex circuit is taken to be the main one, as QiskitParser does.
+            main = max(module_level, key=lambda c: len(c.data))
+        elif any(c.data for c in standalone):
+            main = max(standalone, key=lambda c: len(c.data))
+        elif any(c.data for c in made):
+            main = max(made, key=lambda c: len(c.data))
+        else:
             # Same wording as QiskitParser, which callers match on.
             raise ValueError("No QuantumCircuit assignment found in script")
-        # The most complex circuit is taken to be the main one, as QiskitParser does.
-        return max(circuits, key=lambda c: len(c.data))
+
+        ordered = [main] + module_level + standalone + made
+        seen_ids, seen_shapes, out = set(), set(), []
+        for circuit in ordered:
+            if id(circuit) in seen_ids or (circuit is not main and not circuit.data):
+                continue
+            seen_ids.add(id(circuit))
+            shape = _circuit_shape(circuit)
+            if shape in seen_shapes:
+                continue
+            seen_shapes.add(shape)
+            out.append((circuit, self._describe(circuit, interpreter, len(out), names)))
+            if len(out) > self.MAX_CIRCUITS:
+                break
+        return out
+
+    @staticmethod
+    def _describe(circuit, interpreter, index, names=None):
+        lines = {id(c): line for c, line in interpreter.circuits}
+        variable = (names or {}).get(id(circuit))
+        return {
+            "index": index,
+            "name": circuit.name,
+            "variable": variable,
+            "line": lines.get(id(circuit)),
+            "num_qubits": circuit.num_qubits,
+            "num_clbits": circuit.num_clbits,
+            "size": len(circuit.data),
+            "used_inside": id(circuit) in interpreter.consumed,
+        }
 
     @staticmethod
     def _build_program(circuit) -> QuantumProgram:
         return circuit_to_program(circuit, "qiskit-static")
+
+
+def _circuit_shape(circuit):
+    """What tells two circuits apart for the list of circuits: their name and gates."""
+    return (circuit.name, circuit.num_qubits, circuit.num_clbits, tuple(
+        (i.operation.name, tuple(circuit.find(q) for q in i.qubits),
+         tuple(circuit.find(c) for c in i.clbits), tuple(map(repr, i.operation.params)))
+        for i in circuit.data))
 
 
 def circuit_to_program(circuit, frontend) -> QuantumProgram:

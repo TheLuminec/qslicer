@@ -61,6 +61,9 @@
     </div>
 
     <p class="example-blurb" id="example-blurb"></p>
+    <!-- Values picked for what only a run could decide (a random draw, a
+         required command-line argument), each removable. -->
+    <div class="bindings" id="bindings" hidden></div>
 
     <div class="editor-shell" id="editor-shell">
       <div class="editor-body">
@@ -114,6 +117,16 @@
         <button class="tab" role="tab" data-tab="instructions" aria-selected="false">Instructions</button>
         <button class="tab" role="tab" data-tab="console" aria-selected="false">Console</button>
       </div>
+    </div>
+
+    <!-- A file that builds more than one circuit: which one the graph and the
+         instruction table show. -->
+    <div class="circuit-bar" id="circuit-bar" hidden>
+      <label class="circuit-field">
+        <span>Circuit</span>
+        <select id="circuit-select" aria-label="Which of the file's circuits to show"></select>
+      </label>
+      <span class="circuit-count" id="circuit-count"></span>
     </div>
 
     <!-- graph tab -->

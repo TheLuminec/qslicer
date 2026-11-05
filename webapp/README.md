@@ -46,6 +46,28 @@ only a real run could decide stops it with a `StaticParseError` naming the
 line; what it skipped or approximated comes back as `QS200` warnings. Its
 docstring in `qslicer/parsers/staticqiskitparser.py` lists what it models.
 
+The file is read as a script: `if __name__ == "__main__":` blocks and the
+`main()` they call are followed, and `argparse` arguments take their defaults,
+as in a run with no command-line arguments.
+
+**Values only a run decides.** When the circuit depends on one -- an unseeded
+`random` draw, a required command-line argument -- and it came from a
+variable, the error is `needs_value` and names it (`error.needs`: `name`,
+`line`, `kind`, `expression`). The page asks for a value under the error; the
+next request sends it in `bindings`, and the parser uses it where that variable
+is assigned. Values are read with `ast.literal_eval`, never run. Picked values
+show as chips under the example line; loading another file clears them.
+
+**Several circuits.** Every circuit the program builds is a candidate,
+including ones made inside functions. The main one is the module-level circuit
+with the most instructions, as before, or, when the file keeps none at module
+level, the largest circuit that is not used inside another. The others --
+other module-level circuits, then subroutines composed into a bigger one,
+their inverses and so on -- are listed in `circuits`, and the Circuit picker
+above the graph switches between them (`circuit` in the request). The parse is
+cached, so switching does not interpret the file again, and the linters read
+the circuit on screen, so their node numbers match the graph.
+
 ### OpenQASM 2 and 3 (`.qasm`, `.qasm3`) -- `language="qasm-static"`
 
 `StaticOpenQASMParser` reads the text with the OpenQASM reference parser and
@@ -89,7 +111,7 @@ from the API. It parses text and runs nothing, but it is not on the page.
 |-------------------------------|--------|-----------------------------------------------------|
 | `/api/examples`               | GET    | —                                                    |
 | `/api/examples/<key>`         | GET    | —                                                    |
-| `/api/analyze`                | POST   | `{source, filename, profile, language, lint_rules}`  |
+| `/api/analyze`                | POST   | `{source, filename, profile, language, lint_rules, bindings, circuit}` |
 | `/api/slice`                  | POST   | `{token, node_idx, direction, dep_types}`            |
 | `/api/linters`                | GET    | —                                                    |
 | `/api/benchmark`              | GET    | —                                                    |
@@ -103,8 +125,12 @@ sends it. `lint_rules` is a list of rule ids such as
 `"quick/QS002"`; leave it out for the default selection, which
 `/api/linters` reports.
 
-`/api/analyze` returns nodes, edges, lint diagnostics and
-a `token`. The token names the QDG cached server-side, so slicing never
+`bindings` is a list of `{name, line, value}` (value as typed, a Python
+literal) and `circuit` an index into the `circuits` a response lists; both are
+optional and only read by the Qiskit route.
+
+`/api/analyze` returns nodes, edges, lint diagnostics,
+`circuits` and a `token`. The token names the QDG cached server-side, so slicing never
 re-executes the submitted program. The cache holds the 24 most recent analyses
 in memory; after a server restart the client is told to analyze again.
 
@@ -143,15 +169,16 @@ package, so the command line and the site share them.
 
 ## Example circuits
 
-`qslicer/examples/` holds 22 Qiskit circuits and 2 OpenQASM files, described by
+`qslicer/examples/` holds 23 Qiskit circuits and 2 OpenQASM files, described by
 `manifest.json` alongside them. They are grouped in the dropdown as Basics,
 Algorithms, Communication protocols, Analysis showcases, and OpenQASM.
 
 To add one: drop a `.py` file in the directory and add an entry to the
 manifest (`key`, `file`, `category`, `title`, `blurb`, `highlight`). A file
-with no manifest entry still appears, under "Unsorted". A `.py` file needs a
-module-level `QuantumCircuit`, since that is what the parser looks for; a
-`.qasm` file needs to be OpenQASM 3.
+with no manifest entry still appears, under "Unsorted". A `.py` example needs a
+module-level `QuantumCircuit`: the tests check every example against the
+executing parser, which only sees module-level circuits. A `.qasm` file needs
+to be OpenQASM 3.
 
 Every claim in a docstring or blurb was checked against what the analyzer
 actually returns — including the two that turned out to be wrong on the first

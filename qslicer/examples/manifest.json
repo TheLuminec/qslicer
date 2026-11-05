@@ -207,6 +207,14 @@
       "highlight": "Try: the Range control, then pan and zoom."
     },
     {
+      "key": "shors_algorithm",
+      "file": "shors_algorithm.py",
+      "category": "analysis",
+      "title": "Shor's algorithm (parser stress test)",
+      "blurb": "Factoring 21, hybrid and end to end: the parser follows main() through argparse, the retry loop and an lru_cache to an order-finding circuit of 13 qubits, 10 classical bits, 12,776 instructions and 23,953 edges, plus 10 sub-circuits. Takes a few seconds to draw.",
+      "highlight": "Try: the Circuit picker above the graph -- c-U(4) is a single controlled multiplication on its own."
+    },
+    {
       "key": "ghz_openqasm",
       "file": "ghz_openqasm.qasm",
       "category": "openqasm",

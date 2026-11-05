@@ -265,6 +265,17 @@ _GATES: Dict[str, Dict[str, Any]] = {
         "detail": r"Decomposes into a ladder of Toffolis, often with ancilla qubits.",
         "matrix": r"\text{permutation}", "entangling": True, "self_inverse": True,
     },
+    "mcphase": {
+        "title": "Multi-controlled phase", "category": MULTI, "qubits": 3,
+        "summary": r"Adds $e^{\i\lambda}$ to the amplitude where every qubit is $|1>$.",
+        "detail": r"What qc.mcp, MCPhaseGate and PhaseGate($\lambda$).control(n) build; with "
+                  r"one control it is cp. Diagonal, so it only changes phases, and symmetric: "
+                  r"any of its qubits can be read as the target. Fourier-space adders, such as "
+                  r"the doubly controlled ones in Shor's algorithm, are made of these. The "
+                  r"matrix shown is for two controls.",
+        "matrix": r"\text{diag}(1, 1, 1, 1, 1, 1, 1, e^{\i\lambda})",
+        "entangling": True, "phase": True,
+    },
     "swap": {
         "title": "SWAP", "category": MULTI, "qubits": 2,
         "summary": r"Exchanges two qubits: $|ab> \mapsto |ba>$.",

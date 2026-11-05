@@ -151,6 +151,11 @@ def test_example_analyzes_successfully(example_results, key):
     assert not any(d["code"] == "QS000" for d in body["diagnostics"])
 
 
+# Past this many nodes, slice from an even spread of them instead of every one:
+# the Shor example has 12,776, and two slices from each would take minutes.
+SLICE_EVERY_NODE_UP_TO = 400
+
+
 @pytest.mark.slow
 @pytest.mark.requirement("FR-15")
 @pytest.mark.parametrize("key", KEYS)
@@ -158,10 +163,12 @@ def test_example_slices_contain_criterion_and_respect_edges(client, example_resu
     import networkx as nx
 
     _, body, _ = example_results[key]
+    count = len(body["nodes"])
     graph = nx.MultiDiGraph()
-    graph.add_nodes_from(range(len(body["nodes"])))
+    graph.add_nodes_from(range(count))
     graph.add_edges_from((e["source"], e["target"]) for e in body["edges"])
-    for idx in range(len(body["nodes"])):
+    step = max(1, count // SLICE_EVERY_NODE_UP_TO)
+    for idx in sorted(set(range(0, count, step)) | {count - 1}):
         for direction, reach in (("backward", nx.ancestors), ("forward", nx.descendants)):
             response, result = post_slice(client, token=body["token"], node_idx=idx,
                                           direction=direction)
@@ -210,6 +217,20 @@ def test_claim_stress_test_dimensions(example_results):
     assert body["program"]["num_qubits"] == 6
     assert body["program"]["num_instructions"] == 44
     assert len(body["edges"]) == 58
+
+
+@pytest.mark.slow
+def test_claim_shors_algorithm_dimensions_and_circuits(example_results):
+    body = _ok(example_results, "shors_algorithm")
+    assert body["program"] == {"num_qubits": 13, "num_clbits": 10, "num_instructions": 12776}
+    assert len(body["edges"]) == 23953
+    circuits = body["circuits"]
+    assert len(circuits) == 11 and circuits[0]["variable"] == "qc"
+    assert circuits[0]["name"] == "order_finding(a=2, N=21)" and not circuits[0]["used_inside"]
+    assert all(c["used_inside"] for c in circuits[1:])
+    assert "c-U(4)" in {c["name"] for c in circuits}
+    # Doubly controlled phase rotations are what the adders are made of.
+    assert sum(n["label"].startswith("mcphase") for n in body["nodes"]) > 1000
 
 
 @pytest.mark.slow

@@ -209,6 +209,14 @@ def api_analyze():
         lint_rules = _lint_rules(payload)
     except ValueError as exc:
         return _bad_request(str(exc))
+    # Values the user picked for what only a run could decide, and which of the
+    # file's circuits to show; both checked properly by analysis.parse_bindings.
+    bindings = payload.get("bindings") or []
+    if not isinstance(bindings, list) or len(bindings) > 50:
+        return _bad_request("bindings must be a list of at most 50 {name, line, value} objects.")
+    circuit = payload.get("circuit", 0)
+    if isinstance(circuit, bool) or not isinstance(circuit, int) or circuit < 0:
+        return _bad_request("circuit must be a non-negative integer.")
     language_error = analysis.unsupported_language(language)
     if language_error is not None:
         return jsonify({"ok": False, "diagnostics": [], "error": language_error}), 400
@@ -239,6 +247,7 @@ def api_analyze():
 
     return jsonify(analysis.analyze_source(
         source, filename=filename, profile=profile, language=language, lint_rules=lint_rules,
+        bindings=bindings, circuit=circuit,
     ))
 
 

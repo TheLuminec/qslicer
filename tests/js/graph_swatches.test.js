@@ -102,7 +102,10 @@ test('an instruction on no qubit sits on its classical wires', () => {
 });
 
 test('sharedClbits: bits the source wrote that the target reads', () => {
-  const { sharedClbits } = loadPage(['swatches.js', 'graph.js']).window.QGraph.routing;
+  const routing = loadPage(['swatches.js', 'graph.js']).window.QGraph.routing;
+  // Copied out of the vm: its arrays have the other realm's prototype, which
+  // deepStrictEqual counts as a difference.
+  const sharedClbits = (...args) => [...routing.sharedClbits(...args)];
   assert.deepStrictEqual(sharedClbits({ clbits: [0, 1] }, { condition_clbits: [1, 2, 0] }), [1, 0]);
   assert.deepStrictEqual(sharedClbits({ clbits: [3] }, { condition_clbits: [1] }), []);
   assert.deepStrictEqual(sharedClbits(undefined, { condition_clbits: [1] }), []);
@@ -113,7 +116,7 @@ test('classicalRoute drops to the wire, runs along it and rises into the reader'
   const a = { x: 100, y: 46, w: 34, h: 26 };
   const b = { x: 300, y: 112, w: 34, h: 26 };
   const points = classicalRoute(a, b, 250, -12);
-  assert.deepStrictEqual(points.map((p) => [...p]),
+  assert.deepStrictEqual(Array.from(points, (p) => [...p]),
     [[88, 59], [88, 250], [288, 250], [288, 125]]);
 });
 
@@ -122,7 +125,7 @@ test('classicalRoute joins a box on the wire from its side', () => {
   const store = { x: 100, y: 250, w: 40, h: 26 };
   const reader = { x: 300, y: 46, w: 34, h: 26 };
   const points = classicalRoute(store, reader, 251, 12);
-  assert.deepStrictEqual(points.map((p) => [...p]), [[120, 251], [312, 251], [312, 59]]);
+  assert.deepStrictEqual(Array.from(points, (p) => [...p]), [[120, 251], [312, 251], [312, 59]]);
 });
 
 test('roundedPath rounds each corner and keeps the end points', () => {
