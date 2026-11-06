@@ -29,6 +29,14 @@ Both report under the same codes, so they compare rule by rule:
 That is LintQ's `LintQ-all.qls` suite; its `LintQ.qls` is the six high-precision
 ones (select LQ01-LQ06).
 
+## License
+
+`port.py` is a port of LintQ, Copyright (c) 2024 Matteo Paltenghi, Michael
+Pradel, used under the MIT License. The full text is in [LICENSE](LICENSE),
+which ships inside the `qslicer` package (wheel and sdist) beside the port.
+The CodeQL adapter (`codeql.py`) copies nothing from LintQ: it runs a LintQ
+checkout you provide.
+
 ## The port behaves like the original
 
 The port rebuilds LintQ's model of a program (circuits, registers, operators

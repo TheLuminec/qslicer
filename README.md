@@ -47,8 +47,8 @@ qslicer slice my_circuit.py --line 12
 Requires Python 3.10+.
 
 ```bash
-pip install -r requirements.txt    # the exact versions the tests run on
-pip install -e ".[web]"            # qslicer itself, editable, plus Flask
+pip install -r requirements.txt    # the exact versions the tests run on, plus Flask
+pip install -e .                   # qslicer itself, editable
 python webapp/app.py
 ```
 
@@ -176,7 +176,8 @@ all of its rules); `lint_rules` omitted means the default selection.
 The LintQ port gives exactly the original's warnings, line for line, on all
 239 programs of `tests/lintq/` (LintQ's own tests, edge-case probes, the
 examples and Bugs4Q); [qslicer/lint/lintq/README.md](qslicer/lint/lintq/README.md)
-says how, and how to run the original.
+says how, and how to run the original. LintQ is MIT licensed; its notice is in
+`qslicer/lint/lintq/LICENSE` and ships with the package.
 
 A new linter is a module in `qslicer/lint/plugins/` that defines `LINTER` or
 `LINTERS` (see `dependence_checks.py`, or `lintq.py` for one that wraps an
@@ -212,7 +213,11 @@ for Bugs4Q, its license, and how to compare another tool.
 ```bash
 pip install .            # or pip install -e . while working on it
 pip install ".[viz]"     # adds matplotlib, for `qslicer viz`
+pip install ".[qasm3]"   # adds qiskit-qasm3-import, for the qiskit.qasm3-based OpenQASM parser
 ```
+
+[qslicer/README.md](qslicer/README.md) is the package's PyPI page; keep it in
+step with this section when the command line or the API changes.
 
 ### From the command line
 
@@ -407,6 +412,7 @@ and it is why parse errors and warnings land on a line.
 ```
 .
 ├── qslicer/                     The package (pip install .)
+│   ├── README.md                The PyPI page
 │   ├── __init__.py              Public API: parse, slices, lint_file, ...
 │   ├── cli.py                   The `qslicer` command
 │   ├── ir/                      QuantumInstruction, SourceLocation, QuantumProgram
@@ -424,7 +430,7 @@ and it is why parse errors and warnings land on a line.
 │   │   ├── registry.py               Linter registry and rule selection
 │   │   ├── quick_checks.py           The quick checks (QS codes)
 │   │   ├── plugins/                  Dependence checks (QD codes) and LintQ
-│   │   └── lintq/                    LintQ: the port and the CodeQL adapter
+│   │   └── lintq/                    LintQ: the port, the CodeQL adapter, LintQ's LICENSE
 │   ├── viz/                     Matplotlib QDG viewer
 │   └── examples/                Bundled circuits and manifest.json
 ├── webapp/                      Flask web app (see webapp/README.md)
@@ -442,7 +448,7 @@ and it is why parse errors and warnings land on a line.
 ## Testing
 
 ```bash
-pip install -r requirements.txt -e ".[web,viz]"
+pip install -r requirements.txt -e .
 pytest                       # everything
 pytest -m "not slow"         # skip the multi-second tests
 ```

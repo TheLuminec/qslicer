@@ -1,17 +1,33 @@
 [build-system]
-requires = ["setuptools>=69"]
+# 77 is the first setuptools with PEP 639 license metadata.
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "qslicer"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Static slicing and linting for quantum programs written in Qiskit or OpenQASM"
-readme = "README.md"
+# The PyPI page; the repository's README.md is written for the GitLab checkout.
+readme = "qslicer/README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Caleb Turner" }]
+# qslicer's own license is still to be chosen: add `license = "<SPDX id>"` and
+# `license-files = ["LICENSE"]` before the first upload. LintQ's MIT notice
+# (qslicer/lint/lintq/port.py is a port of LintQ) ships as package data below,
+# beside the port; listing it in license-files too makes setuptools warn that
+# qslicer.lint.lintq "would be ignored", since the file sits inside a package.
 keywords = ["quantum", "qiskit", "openqasm", "slicing", "static analysis", "linter"]
 classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Physics",
     "Topic :: Software Development :: Quality Assurance",
 ]
@@ -26,14 +42,21 @@ dependencies = [
 
 [project.optional-dependencies]
 viz = ["matplotlib"]
-# The web app also offers the qiskit.qasm3-based OpenQASM front end.
-web = ["flask>=3.0", "qiskit-qasm3-import>=0.6"]
+# qslicer.parsers.openqasmparser goes through qiskit.qasm3, which needs it.
+qasm3 = ["qiskit-qasm3-import>=0.6"]
+
+[project.urls]
+Repository = "https://gitlab.csi.miamioh.edu/2026-spring-to-fall-capstone-projects/slicing-for-quantum-programs/slicing-for-quantum-programs"
+Issues = "https://gitlab.csi.miamioh.edu/2026-spring-to-fall-capstone-projects/slicing-for-quantum-programs/slicing-for-quantum-programs/-/issues"
 
 [project.scripts]
 qslicer = "qslicer.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "qslicer.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["qslicer*"]
 
 [tool.setuptools.package-data]
-qslicer = ["examples/*.py", "examples/*.qasm", "examples/manifest.json", "lint/lintq/README.md", "lint/lintq/codeql_support/*.py"]
+qslicer = ["examples/*.py", "examples/*.qasm", "examples/manifest.json", "lint/lintq/README.md", "lint/lintq/LICENSE", "lint/lintq/codeql_support/*.py"]

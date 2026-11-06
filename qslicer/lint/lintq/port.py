@@ -29,6 +29,10 @@ something, neither does this. In particular, as in LintQ:
 LintQ's own test programs, the Bugs4Q programs and this repository's
 examples; ``qslicer/lint/plugins/lintq.py`` offers it as a linter. Each query
 function below names the ``.ql`` file it ports.
+
+This module is a port of LintQ, Copyright (c) 2024 Matteo Paltenghi, Michael
+Pradel, used under the MIT License; the full text is in ``LICENSE`` beside
+this file and ships with the package.
 """
 
 import ast

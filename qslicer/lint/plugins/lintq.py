@@ -10,6 +10,9 @@
 
 Both report LintQ's queries under the same codes (LQ01-LQ10), so a benchmark
 of the two compares them rule by rule.
+
+LintQ is Copyright (c) 2024 Matteo Paltenghi, Michael Pradel, MIT License; see
+``qslicer/lint/lintq/LICENSE``.
 """
 
 import hashlib

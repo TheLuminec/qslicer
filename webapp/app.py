@@ -38,7 +38,7 @@ WEBAPP_DIR = os.path.dirname(os.path.abspath(__file__))
 if WEBAPP_DIR not in sys.path:
     sys.path.insert(0, WEBAPP_DIR)
 
-# The analysis lives in the qslicer package (pip install -e ".[web]"). Run from a
+# The analysis lives in the qslicer package (pip install -e .). Run from a
 # checkout without installing it, the copy next to webapp/ is used instead.
 try:
     import qslicer  # noqa: F401

@@ -11,8 +11,8 @@ below.
 From the repository root:
 
 ```bash
-pip install -r requirements.txt
-pip install -e ".[web]"
+pip install -r requirements.txt    # includes Flask
+pip install -e .
 python webapp/app.py
 ```
 
