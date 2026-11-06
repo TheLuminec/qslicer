@@ -230,6 +230,8 @@ qslicer slice circuit.py 12                # backward slice from instruction 12
 qslicer slice circuit.py --forward --line 8 --deps DATA_QUBIT MEASUREMENT
 qslicer rules                              # every linter and rule id
 qslicer viz circuit.py                     # the QDG in a matplotlib window
+qslicer viz shor.py --circuit 3 --line 75  # another circuit the file builds, sliced from line 75
+qslicer viz asks.py --set n=5 --save v.png # a value only a run decides; an image, no window
 ```
 
 `lint` exits 1 when it reports anything at `--fail-on` (default `warning`) or
@@ -266,9 +268,15 @@ approximated), `QuantumSlicer` and `SlicingCriterion` are exported too, and
 `qslicer.example_path("bell_pair.py")` finds the bundled examples.
 
 `qslicer viz` reads the file with the static front ends, so it is safe on
-circuits you did not write.
+circuits you did not write. It draws the graph the way the web page does:
+instructions left to right on their wires, classical edges routed along their
+bit, the slice from whichever instruction you click, and the linters' findings
+as dashed outlines and badges (`[` and `]` step through them, `l` hides them,
+`--no-lint` skips running them). `?` in the window lists the keys. Only what is
+in view is drawn, so the 12,776-instruction Shor example pans and slices as
+quickly as a small circuit.
 
-![QDG](Attachments/Images/g1.png)
+![The qslicer viz window: a backward slice in the teleportation example](Attachments/Images/qslicer-viz.png)
 
 ## How it works
 
@@ -431,7 +439,7 @@ and it is why parse errors and warnings land on a line.
 │   │   ├── quick_checks.py           The quick checks (QS codes)
 │   │   ├── plugins/                  Dependence checks (QD codes) and LintQ
 │   │   └── lintq/                    LintQ: the port, the CodeQL adapter, LintQ's LICENSE
-│   ├── viz/                     Matplotlib QDG viewer
+│   ├── viz/                     `qslicer viz`: model.py (layout, culling), visualizer.py (the window)
 │   └── examples/                Bundled circuits and manifest.json
 ├── webapp/                      Flask web app (see webapp/README.md)
 │   ├── app.py, analysis.py      Routes and the bridge to qslicer

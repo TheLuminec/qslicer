@@ -26,6 +26,8 @@
 
   var SVG_NS = 'http://www.w3.org/2000/svg';
 
+  /* The desktop viewer (qslicer viz) draws the same layout: qslicer/viz/model.py
+     copies these numbers and the category colors, so change them in both. */
   var LANE_H = 66;      // vertical distance between qubit wires
   var TOP_PAD = 46;     // room above the first wire
   var LEFT_PAD = 60;    // room for the wire labels
@@ -249,7 +251,7 @@
   };
 
   /* Instructions run left to right; each node sits on the average of the qubit
-     lanes it touches, the same rule the matplotlib viewer uses. An instruction
+     lanes it touches, the same rule the desktop viewer uses. An instruction
      on no qubit at all (a store) sits on the classical wires it uses instead. */
   QGraph.prototype._computeLayout = function () {
     var self = this;

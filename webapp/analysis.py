@@ -231,7 +231,8 @@ def _label_from(name: str, qubits: List[int], formatted: List[str]) -> str:
 
 def _short_label(name: str, qubits: List[int]) -> str:
     """The text drawn inside a node box: no parameters, and never long enough
-    to stretch the layout out of usable range."""
+    to stretch the layout out of usable range. ``qslicer.viz.model.short_label``
+    is the same for the desktop viewer."""
     label = name if len(name) <= 12 else name[:11] + "…"
     if qubits:
         wires = "q" + ",".join(str(q) for q in qubits)
@@ -571,6 +572,8 @@ def analyze_source(
 
 def attach_lint_nodes(diagnostics: List[Dict[str, Any]], nodes: List[Dict[str, Any]]) -> None:
     """Give each diagnostic ``nodes``: the graph nodes it is about, for the graph to mark.
+
+    ``qslicer.viz.model.attach_lint_nodes`` applies the same rule for the desktop viewer.
 
     A linter that reads the rebuilt circuit names its instructions, whose
     indices are the node ids; those are kept when one of them really comes

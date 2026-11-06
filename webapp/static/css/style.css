@@ -1,6 +1,6 @@
 /* ==========================================================================
    Quantum Program Slicer -- mock-up styles
-   Palette follows the desktop matplotlib visualizers so the two feel related.
+   The desktop viewer (qslicer viz, qslicer/viz/model.py) uses the same palette.
    ========================================================================== */
 
 :root {
@@ -22,7 +22,7 @@
   --err:         #f38ba8;
   --info:        #89dceb;
 
-  /* Dependency edge colors, matching scripts/visualizer.py */
+  /* Dependency edge colors, matching swatches.js and qslicer/viz/model.py */
   --dep-data-qubit:        #2196f3;
   --dep-entanglement:      #e91e63;
   --dep-measurement:       #4caf50;

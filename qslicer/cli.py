@@ -5,7 +5,8 @@
     qslicer slice circuit.py --backward 12
     qslicer slice circuit.py --forward --line 8 --deps DATA_QUBIT MEASUREMENT
     qslicer rules
-    qslicer viz circuit.py           (needs matplotlib: pip install qslicer[viz])
+    qslicer viz circuit.py           (needs matplotlib: pip install qslicer[viz];
+                                      qslicer viz --help for its options)
 
 Nothing is executed: every command reads the files with the static front ends.
 ``lint`` exits 1 when a finding at or above ``--fail-on`` is reported, so it can
@@ -205,7 +206,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=_cmd_slice, direction="backward")
 
     # Only listed here; main() hands its arguments straight to the visualizer.
-    sub.add_parser("viz", help="draw the dependence graph in a matplotlib window")
+    sub.add_parser("viz", help="explore the dependence graph, its slices and the lint "
+                               "findings in a window (qslicer viz --help)")
 
     p = sub.add_parser("rules", help="list the linters and their rules")
     p.add_argument("--format", choices=("text", "json"), default="text")

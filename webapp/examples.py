@@ -5,9 +5,9 @@ Sources live in ``qslicer/examples/`` as ordinary Qiskit files, described by
 add an entry to the manifest. A file with no manifest entry still appears,
 grouped under "Unsorted", so nothing goes missing.
 
-The sample circuits under ``Attachments/Sample Code`` are left alone: they are
-what the command-line visualizer points at, and some of them are named after
-something other than what they contain.
+The sample circuits under ``Attachments/Sample Code`` are left alone and not
+listed: some of them are named after something other than what they contain
+(see webapp/README.md).
 """
 
 import json

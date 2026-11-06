@@ -38,12 +38,19 @@ qslicer slice circuit.py 12                # backward slice from instruction 12
 qslicer slice circuit.py --forward --line 8 --deps DATA_QUBIT MEASUREMENT
 qslicer rules                              # every linter and rule id
 qslicer viz circuit.py                     # the QDG in a matplotlib window (needs [viz])
+qslicer viz shor.py --circuit 3 --line 75  # another circuit the file builds, sliced from line 75
+qslicer viz asks.py --set n=5 --save v.png # a value only a run decides; an image, no window
 ```
 
 `lint` exits 1 when it reports anything at `--fail-on` (default `warning`) or
 above, so it can gate CI or a pre-commit hook. Files ending in `.qasm`,
 `.qasm2` or `.qasm3` go to the OpenQASM front end; `--language` overrides the
 extension. `python -m qslicer` works too.
+
+`viz` opens an interactive window: click an instruction to slice from it,
+hover one for its gate, source line and lint findings, `[` and `]` step
+through the findings, and `?` lists the keys. It runs the linters unless
+`--no-lint` is given, and `--save` writes an image instead of opening a window.
 
 ## Python
 
