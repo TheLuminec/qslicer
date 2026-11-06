@@ -704,6 +704,17 @@ a.diag-code:hover { color: var(--accent); }
   pointer-events: none;
 }
 
+/* The whole circuit, under the graph, when it is wider than the view: drawn
+   by graph.js on a canvas, with the part on screen outlined. */
+.graph-overview {
+  position: absolute; left: 0.6rem; bottom: 0.6rem; z-index: 5;
+  display: block; width: calc(100% - 1.2rem); height: 38px;
+  border: 1px solid var(--surface-3); border-radius: var(--radius-sm);
+  cursor: pointer; touch-action: none;
+}
+.graph-overview[hidden] { display: none; }
+.graph-stage.has-overview .graph-hint { bottom: calc(0.6rem + 44px); }
+
 .tooltip {
   position: absolute; z-index: 20; max-width: 22rem;
   background: var(--surface); border: 1px solid var(--surface-3);
@@ -775,6 +786,11 @@ a.diag-code:hover { color: var(--accent); }
 #graph .node.hovered .node-shape { stroke: #fff; stroke-width: 2.5; }
 #graph .node.qubit-selected .node-shape { stroke: var(--criterion); stroke-width: 2.5; }
 #graph .node .node-line { fill: var(--text-faint); font-size: 9px; font-family: var(--mono); text-anchor: middle; pointer-events: none; }
+/* Zoomed out, small labels are unreadable and the costliest thing to paint:
+   graph.js sets lod-mid, then lod-far, on the root as the zoom drops. */
+#graph .lod-mid .node-index, #graph .lod-mid .node-line,
+#graph .lod-far .node-index, #graph .lod-far .node-line,
+#graph .lod-far .node-text, #graph .lod-far .lint-badge text { display: none; }
 /* Lint markers: a dashed outline in the worst severity, and a corner badge. */
 #graph .node.lint-error .node-shape { stroke: var(--err); stroke-width: 2.5; stroke-dasharray: 5 3; }
 #graph .node.lint-warning .node-shape { stroke: var(--warn); stroke-width: 2.5; stroke-dasharray: 5 3; }
@@ -811,7 +827,15 @@ a.diag-code:hover { color: var(--accent); }
 .instr-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
 .instr-table th, .instr-table td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--line); }
 .instr-table th { color: var(--text-faint); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; position: sticky; top: 0; background: var(--bg); }
-.instr-table td { font-family: var(--mono); }
+/* No top padding above the table: the sticky header would stop that far below
+   the top of the scroll area and leave a strip where rows show through. */
+[data-panel="instructions"] .table-scroll { padding-top: 0; }
+.instr-table td { font-family: var(--mono); white-space: nowrap; }
+/* Rows outside the view are not drawn (see drawTableRows in slicer.js): a
+   spacer row stands in for them. */
+.instr-table tr.spacer td { padding: 0; border: 0; }
+.instr-table tbody tr.spacer { cursor: default; }
+.instr-table tbody tr.spacer:hover { background: none; }
 .instr-table tbody tr { cursor: pointer; }
 .instr-table tbody tr:hover { background: var(--surface); }
 .instr-table tr.in-slice td { color: var(--accent); }
@@ -1272,7 +1296,9 @@ figcaption { font-size: 0.85rem; color: var(--text-faint); margin-top: 0.6rem; m
   .splitter { display: none; }
   body.page-slicer main { overflow: visible; }
   .pane-source { min-height: 70vh; }
-  .pane-output { min-height: 80vh; }
+  /* A fixed height, so the instruction table scrolls inside the pane (it only
+     draws the rows in view) instead of growing the page by thousands of rows. */
+  .pane-output { min-height: 80vh; height: 85vh; }
 }
 
 @media (max-width: 620px) {

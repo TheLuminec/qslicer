@@ -266,8 +266,8 @@ def test_claim_teleportation_has_measurement_dependencies(example_results):
 @pytest.mark.slow
 def test_claim_qaoa_rzz_is_entangling_and_phase(example_results):
     body = _ok(example_results, "qaoa_maxcut")
-    rzz = [n for n in body["nodes"] if n["name"] == "rzz"]
-    assert rzz and all(n["gate"]["entangling"] and n["gate"]["phase"] for n in rzz)
+    assert any(n["name"] == "rzz" for n in body["nodes"])
+    assert body["gates"]["rzz"]["entangling"] and body["gates"]["rzz"]["phase"]
 
 
 @pytest.mark.slow

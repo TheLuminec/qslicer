@@ -130,9 +130,30 @@ literal) and `circuit` an index into the `circuits` a response lists; both are
 optional and only read by the Qiskit route.
 
 `/api/analyze` returns nodes, edges, lint diagnostics,
-`circuits` and a `token`. The token names the QDG cached server-side, so slicing never
+`circuits`, `gates` and a `token`. A node names its gate (`name`) and gives its
+`category`; the gate's reference card (title, summary, matrix, whether it
+entangles, ...) is not repeated on every node but given once per name in
+`gates`, as `{name: card}` for the names the nodes use, so look a node's up as
+`gates[node.name]`. The token names the QDG cached server-side, so slicing never
 re-executes the submitted program. The cache holds the 24 most recent analyses
 in memory; after a server restart the client is told to analyze again.
+
+The analysis builds the QDG once: the dependence checks lint the same graph the
+page draws and slices (through `LintContext.qdg()`), rather than one of their own.
+
+The finished response is kept with its token's cache entry, so the same request
+again -- the same source, filename, profile, interpreter, lint selection (after
+normalizing: none means the default), `bindings` and `circuit` -- is answered
+with the stored bytes, without linting or describing anything again. A stored
+response goes when its token is evicted, so it never hands out a token that no
+longer slices; all of them together are also kept under 64 MB. Failed analyses
+are not stored. The `X-Analysis-Cache` header says `hit` or `miss`.
+
+JSON API responses of 4 KB or more are gzipped (level 5) when the request's
+`Accept-Encoding` allows it, with `Content-Encoding: gzip` and
+`Vary: Accept-Encoding`; browsers decode this themselves. A large circuit's
+analysis is several megabytes of very repetitive JSON (Shor's example, 12,776
+instructions: about 5.8 MB, 0.28 MB gzipped).
 
 ## Layout
 
@@ -300,6 +321,39 @@ visible instead of silent.
   when it has focus (shift for bigger steps). The position is remembered in
   `localStorage` per browser, and the graph refits itself when the pane
   changes width.
+* **The overview strip** under the graph appears when the circuit is wider than
+  the view: every instruction as a mark on each wire it touches, the slice and
+  marks in their colors, and the part on screen outlined. While **Lint
+  markers** is on, a band along its top marks every instruction a finding is
+  about, in the worst severity's color, and a wire a finding is about (an idle
+  qubit) is tinted red, so findings off screen show too. Click or drag it to
+  move there, or scroll over it to pan. The main view stops zooming out at
+  0.15, so on a long circuit the strip is the only way to see all of it.
+
+### Large circuits
+
+The page stays responsive on circuits of tens of thousands of instructions
+(the Shor example has 12,776 and 23,953 edges):
+
+* **Only what is in view is drawn.** `graph.js` keeps in the DOM just the nodes
+  and edges that overlap the view plus half a view on every side. Panning moves
+  one transform; when the view leaves that window, what came into it is created
+  and what left is removed. At the zoom limit that is a few hundred elements
+  rather than the whole graph (about 140,000 for the Shor example).
+* **State changes are class changes.** A slice, a mark, a filter or a hover
+  updates classes on the elements that exist; nothing is rebuilt. Dragging a
+  node redraws only its own edges. Events are handled once, on the node layer.
+* **Small labels go when zoomed out.** Below 0.4 the index and line labels are
+  hidden, below 0.25 the gate names too (`lod-mid`, `lod-far` on the root).
+* **The Instructions tab draws only the rows in view**, between two spacer
+  rows, so scrolling, slicing and marking cost the same at any size. Rows are
+  one line high; find-in-page only sees the rows drawn.
+* **Recent analyses are kept in the tab**, keyed by the whole request (source,
+  settings, circuit, picked values) and limited by the nodes and edges they
+  hold (150,000, about 60 MB), oldest first. Switching back to a circuit, or
+  analyzing code that has not changed, needs no request. If the server has
+  meanwhile forgotten that analysis (a restart, or its 24-entry cache moved
+  on), the next slice notices, analyzes again and then slices.
 
 ## Mocked or partial
 

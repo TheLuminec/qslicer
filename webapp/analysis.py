@@ -22,10 +22,14 @@ relying on it finds out.
 """
 
 import ast
+import functools
 import io
+import json
+import math
 import os
 import shutil
 import tempfile
+import threading
 from collections import OrderedDict
 from contextlib import redirect_stderr, redirect_stdout
 from hashlib import sha256
@@ -71,20 +75,103 @@ def backend_error() -> Optional[str]:
 
 _CACHE: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 _CACHE_LIMIT = 24
+# Requests run on several threads (wsgi.py); the cache is changed under this.
+_CACHE_LOCK = threading.RLock()
+
+# Finished /api/analyze responses, encoded, are kept in their token's entry
+# (under "responses", by response_key), so a repeated request is answered
+# without linting or describing again -- and a response is only ever handed out
+# while the QDG its token names is still here to slice. Evicting an entry drops
+# its responses with it; beyond that, all of them together stay under this.
+_RESPONSE_CACHE_BYTES = 64 * 1024 * 1024
 
 
 def _cache_put(token: str, payload: Dict[str, Any]) -> None:
-    _CACHE[token] = payload
-    _CACHE.move_to_end(token)
-    while len(_CACHE) > _CACHE_LIMIT:
-        _CACHE.popitem(last=False)
+    with _CACHE_LOCK:
+        previous = _CACHE.get(token)
+        # Re-analyzing the same input (another lint selection, say) keeps the
+        # responses already made for it: the token says they are still right.
+        if previous is not None and previous.get("responses") and "responses" not in payload:
+            payload["responses"] = previous["responses"]
+        _CACHE[token] = payload
+        _CACHE.move_to_end(token)
+        while len(_CACHE) > _CACHE_LIMIT:
+            _CACHE.popitem(last=False)
 
 
 def _cache_get(token: str) -> Optional[Dict[str, Any]]:
-    entry = _CACHE.get(token)
-    if entry is not None:
-        _CACHE.move_to_end(token)
-    return entry
+    with _CACHE_LOCK:
+        entry = _CACHE.get(token)
+        if entry is not None:
+            _CACHE.move_to_end(token)
+        return entry
+
+
+def response_key(source: str, filename: str = "", profile: str = "baseline",
+                 language: Optional[str] = None, lint_rules: Optional[List[str]] = None,
+                 bindings: Optional[List[Dict[str, Any]]] = None, circuit: int = 0) -> str:
+    """What identifies an analyze request's response: everything it depends on.
+
+    The lint selection is normalized (None and an explicit default selection
+    are the same request) and the interpreter resolved, as analyze_source does.
+    """
+    material = json.dumps([
+        source, filename, profile, source_kind(filename, language),
+        linters.normalize_selection(lint_rules), bindings or [], circuit,
+    ], sort_keys=True, default=repr)
+    return sha256(material.encode("ascii")).hexdigest()
+
+
+def cached_response(key: str) -> Optional[Dict[str, Any]]:
+    """The stored response for ``response_key`` ``key``, or None.
+
+    It is a dict with ``body`` (the encoded JSON) and ``gzip`` (the same,
+    gzipped, or None). Finding one counts as using its token, which moves to
+    the young end of the cache.
+    """
+    if _IMPORT_ERROR is not None:
+        return None
+    with _CACHE_LOCK:
+        for token, entry in _CACHE.items():
+            record = (entry.get("responses") or {}).get(key)
+            if record is not None:
+                _CACHE.move_to_end(token)
+                return record
+    return None
+
+
+def store_response(key: str, token: str, body: bytes,
+                   gzipped: Optional[bytes] = None) -> Optional[Dict[str, Any]]:
+    """Keep a successful analysis' encoded response with its token's QDG.
+
+    Returns the stored record, or None when the token is no longer cached (the
+    response would name a QDG that is gone) or the body alone is over the
+    limit. Older responses are dropped, least recently used first, to keep
+    the total under _RESPONSE_CACHE_BYTES.
+    """
+    record = {"body": body, "gzip": gzipped}
+    size = _record_size(record)
+    with _CACHE_LOCK:
+        entry = _CACHE.get(token)
+        if entry is None or size > _RESPONSE_CACHE_BYTES:
+            return None
+        responses = entry.setdefault("responses", OrderedDict())
+        responses.pop(key, None)
+        responses[key] = record
+        total = sum(_record_size(r) for e in _CACHE.values()
+                    for r in (e.get("responses") or {}).values())
+        for other in list(_CACHE.values()):
+            stored = other.get("responses") or {}
+            for other_key in list(stored):
+                if total <= _RESPONSE_CACHE_BYTES:
+                    return record
+                if stored[other_key] is not record:
+                    total -= _record_size(stored.pop(other_key))
+    return record
+
+
+def _record_size(record: Dict[str, Any]) -> int:
+    return len(record["body"]) + len(record.get("gzip") or b"")
 
 
 # --------------------------------------------------------------------------
@@ -107,9 +194,14 @@ def _format_param(value: Any) -> str:
             return f"<circuit {len(value.data)} ops>"
         text = " ".join(str(value).split())
         return text if len(text) <= 24 else text[:21] + "..."
+    return _format_number(number)
 
-    import math
 
+# Keyed by the float alone, which is all the text depends on. Large circuits
+# repeat a few hundred angles thousands of times (Shor's QFTs), and the pi
+# search below is most of the cost of describing them.
+@functools.lru_cache(maxsize=4096)
+def _format_number(number: float) -> str:
     if abs(number) < 1e-9:
         return "0"
     for numerator in range(1, 9):
@@ -124,9 +216,14 @@ def _format_param(value: Any) -> str:
 
 
 def _node_label(name: str, qubits: List[int], params: List[Any]) -> str:
+    return _label_from(name, qubits, [_format_param(p) for p in params[:3]])
+
+
+def _label_from(name: str, qubits: List[int], formatted: List[str]) -> str:
+    """_node_label from parameters already formatted (only the first three are shown)."""
     label = name
-    if params:
-        label += "(" + ", ".join(_format_param(p) for p in params[:3]) + ")"
+    if formatted:
+        label += "(" + ", ".join(formatted[:3]) + ")"
     if qubits:
         label += " q" + ",".join(str(q) for q in qubits)
     return label
@@ -327,10 +424,33 @@ def analyze_source(
         program, _, failure = parse_once()
         return program, (failure.cause or failure) if failure is not None else None
 
+    # Likewise the dependence graph: built once, on first use, by the dependence
+    # checks or below, with the rules of the profile asked for.
+    rules: Any = None
+    known_profile = True
+    if _IMPORT_ERROR is None:
+        try:
+            rules = get_rule_profile(profile)
+        except ValueError:
+            rules = get_rule_profile("baseline")
+            known_profile = False
+    graphs: Dict[str, Any] = {}
+
+    def qdg_once() -> Any:
+        if "value" not in graphs:
+            program, _, failure = parse_once()
+            graphs["value"] = QDG(program, rules=rules) if failure is None else None
+        return graphs["value"]
+
     selection = linters.normalize_selection(lint_rules)
     context = None
-    if kind == "python-static" and parsed_bindings is not None and _IMPORT_ERROR is None:
-        context = linters.LintContext(source, filename, kind, profile, parse=parse_for_linters)
+    # The static routes give the linters the circuit shown here (and its graph);
+    # the qiskit.qasm3 route has no source locations, so its linters read the
+    # file themselves.
+    if kind in ("python-static", "qasm-static") and parsed_bindings is not None \
+            and _IMPORT_ERROR is None:
+        context = linters.LintContext(source, filename, kind, profile, parse=parse_for_linters,
+                                      qdg=qdg_once)
     diagnostics = linters.run(source, filename, kind, selection, profile, context=context)
     # With QS000 deselected, a syntax error goes on to the parser, which
     # reports it in its own words.
@@ -416,13 +536,10 @@ def analyze_source(
         }
         return result
 
-    try:
-        rules = get_rule_profile(profile)
-    except ValueError:
-        rules = get_rule_profile("baseline")
+    if not known_profile:
         result["profile"] = "baseline"
 
-    qdg = QDG(program, rules=rules)
+    qdg = qdg_once()
 
     # The front end is part of the key: the two Python routes must not share an entry.
     token = sha256(f"{filename}\x00{profile}\x00{kind}\x00{result['circuit']}\x00"
@@ -442,6 +559,8 @@ def analyze_source(
         "edges": _describe_edges(qdg),
         "rules": [rule.name for rule in rules],
     })
+    # Each gate's reference card once, rather than a copy on every node.
+    result["gates"] = _describe_gates(result["nodes"])
     result["stats"] = _describe_stats(result)
     # The Follow chips are built from this, so a rule set that never emits
     # phase edges never offers to follow them.
@@ -465,14 +584,30 @@ def attach_lint_nodes(diagnostics: List[Dict[str, Any]], nodes: List[Dict[str, A
         source = node.get("source") or {}
         return bool(source) and source["line"] <= line <= source.get("end_line", source["line"])
 
+    # (id, first line, last line) of every node with a source span, made once,
+    # on first need: a large circuit has thousands of nodes to scan per finding.
+    spans: Optional[List[Tuple[int, int, int]]] = None
+
+    def covering(lines: List[int]) -> List[int]:
+        nonlocal spans
+        if not lines:
+            return []
+        if spans is None:
+            spans = [(node["id"], source["line"], source.get("end_line", source["line"]))
+                     for node in nodes for source in [node.get("source")] if source]
+        if len(lines) == 1:
+            line = lines[0]
+            return [idx for idx, first, last in spans if first <= line <= last]
+        return [idx for idx, first, last in spans
+                if any(first <= line <= last for line in lines)]
+
     for diagnostic in diagnostics:
         named = [n for n in diagnostic.get("nodes", []) if isinstance(n, int) and 0 <= n < len(nodes)]
         if named and any(covers(nodes[n], diagnostic.get("line") or 0) for n in named):
             diagnostic["nodes"] = named
             continue
         lines = diagnostic.get("lines") or ([diagnostic["line"]] if diagnostic.get("line") else [])
-        diagnostic["nodes"] = [node["id"] for node in nodes
-                               if any(covers(node, line) for line in lines)]
+        diagnostic["nodes"] = covering(lines)
 
 
 class _ParseFailure(Exception):
@@ -801,28 +936,43 @@ _HINTS = {
 
 
 def _describe_nodes(program: Any) -> List[Dict[str, Any]]:
+    """One JSON-safe dict per instruction. The gate's reference card is not on
+    the node: ``_describe_gates`` gives each name's once, as ``gates``."""
     nodes = []
+    categories: Dict[str, str] = {}
     for idx in range(len(program)):
         instruction = program[idx]
+        name = instruction.name
         qubits = list(instruction.qubits)
         clbits = list(instruction.clbits)
-        info = gates.describe(instruction.name)
+        category = categories.get(name)
+        if category is None:
+            category = categories[name] = gates.describe(name)["category"]
+        params = [_format_param(p) for p in instruction.params]
         nodes.append({
             "id": idx,
-            "name": instruction.name,
-            "label": _node_label(instruction.name, qubits, instruction.params),
-            "short": _short_label(instruction.name, qubits),
+            "name": name,
+            "label": _label_from(name, qubits, params),
+            "short": _short_label(name, qubits),
             "qubits": qubits,
             "clbits": clbits,
-            "params": [_format_param(p) for p in instruction.params],
+            "params": params,
             "condition_clbits": list(instruction.metadata.get("condition_clbits", []) or []),
             "lane": (sum(qubits) / len(qubits)) if qubits else 0.0,
-            "gate": info,
-            "category": info["category"],
-            "is_measurement": info["category"] == gates.MEASURE,
+            "category": category,
+            "is_measurement": category == gates.MEASURE,
             **_describe_location(getattr(instruction, "location", None)),
         })
     return nodes
+
+
+def _describe_gates(nodes: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """``{name: gates.describe(name)}`` for every gate name the nodes use."""
+    described: Dict[str, Dict[str, Any]] = {}
+    for node in nodes:
+        if node["name"] not in described:
+            described[node["name"]] = gates.describe(node["name"])
+    return described
 
 
 def _describe_location(location: Any) -> Dict[str, Any]:
@@ -859,7 +1009,8 @@ def _describe_stats(result: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "edges_by_dependency": counts,
         "gate_counts": dict(sorted(gate_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
-        "entangling_gates": sum(1 for n in result["nodes"] if n["gate"]["entangling"]),
+        "entangling_gates": sum(1 for n in result["nodes"]
+                                if result["gates"][n["name"]]["entangling"]),
         "measurements": sum(1 for n in result["nodes"] if n["is_measurement"]),
     }
 

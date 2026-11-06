@@ -18,7 +18,8 @@ This module is also the reference for writing an add-on: define ``LINTER``,
 give each rule a code, and return diagnostics from ``run``.
 """
 
-from typing import Any, Dict, Iterable, List, Optional, Set
+import functools
+from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Set
 
 from ..registry import Linter, LintContext, Rule
 
@@ -128,18 +129,28 @@ def _body_writes(circuit) -> bool:
     return False
 
 
-def _dead_gates(program, qdg) -> List[Dict[str, Any]]:
-    from ...slicer import QuantumSlicer, SlicingCriterion
+def _live_nodes(qdg, criteria: Iterable[int]) -> Set[int]:
+    """The union of the backward slices from every node in ``criteria``, following
+    every dependency type: the criteria and everything they transitively depend
+    on, found in one walk over the graph instead of one slice per criterion."""
+    graph = qdg.graph
+    live: Set[int] = set(criteria)
+    stack = list(live)
+    while stack:
+        for pred in graph.predecessors(stack.pop()):
+            if pred not in live:
+                live.add(pred)
+                stack.append(pred)
+    return live
 
+
+def _dead_gates(program, qdg) -> List[Dict[str, Any]]:
     # The program's output is every classical bit it writes, so every writer is a
     # criterion: measurements, stores, and blocks that measure inside.
     writers = [i for i in range(len(program)) if _writes_a_bit(program[i])]
     if not any(program[i].name == "measure" for i in writers):
         return []
-    live: Set[int] = set()
-    for idx in writers:
-        if idx not in live:
-            live |= QuantumSlicer.backward_slice(qdg, SlicingCriterion(node_idx=idx))
+    live = _live_nodes(qdg, writers)
     findings = []
     for idx in range(len(program)):
         instruction = program[idx]
@@ -212,17 +223,19 @@ def _controls(instruction) -> List[int]:
     return []
 
 
-def _lines_given_a_circuit(source: str) -> Set[int]:
+@functools.lru_cache(maxsize=8)
+def _lines_given_a_circuit(source: str) -> FrozenSet[int]:
     """Lines of gate calls on a circuit that a function receives as a parameter.
 
     Such a function (an oracle, a QFT, an adder) is written for any input; the
     rebuilt circuit only shows it run on one, where a control may well be |0>.
+    Three rules ask, so a source is read once (hence the frozenset).
     """
     import ast
     try:
         tree = ast.parse(source)
     except SyntaxError:
-        return set()
+        return frozenset()
     found: Set[int] = set()
     for func in ast.walk(tree):
         if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -232,7 +245,7 @@ def _lines_given_a_circuit(source: str) -> Set[int]:
             if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                     and isinstance(node.func.value, ast.Name) and node.func.value.id in params):
                 found.add(node.lineno)
-    return found
+    return frozenset(found)
 
 
 def _unset_controls(program, source: str) -> List[Dict[str, Any]]:
@@ -519,13 +532,9 @@ def run(context: LintContext) -> List[Dict[str, Any]]:
     program, _error = context.program()
     if program is None or len(program) == 0:
         return []
-    from ...qdg import QDG, get_rule_profile
-
-    try:
-        rules = get_rule_profile(context.profile)
-    except ValueError:
-        rules = get_rule_profile("baseline")
-    qdg = QDG(program, rules=rules)
+    # The context builds the graph under its rule profile, or hands over the one
+    # the web page built for the same program.
+    qdg = context.qdg()
     return _merge(_dead_gates(program, qdg) + _overwritten_measurements(program)
                   + _constant_measurements(program, context.source) + _unset_controls(program, context.source)
                   + _no_measurement(program, context.source)

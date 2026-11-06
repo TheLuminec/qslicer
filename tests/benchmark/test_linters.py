@@ -1,5 +1,6 @@
 """The linter registry, rule selection, and the dependence-checks add-on."""
 
+import os
 import textwrap
 import time
 
@@ -107,6 +108,46 @@ def test_context_parses_once():
     assert first[0] is not None and context.program() is first
 
 
+def test_context_builds_the_graph_once_with_its_profile():
+    from qslicer.qdg import get_rule_profile
+
+    context = LintContext(py("qc = QuantumCircuit(2, 1)\nqc.h(0)\nqc.cx(0, 1)\nqc.measure(1, 0)\n"))
+    graph = context.qdg()
+    assert graph is not None and graph.program is context.program()[0]
+    assert context.qdg() is graph
+    assert [r.name for r in graph.rules] == [r.name for r in get_rule_profile("baseline")]
+    # An unknown profile falls back to the baseline, as the dependence checks always did.
+    unknown = LintContext(context.source, profile="no-such-profile")
+    assert [r.name for r in unknown.qdg().rules] == [r.name for r in graph.rules]
+
+
+def test_context_uses_a_provided_graph_of_its_own_program():
+    from qslicer.qdg import QDG
+
+    source = py("qc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.measure(0, 0)\n")
+    program = LintContext(source).program()[0]
+    given = QDG(program)
+    calls = []
+
+    def provide():
+        calls.append(1)
+        return given
+
+    context = LintContext(source, parse=lambda: (program, None), qdg=provide)
+    assert context.qdg() is given and context.qdg() is given and calls == [1]
+    # A graph of some other program is not trusted: the context builds its own.
+    other = LintContext(source, qdg=lambda: given)
+    assert other.qdg() is not given and other.qdg().program is other.program()[0]
+
+
+def test_context_without_a_program_has_no_graph():
+    def never():
+        raise AssertionError("no program, so no graph to provide")
+
+    context = LintContext("this is not python(", qdg=never)
+    assert context.program()[0] is None and context.qdg() is None
+
+
 # --------------------------------------------------------------------------
 # Dependence checks
 # --------------------------------------------------------------------------
@@ -181,6 +222,50 @@ def test_dead_gate_in_a_loop_is_reported_once():
     """)
     found = dependence(source, "QD01")
     assert len(found) == 1 and "3 instances" in found[0]["message"]
+
+
+EXAMPLES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), "qslicer", "examples")
+
+
+def _example_programs():
+    return sorted(name for name in os.listdir(EXAMPLES_DIR)
+                  if name.endswith((".py", ".qasm")) and not name.startswith("_"))
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("name", _example_programs())
+def test_dead_gates_walk_once_matches_one_slice_per_writer(name):
+    """QD01's single walk keeps exactly what the union of every writer's backward
+    slice (all dependency types) kept when it ran one slice per writer."""
+    from qslicer.lint.plugins import dependence_checks as checks
+    from qslicer.slicer import QuantumSlicer, SlicingCriterion
+
+    with open(os.path.join(EXAMPLES_DIR, name), encoding="utf-8") as handle:
+        source = handle.read()
+    if name.endswith(".qasm"):
+        from qslicer.parsers.staticopenqasmparser import StaticOpenQASMParser
+        parser = StaticOpenQASMParser(time_limit=120)
+    else:
+        parser = StaticQiskitParser(filename=name, time_limit=120)   # Shor takes seconds
+    parser.source = source
+    context = LintContext(source, name, parse=lambda: (parser.parse(), None))
+    program, error = context.program()
+    assert program is not None, error
+    qdg = context.qdg()
+    writers = [i for i in range(len(program)) if checks._writes_a_bit(program[i])]
+    expected = set()
+    for idx in writers:
+        if idx not in expected:
+            expected |= QuantumSlicer.backward_slice(qdg, SlicingCriterion(node_idx=idx))
+    assert checks._live_nodes(qdg, writers) == expected
+    # And so the findings are the ones the per-writer slices gave.
+    dead = [d["nodes"][0] for d in checks._dead_gates(program, qdg)]
+    if any(program[i].name == "measure" for i in writers):
+        assert dead == [i for i in range(len(program)) if i not in expected
+                        and program[i].name not in checks._NOT_GATES and checks._line(program[i])]
+    else:
+        assert dead == []
 
 
 def test_overwritten_measurement():

@@ -23,8 +23,12 @@ JSON API
     GET  /api/benchmark         a dataset (?dataset=<id>, default Bugs4Q): summary and bug list
     GET  /api/benchmark/bugs/<key>  one bug with both programs' sources (?dataset=<id>)
     POST /api/benchmark         {lint_rules, profile, dataset} -> graded report
+
+JSON responses of GZIP_MIN_BYTES or more are gzipped for a client that accepts
+it, and a repeated /api/analyze request is answered from the analysis cache.
 """
 
+import gzip
 import os
 import sys
 
@@ -54,6 +58,12 @@ from team import (  # noqa: E402
 )
 
 MAX_SOURCE_BYTES = 256 * 1024
+
+# JSON API responses at least this large are gzipped for a client that accepts
+# it; a large circuit's analysis is megabytes of very repetitive JSON. Level 5
+# is most of level 9's saving at a fraction of its time.
+GZIP_MIN_BYTES = 4 * 1024
+GZIP_LEVEL = 5
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
@@ -245,10 +255,80 @@ def api_analyze():
             },
         }), 413
 
-    return jsonify(analysis.analyze_source(
-        source, filename=filename, profile=profile, language=language, lint_rules=lint_rules,
-        bindings=bindings, circuit=circuit,
-    ))
+    # The same request again (another visit to an example, Analyze pressed twice)
+    # gets the response already made, for as long as its token's QDG is cached.
+    request_args = dict(filename=filename, profile=profile, language=language,
+                        lint_rules=lint_rules, bindings=bindings, circuit=circuit)
+    key = analysis.response_key(source, **request_args)
+    record = analysis.cached_response(key)
+    if record is not None:
+        return _json_bytes_response(record["body"], record["gzip"], cache="hit")
+    result = analysis.analyze_source(source, **request_args)
+    body = _json_bytes(result)
+    # Compressed now for a response that is kept (browsers ask for gzip), so a
+    # hit never compresses; a failure only for a client that wants it.
+    gzipped = None
+    if len(body) >= GZIP_MIN_BYTES and (result.get("ok") or _accepts_gzip()):
+        gzipped = _gzip(body)
+    if result.get("ok"):
+        analysis.store_response(key, result["token"], body, gzipped)
+    return _json_bytes_response(body, gzipped, cache="miss")
+
+
+def _json_bytes(obj) -> bytes:
+    """``obj`` encoded exactly as ``jsonify`` would encode it (compact unless debugging)."""
+    return app.json.response(obj).get_data()
+
+
+def _gzip(body: bytes) -> bytes:
+    # mtime=0: the same body always compresses to the same bytes.
+    return gzip.compress(body, compresslevel=GZIP_LEVEL, mtime=0)
+
+
+def _accepts_gzip() -> bool:
+    """Whether the request's Accept-Encoding allows gzip (an explicit q=0 refuses it)."""
+    anything = 0.0
+    for value, quality in request.accept_encodings:
+        if value.lower() in ("gzip", "x-gzip"):
+            return quality > 0
+        if value == "*":
+            anything = quality
+    return anything > 0
+
+
+def _json_bytes_response(body: bytes, gzipped=None, cache: str = ""):
+    """A 200 JSON response from encoded bytes, gzipped when the client takes it."""
+    response = app.response_class(body, mimetype=app.json.mimetype)
+    if gzipped is not None:
+        response.vary.add("Accept-Encoding")
+        if _accepts_gzip():
+            response.set_data(gzipped)
+            response.headers["Content-Encoding"] = "gzip"
+    if cache:
+        response.headers["X-Analysis-Cache"] = cache
+    return response
+
+
+@app.after_request
+def compress_api_json(response):
+    """gzip any other large JSON API response for a client that accepts it.
+
+    One that already says it varies by Accept-Encoding was dealt with by its
+    view (/api/analyze keeps its gzipped body with the cached response).
+    """
+    if (not request.path.startswith("/api/") or response.mimetype != "application/json"
+            or response.direct_passthrough or response.is_streamed
+            or "Content-Encoding" in response.headers
+            or "Accept-Encoding" in response.vary):
+        return response
+    body = response.get_data()
+    if len(body) < GZIP_MIN_BYTES:
+        return response
+    response.vary.add("Accept-Encoding")
+    if _accepts_gzip():
+        response.set_data(_gzip(body))
+        response.headers["Content-Encoding"] = "gzip"
+    return response
 
 
 @app.post("/api/slice")

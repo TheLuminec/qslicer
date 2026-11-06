@@ -25,6 +25,8 @@
     // takes them: {name, line, value}. Cleared when another file is loaded.
     bindings: [],
     circuit: 0,        // which of the file's circuits the output shows
+    requestKey: null,  // the analyze request the output came from (see analysisCache)
+    retrySlice: null,  // a criterion to slice again once a forgotten analysis is redone
     // FR-07: which source lines are linked to the graph right now. Cleared
     // whenever the text changes, since the payload no longer describes it.
     source: { linked: false, hover: [], slice: [], criterion: [], picked: null }
@@ -52,6 +54,7 @@
     });
 
     wireEditor();
+    wireInstructionTable();
     wireSplitter();
     wireDiagnosticsSplitter();
     wireToolbar();
@@ -64,6 +67,7 @@
       if (state.payload) graph.fit(window.QGraph.READABLE_SCALE);
       reclampDiagnostics();
       updateGutter();
+      drawTableRows(true);
     }, 180));
   });
 
@@ -554,6 +558,7 @@
           panel.classList.toggle('active', panel.dataset.panel === tab.dataset.tab);
         });
         if (tab.dataset.tab === 'graph' && state.payload) graph.fit(window.QGraph.READABLE_SCALE);
+        if (tab.dataset.tab === 'instructions') drawTableRows(true);
       });
     });
   }
@@ -587,11 +592,69 @@
 
   /* -------------------------------------------------------- analysis ---- */
 
-  function analyze() {
+  /* Recent analyses, kept in this tab so that switching back to a circuit, or
+     analyzing code that has not changed, needs no request. Keyed by the whole
+     request (source, settings, circuit, picked values); sized by how many
+     nodes and edges the entries hold, oldest dropped first. Shor's main
+     circuit is ~37,000 of them, about 15 MB once parsed. */
+  var CACHE_BUDGET = 150000;     // nodes + edges across all entries, ~60 MB
+  var analysisCache = new Map(); // request body -> {data, cost}, oldest first
+  var cachedCost = 0;
+
+  function cacheGet(key) {
+    var entry = analysisCache.get(key);
+    if (!entry) return null;
+    analysisCache.delete(key);   // move to the newest end
+    analysisCache.set(key, entry);
+    return entry.data;
+  }
+
+  function cachePut(key, data) {
+    if (!data || !data.ok) return;
+    var cost = (data.nodes ? data.nodes.length : 0) + (data.edges ? data.edges.length : 0);
+    if (cost > CACHE_BUDGET) return;
+    cacheDrop(key);
+    analysisCache.set(key, { data: data, cost: cost });
+    cachedCost += cost;
+    while (cachedCost > CACHE_BUDGET && analysisCache.size) {
+      cacheDrop(analysisCache.keys().next().value);
+    }
+  }
+
+  function cacheDrop(key) {
+    var entry = analysisCache.get(key);
+    if (!entry) return;
+    cachedCost -= entry.cost;
+    analysisCache.delete(key);
+  }
+
+  /* ``fresh`` skips the tab's cache, for when the server has forgotten the
+     analysis a cached copy points at. */
+  function analyze(fresh) {
     if (state.busy) return;
     var source = $('code').value;
     if (!source.trim()) {
       setStatus('Nothing to analyze yet.');
+      return;
+    }
+
+    var rules = lintPicker ? lintPicker.selection()
+      : (window.LintRules ? window.LintRules.stored() : null);
+    var key = JSON.stringify({
+      source: source,
+      filename: state.filename || defaultFilename(),
+      profile: $('profile-select').value || 'baseline',
+      language: interpreter(),
+      // Sorted, so the same selection makes the same cache key whether it came
+      // from the Lint picker or, before that has loaded, from storage.
+      lint_rules: Array.isArray(rules) ? rules.slice().sort() : rules,
+      bindings: state.bindings,
+      circuit: state.circuit
+    });
+    var cached = fresh === true ? null : cacheGet(key);
+    if (cached) {
+      state.requestKey = key;
+      handleAnalysis(cached, true);
       return;
     }
 
@@ -604,19 +667,14 @@
     fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        source: source,
-        filename: state.filename || defaultFilename(),
-        profile: $('profile-select').value || 'baseline',
-        language: interpreter(),
-        lint_rules: lintPicker ? lintPicker.selection()
-          : (window.LintRules ? window.LintRules.stored() : null),
-        bindings: state.bindings,
-        circuit: state.circuit
-      })
+      body: key
     })
       .then(function (response) { return response.json(); })
-      .then(handleAnalysis)
+      .then(function (data) {
+        cachePut(key, data);
+        state.requestKey = key;
+        handleAnalysis(data, false);
+      })
       .catch(function (error) {
         renderDiagnostics([], {
           kind: 'network_error',
@@ -633,7 +691,7 @@
       });
   }
 
-  function handleAnalysis(data) {
+  function handleAnalysis(data, fromCache) {
     state.lintMark = null;
     renderDiagnostics(data.diagnostics || [], data.error);
     renderCircuitBar(data);
@@ -685,7 +743,15 @@
     var program = data.program;
     setStatus(program.num_instructions + ' instructions, ' + program.num_qubits + ' qubits, ' +
       program.num_clbits + ' classical bits, ' + data.edges.length + ' dependency edges. ' +
-      'Click a gate to slice from it.');
+      'Click a gate to slice from it.' + (fromCache ? ' (Kept from earlier: no request.)' : ''));
+
+    // The server had forgotten the analysis a slice was asked of; it has just
+    // been redone, so the slice can go ahead.
+    if (state.retrySlice !== null) {
+      var retry = state.retrySlice;
+      state.retrySlice = null;
+      if (retry < data.nodes.length) requestSlice(retry);
+    }
     setSide((data.route ? data.route + ' · ' : '') + 'rules: ' + data.rules.join(', '));
   }
 
@@ -1036,10 +1102,8 @@
   }
 
   function markPickedInTable(ids) {
-    var picked = new Set(ids);
-    $('instr-body').querySelectorAll('tr').forEach(function (row) {
-      row.classList.toggle('marked', picked.has(parseInt(row.dataset.id, 10)));
-    });
+    table.picked = ids && ids.length ? new Set(ids) : null;
+    drawTableRows(true);
   }
 
   var MARK_CLASSES = ['src-slice', 'src-criterion', 'src-picked', 'src-hover'];
@@ -1138,6 +1202,15 @@
       .then(function (response) { return response.json(); })
       .then(function (data) {
         if (seq !== state.sliceSeq) return;  // a newer request has overtaken this one
+        if (!data.ok && data.stale && state.requestKey !== null) {
+          // The server restarted or dropped this analysis (it keeps a few dozen),
+          // while this tab still had it. Analyze again, then slice.
+          cacheDrop(state.requestKey);
+          state.retrySlice = nodeIdx;
+          setStatus('The server no longer had this analysis; analyzing again…');
+          analyze(true);
+          return;
+        }
         if (!data.ok) {
           var problem = data.error || {};
           var text = typeof problem === 'string' ? problem : (problem.message || 'Slicing failed.');
@@ -1165,55 +1238,130 @@
 
   /* ------------------------------------------------ instruction table --- */
 
+  /* Only the rows in view exist (plus a screenful either side), between two
+     spacer rows that keep the scrollbar honest, so a circuit of any size
+     scrolls, slices and marks at the same speed. Rows are one line high.
+     Which rows are in the slice, the criterion or marked lives here, and rows
+     are drawn from it. */
+  var TABLE_OVERSCAN = 30;     // rows drawn beyond the view, each way
+  var table = { nodes: [], rowH: 0, start: -1, end: -1,
+                slice: null, criterion: null, picked: null, frame: null, hovered: null };
+
   function renderInstructions(data) {
     var body = $('instr-body');
-    body.textContent = '';
-
+    table.nodes = data ? data.nodes : [];
+    table.slice = null;
+    table.criterion = null;
+    table.picked = null;
+    table.start = table.end = -1;
     if (!data) {
       body.innerHTML = '<tr><td colspan="7" class="placeholder">No instructions yet.</td></tr>';
       return;
     }
-
-    data.nodes.forEach(function (node) {
-      var row = document.createElement('tr');
-      row.dataset.id = String(node.id);
-      row.innerHTML =
-        '<td>' + node.id + '</td>' +
-        '<td>' + escapeHtml(node.name) + '</td>' +
-        '<td>' + (node.qubits.length ? 'q' + node.qubits.join(', q') : '—') + '</td>' +
-        '<td>' + (node.clbits.length ? 'c' + node.clbits.join(', c') : '—') + '</td>' +
-        '<td>' + (node.params.length ? escapeHtml(node.params.join(', ')) : '—') + '</td>' +
-        '<td class="line-cell">' + (node.source
-          ? '<span class="line-link" title="Show in the editor">' +
-            escapeHtml(window.describeSource(node.source)) + '</span>'
-          : '—') + '</td>' +
-        '<td class="slice-cell"></td>';
-      row.addEventListener('click', function () { pickCriterion(node); });
-      row.addEventListener('mouseenter', function () { hoverSource(node); });
-      row.addEventListener('mouseleave', function () { hoverSource(null); });
-      var link = row.querySelector('.line-link');
-      if (link) {
-        link.addEventListener('click', function (event) {
-          event.stopPropagation();
-          jumpToLine(node.source.line);
-        });
-      }
-      body.appendChild(row);
-    });
+    var scroller = body.closest('.table-scroll');
+    if (scroller) scroller.scrollTop = 0;
+    body.textContent = '';        // drawn now, or when the tab is shown
+    drawTableRows(true);
   }
 
   function markSliceInTable(sliceIds, criterion) {
-    var inSlice = new Set(sliceIds);
-    $('instr-body').querySelectorAll('tr').forEach(function (row) {
-      var id = parseInt(row.dataset.id, 10);
-      row.classList.toggle('in-slice', inSlice.has(id));
-      row.classList.toggle('criterion', id === criterion);
-      var cell = row.querySelector('.slice-cell');
-      if (cell) {
-        cell.innerHTML = id === criterion
-          ? '<span class="tick">criterion</span>'
-          : (inSlice.has(id) ? '<span class="tick">✓</span>' : '');
+    table.slice = sliceIds && sliceIds.length ? new Set(sliceIds) : null;
+    table.criterion = criterion;
+    drawTableRows(true);
+  }
+
+  function tableRowHtml(node) {
+    var inSlice = table.slice && table.slice.has(node.id);
+    var classes = [];
+    if (inSlice) classes.push('in-slice');
+    if (node.id === table.criterion) classes.push('criterion');
+    if (table.picked && table.picked.has(node.id)) classes.push('marked');
+    return '<tr data-id="' + node.id + '"' +
+      (classes.length ? ' class="' + classes.join(' ') + '"' : '') + '>' +
+      '<td>' + node.id + '</td>' +
+      '<td>' + escapeHtml(node.name) + '</td>' +
+      '<td>' + (node.qubits.length ? 'q' + node.qubits.join(', q') : '—') + '</td>' +
+      '<td>' + (node.clbits.length ? 'c' + node.clbits.join(', c') : '—') + '</td>' +
+      '<td>' + (node.params.length ? escapeHtml(node.params.join(', ')) : '—') + '</td>' +
+      '<td class="line-cell">' + (node.source
+        ? '<span class="line-link" title="Show in the editor">' +
+          escapeHtml(window.describeSource(node.source)) + '</span>'
+        : '—') + '</td>' +
+      '<td class="slice-cell">' + (node.id === table.criterion
+        ? '<span class="tick">criterion</span>'
+        : (inSlice ? '<span class="tick">✓</span>' : '')) + '</td></tr>';
+  }
+
+  function spacerRow(height) {
+    return height > 0
+      ? '<tr class="spacer" aria-hidden="true"><td colspan="7" style="height:' + height + 'px"></td></tr>'
+      : '';
+  }
+
+  /* Draw the rows the scroll position shows; ``force`` redraws them even when
+     the same rows are in view (their state changed). */
+  function drawTableRows(force) {
+    var body = $('instr-body');
+    var count = table.nodes.length;
+    if (!count) return;
+    var scroller = body.closest('.table-scroll');
+    var viewH = scroller ? scroller.clientHeight : 0;
+    if (!viewH) {
+      // The tab is hidden: nothing to measure, so draw when it is shown.
+      table.start = table.end = -1;
+      return;
+    }
+    if (!table.rowH) {
+      body.innerHTML = tableRowHtml(table.nodes[0]);
+      table.rowH = body.firstChild.getBoundingClientRect().height || 28;
+    }
+    var headH = body.offsetTop || 0;
+    var top = Math.max(0, scroller.scrollTop - headH);
+    var start = Math.max(0, Math.floor(top / table.rowH) - TABLE_OVERSCAN);
+    var end = Math.min(count, Math.ceil((top + viewH) / table.rowH) + TABLE_OVERSCAN);
+    if (!force && start === table.start && end === table.end) return;
+    table.start = start;
+    table.end = end;
+    var html = spacerRow(start * table.rowH);
+    for (var i = start; i < end; i++) html += tableRowHtml(table.nodes[i]);
+    html += spacerRow((count - end) * table.rowH);
+    body.innerHTML = html;
+  }
+
+  function wireInstructionTable() {
+    var body = $('instr-body');
+    var scroller = body.closest('.table-scroll');
+    if (scroller) {
+      scroller.addEventListener('scroll', function () {
+        if (table.frame) return;
+        table.frame = requestAnimationFrame(function () {
+          table.frame = null;
+          drawTableRows(false);
+        });
+      }, { passive: true });
+    }
+    function rowNode(event) {
+      var row = event.target.closest ? event.target.closest('tr[data-id]') : null;
+      return row ? table.nodes[Number(row.getAttribute('data-id'))] : null;
+    }
+    body.addEventListener('click', function (event) {
+      var node = rowNode(event);
+      if (!node) return;
+      if (event.target.closest('.line-link') && node.source) {
+        jumpToLine(node.source.line);
+        return;
       }
+      pickCriterion(node);
+    });
+    body.addEventListener('mouseover', function (event) {
+      var node = rowNode(event);
+      if (!node || node === table.hovered) return;
+      table.hovered = node;
+      hoverSource(node);
+    });
+    body.addEventListener('mouseleave', function () {
+      table.hovered = null;
+      hoverSource(null);
     });
   }
 
@@ -1277,9 +1425,11 @@
       .filter(function (node) { return node.qubits.indexOf(qubit) !== -1; })
       .map(function (node) { return node.id; });
 
+    var SHOWN = 40;
     setStatus('q' + qubit + ' is touched by ' + touching.length + ' of ' +
       state.payload.nodes.length + ' instructions' +
-      (touching.length ? ': #' + touching.join(', #') : '.'));
+      (touching.length ? ': #' + touching.slice(0, SHOWN).join(', #') +
+        (touching.length > SHOWN ? ', … and ' + (touching.length - SHOWN) + ' more' : '') : '.'));
   }
 
   /* ---------------------------------------------------------- splitter -- */

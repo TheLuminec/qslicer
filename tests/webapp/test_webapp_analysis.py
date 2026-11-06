@@ -164,6 +164,56 @@ def test_format_param(value, expected):
     assert analysis._format_param(value) == expected
 
 
+def _format_param_before_memoizing(value):
+    """_format_param as it was before the number formatting was memoized."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        if value is None:
+            return "none"
+        if hasattr(value, "num_qubits") and hasattr(value, "data"):
+            return f"<circuit {len(value.data)} ops>"
+        text = " ".join(str(value).split())
+        return text if len(text) <= 24 else text[:21] + "..."
+    if abs(number) < 1e-9:
+        return "0"
+    for numerator in range(1, 9):
+        for denominator in (1, 2, 3, 4, 6, 8):
+            candidate = numerator * math.pi / denominator
+            for sign in (1, -1):
+                if abs(number - sign * candidate) < 1e-6:
+                    prefix = "-" if sign < 0 else ""
+                    head = "pi" if numerator == 1 else f"{numerator}pi"
+                    return f"{prefix}{head}" if denominator == 1 else f"{prefix}{head}/{denominator}"
+    return f"{number:.4g}"
+
+
+def test_format_param_is_unchanged_by_memoizing():
+    import random
+    from fractions import Fraction
+
+    import numpy as np
+    from qiskit.circuit import Parameter
+
+    theta = Parameter("theta")
+    values = [0, 0.0, -0.0, 1e-12, -1e-10, 1, -1, 2, True, False, 0.5, -2.75, 1e300,
+              float("nan"), float("inf"), float("-inf"), Fraction(1, 3), complex(1, 2),
+              np.float64(math.pi / 4), np.float32(0.25), np.int64(3),
+              math.pi / 2 + 5e-7, math.pi / 2 + 2e-6,
+              None, "theta", "x" * 40, "a\n   b", theta, theta * 2 + 1,
+              [1, 2], {"a": 1}]                      # unhashable: never memoized
+    values += [sign * n * math.pi / d for n in range(10) for d in (1, 2, 3, 4, 5, 6, 7, 8, 12, 16)
+               for sign in (1, -1)]
+    rng = random.Random(7)
+    values += [rng.uniform(-10, 10) for _ in range(300)]
+    values += [math.pi / 2 ** k for k in range(1, 40)]      # the QFT's angles
+    for value in values:
+        expected = _format_param_before_memoizing(value)
+        assert analysis._format_param(value) == expected, value
+        assert analysis._format_param(value) == expected, value   # now from the memo
+    assert analysis._format_param(-0.0) == analysis._format_param(0.0) == "0"
+
+
 def test_format_param_collapses_circuits():
     from qiskit import QuantumCircuit
 
@@ -185,7 +235,7 @@ def test_node_labels():
 # ----------------------------------------------------------- payloads --
 
 NODE_KEYS = {"id", "name", "label", "short", "qubits", "clbits", "params",
-             "condition_clbits", "lane", "gate", "category", "is_measurement",
+             "condition_clbits", "lane", "category", "is_measurement",
              "line", "source"}
 
 
@@ -193,14 +243,32 @@ NODE_KEYS = {"id", "name", "label", "short", "qubits", "clbits", "params",
 def test_node_shape(ghz_qasm_result):
     for idx, node in enumerate(ghz_qasm_result["nodes"]):
         assert NODE_KEYS <= set(node)
+        assert "gate" not in node                  # the reference card is in "gates", once
         assert node["id"] == idx
-        assert node["gate"] == gates.describe(node["name"])
-        assert node["category"] == node["gate"]["category"]
+        assert node["category"] == ghz_qasm_result["gates"][node["name"]]["category"]
         assert node["is_measurement"] == (node["name"] == "measure")
         assert node["lane"] == sum(node["qubits"]) / len(node["qubits"])
     cx = ghz_qasm_result["nodes"][2]
     assert cx["qubits"] == [0, 2] and cx["clbits"] == [] and cx["params"] == []
     assert ghz_qasm_result["nodes"][4]["clbits"] == [1]
+
+
+def test_gates_describe_each_node_name_once(ghz_qasm_result):
+    names = {node["name"] for node in ghz_qasm_result["nodes"]}
+    assert set(ghz_qasm_result["gates"]) == names == {"h", "cx", "measure"}
+    for name, info in ghz_qasm_result["gates"].items():
+        assert info == gates.describe(name)
+
+
+@pytest.mark.slow
+def test_gates_cover_every_node_of_every_example(example_results):
+    for key, (status, body, _) in example_results.items():
+        if status != 200 or not body.get("ok"):
+            continue
+        names = {node["name"] for node in body["nodes"]}
+        assert set(body["gates"]) == names, key
+        assert all("gate" not in node for node in body["nodes"]), key
+        assert all(body["gates"][name] == gates.describe(name) for name in names), key
 
 
 def test_edge_shape(ghz_qasm_result):

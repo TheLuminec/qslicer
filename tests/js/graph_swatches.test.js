@@ -148,6 +148,45 @@ test('_pos applies drag offsets', () => {
     { x: g.layout[0].x + 5, y: g.layout[0].y - 3, w: g.layout[0].w, h: g.layout[0].h });
 });
 
+/* Only what overlaps the drawn window exists in the DOM; these are the pure
+   pieces that decide it. */
+
+test('drawWindow pads the view by OVERSCAN of its size on each side', () => {
+  const { drawWindow, OVERSCAN } = loadPage(['swatches.js', 'graph.js']).window.QGraph.culling;
+  assert.strictEqual(OVERSCAN, 0.5);
+  const win = drawWindow({ x0: 100, x1: 300, y0: 0, y1: 100 }, 0.5);
+  assert.deepStrictEqual({ ...win }, { x0: 0, x1: 400, y0: -50, y1: 150 });
+});
+
+test('a view inside the drawn window needs no redraw; one past its edge does', () => {
+  const { contains, overlaps } = loadPage(['swatches.js', 'graph.js']).window.QGraph.culling;
+  const win = { x0: 0, x1: 400, y0: -50, y1: 150 };
+  assert.ok(contains(win, { x0: 50, x1: 350, y0: 0, y1: 100 }));
+  assert.ok(!contains(win, { x0: 250, x1: 450, y0: 0, y1: 100 }));
+  assert.ok(overlaps({ x0: 390, x1: 420, y0: 10, y1: 20 }, win), 'touching the edge counts');
+  assert.ok(!overlaps({ x0: 401, x1: 420, y0: 10, y1: 20 }, win));
+  assert.ok(!overlaps({ x0: 10, x1: 20, y0: 151, y1: 200 }, win));
+});
+
+test('prepareEdges ranks parallel edges and spreads classical ones over shared bits', () => {
+  const { prepareEdges } = loadPage(['swatches.js', 'graph.js']).window.QGraph.routing;
+  const byId = {
+    0: { id: 0, clbits: [0, 1], condition_clbits: [] },
+    1: { id: 1, clbits: [], condition_clbits: [1, 0] },
+  };
+  const meta = prepareEdges([
+    { source: 0, target: 1, dependency: 'DATA_QUBIT' },
+    { source: 0, target: 1, dependency: 'MEASUREMENT' },
+    { source: 0, target: 1, dependency: 'MEASUREMENT' },
+    { source: 0, target: 1, dependency: 'MEASUREMENT', rule: 'r' },
+  ], byId);
+  assert.deepStrictEqual(meta.map((e) => e.rank), [0, 1, 2, 3]);
+  // The k-th MEASUREMENT edge runs along the k-th shared bit, in the reader's order.
+  assert.deepStrictEqual(meta.map((e) => e.clbit), [null, 1, 0, 1]);
+  assert.deepStrictEqual(meta.map((e) => e.side), [0, -1, -1, -1]);
+  assert.strictEqual(meta[3].rule, 'r');
+});
+
 test('_inRange is inclusive and open when no range is set', () => {
   const g = bareGraph();
   assert.ok(g._inRange(99));

@@ -91,11 +91,17 @@ class LintContext:
     own, so the linters read the circuit it shows -- with the values the user
     picked, and whichever of the file's circuits is selected -- and the file
     is interpreted once.
+
+    ``qdg()`` is that program's dependence graph under ``profile``'s rules,
+    likewise built at most once per context. ``qdg``, when given, provides it
+    instead: a callable returning the graph of ``program()`` (or None). The web
+    page passes the one it shows, so a large circuit's graph is built once.
     """
 
     def __init__(self, source: str, filename: str = "", kind: str = "python-static",
                  profile: str = "baseline",
-                 parse: Optional[Callable[[], Tuple[Any, Optional[Exception]]]] = None) -> None:
+                 parse: Optional[Callable[[], Tuple[Any, Optional[Exception]]]] = None,
+                 qdg: Optional[Callable[[], Any]] = None) -> None:
         self.source = source
         self.filename = filename or ("circuit.qasm" if kind in QASM_KINDS else "circuit.py")
         self.kind = kind
@@ -103,6 +109,9 @@ class LintContext:
         self._parse = parse
         self._parsed: Optional[Tuple[Any, Optional[str]]] = None
         self._failure: Optional[Exception] = None
+        self._qdg_provider = qdg
+        self._qdg: Any = None
+        self._qdg_ready = False
 
     def program(self) -> Tuple[Any, Optional[str]]:
         if self._parsed is None:
@@ -118,6 +127,29 @@ class LintContext:
     def failure(self) -> Optional[Exception]:
         self.program()
         return self._failure
+
+    def qdg(self) -> Any:
+        """The dependence graph of ``program()``, or None when there is no program.
+
+        A provided graph is used only if it was built from that very program;
+        otherwise (or without a provider) one is built here with the rules of
+        ``profile``, falling back to the baseline for a profile nobody knows.
+        """
+        if not self._qdg_ready:
+            program, _ = self.program()
+            graph = None
+            if program is not None and self._qdg_provider is not None:
+                graph = self._qdg_provider()
+            if program is not None and getattr(graph, "program", None) is not program:
+                from ..qdg import QDG, get_rule_profile
+                try:
+                    rules = get_rule_profile(self.profile)
+                except ValueError:
+                    rules = get_rule_profile("baseline")
+                graph = QDG(program, rules=rules)
+            self._qdg = graph
+            self._qdg_ready = True
+        return self._qdg
 
 
 def _static_parse(source: str, filename: str,
