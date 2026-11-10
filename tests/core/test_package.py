@@ -121,3 +121,33 @@ def test_linters_load_once_across_threads():
     result = subprocess.run([sys.executable, "-c", script], cwd=root, capture_output=True,
                             text=True, timeout=120)
     assert result.returncode == 0, result.stderr
+
+
+def test_cli_slice_on_a_qubit_and_chop(bell_file, capsys):
+    # BELL: 0 h q0, 1 cx q0,q1, 2 measure q0, 3 measure q1.
+    assert main(["slice", bell_file, "--qubit", "1", "--format", "json"]) == 0
+    body = json.loads(capsys.readouterr().out)
+    assert body["criterion"] == 3 and [r["index"] for r in body["slice"]] == [0, 1, 3]
+
+    assert main(["slice", bell_file, "0", "--chop", "3", "--format", "json"]) == 0
+    body = json.loads(capsys.readouterr().out)
+    assert (body["direction"], body["criterion"], body["target"]) == ("chop", 0, 3)
+    assert [r["index"] for r in body["slice"]] == [0, 1, 3]
+
+    assert main(["slice", bell_file, "2", "--chop-qubit", "1"]) == 0
+    assert "cannot affect" in capsys.readouterr().out
+
+
+def test_cli_slice_on_an_unmeasured_qubit_says_so(tmp_path):
+    path = tmp_path / "idle.py"
+    path.write_text("from qiskit import QuantumCircuit\nqc = QuantumCircuit(2, 1)\n"
+                    "qc.h(0)\nqc.measure(0, 0)\n", encoding="utf-8")
+    with pytest.raises(SystemExit) as exit_info:
+        main(["slice", str(path), "--qubit", "1"])
+    assert "never measured" in str(exit_info.value)
+
+
+def test_chop_from_a_program():
+    program = qslicer.parse(BELL, "bell.py")
+    assert qslicer.chop(program, 0, 3) == {0, 1, 3}
+    assert qslicer.chop(program, 2, 3) == set()

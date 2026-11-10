@@ -4,6 +4,8 @@
     qslicer list circuit.py
     qslicer slice circuit.py --backward 12
     qslicer slice circuit.py --forward --line 8 --deps DATA_QUBIT MEASUREMENT
+    qslicer slice circuit.py --qubit 2            (from qubit 2's last measurement)
+    qslicer slice circuit.py 5 --chop-qubit 2     (how instruction 5 reaches it)
     qslicer rules
     qslicer viz circuit.py           (needs matplotlib: pip install qslicer[viz];
                                       qslicer viz --help for its options)
@@ -18,8 +20,8 @@ import json
 import sys
 from typing import Any, Dict, List, Optional, Sequence
 
-from . import (DependencyType, QuantumProgram, StaticParseError, __version__,
-               backward_slice, forward_slice, lint_file, parse_file)
+from . import (DependencyType, QuantumProgram, QuantumSlicer, StaticParseError, __version__,
+               backward_slice, chop, forward_slice, lint_file, parse_file)
 
 _SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2}
 
@@ -101,7 +103,23 @@ def _cmd_list(args) -> int:
     return 0
 
 
+def _measurement_of(program: QuantumProgram, qubit: int) -> int:
+    """The last measurement of ``qubit``: what slicing on a qubit slices from."""
+    if not 0 <= qubit < program.num_qubits:
+        raise SystemExit(f"qubit {qubit} is outside 0..{program.num_qubits - 1}")
+    node = QuantumSlicer.qubit_criterion(program, qubit)
+    if node is None:
+        raise SystemExit(f"q{qubit} is never measured, so there is no measurement to slice from")
+    return node
+
+
 def _criterion(program: QuantumProgram, args) -> int:
+    if args.qubit is not None:
+        if args.index is not None or args.line is not None:
+            raise SystemExit("give --qubit, an instruction index or --line, not several")
+        if args.direction == "forward":
+            raise SystemExit("--qubit slices backward from the qubit's last measurement")
+        return _measurement_of(program, args.qubit)
     if args.line is None:
         if args.index is None:
             raise SystemExit("give an instruction index or --line")
@@ -126,6 +144,32 @@ def _cmd_slice(args) -> int:
     except KeyError as exc:
         raise SystemExit(f"unknown dependency type {exc.args[0]}; choose from "
                          + ", ".join(t.name for t in DependencyType))
+    target = None
+    if args.chop is not None and args.chop_qubit is not None:
+        raise SystemExit("give --chop or --chop-qubit, not both")
+    if args.chop_qubit is not None:
+        target = _measurement_of(program, args.chop_qubit)
+    elif args.chop is not None:
+        if not 0 <= args.chop < len(program):
+            raise SystemExit(f"index {args.chop} is outside 0..{len(program) - 1}")
+        target = args.chop
+    if target is not None:
+        if args.direction == "forward" or args.qubit is not None:
+            raise SystemExit("a chop runs from an instruction (index or --line) to "
+                             "--chop or --chop-qubit")
+        rows = _describe(program, chop(program, node, target, deps or None, args.profile))
+        if args.format == "json":
+            print(json.dumps({"criterion": node, "target": target, "direction": "chop",
+                              "slice": rows}, indent=2))
+        elif not rows:
+            print(f"instruction {node} ({_label(program[node])}) cannot affect "
+                  f"instruction {target} ({_label(program[target])})")
+        else:
+            print(f"chop from instruction {node} ({_label(program[node])}) to instruction "
+                  f"{target} ({_label(program[target])}): {len(rows)} of {len(program)} "
+                  "instructions")
+            _print_instructions(rows)
+        return 0
     walk = forward_slice if args.direction == "forward" else backward_slice
     rows = _describe(program, walk(program, node, deps or None, args.profile))
     if args.format == "json":
@@ -191,10 +235,18 @@ def build_parser() -> argparse.ArgumentParser:
     common(p)
     p.set_defaults(func=_cmd_list)
 
-    p = sub.add_parser("slice", help="backward or forward slice from one instruction")
+    p = sub.add_parser("slice", help="backward or forward slice from one instruction, "
+                                     "or a chop between two")
     common(p)
     p.add_argument("index", nargs="?", type=int, help="instruction index (see `qslicer list`)")
     p.add_argument("--line", type=int, help="slice from the instruction on this source line")
+    p.add_argument("--qubit", type=int, metavar="Q",
+                   help="slice backward from the last measurement of this qubit")
+    p.add_argument("--chop", type=int, metavar="INDEX",
+                   help="keep only what lies between the instruction and this later one "
+                        "(forward slice of the first, backward slice of the second)")
+    p.add_argument("--chop-qubit", type=int, metavar="Q",
+                   help="like --chop, to the last measurement of this qubit")
     direction = p.add_mutually_exclusive_group()
     direction.add_argument("--backward", dest="direction", action="store_const",
                            const="backward", help="what the instruction depends on (default)")

@@ -36,6 +36,8 @@ qslicer lint circuit.py --format json      # for scripts and CI
 qslicer list circuit.py                    # the instructions found, with source lines
 qslicer slice circuit.py 12                # backward slice from instruction 12
 qslicer slice circuit.py --forward --line 8 --deps DATA_QUBIT MEASUREMENT
+qslicer slice circuit.py --qubit 2         # backward from qubit 2's last measurement
+qslicer slice circuit.py 5 --chop-qubit 2  # only how instruction 5 reaches it
 qslicer rules                              # every linter and rule id
 qslicer viz circuit.py                     # the QDG in a matplotlib window (needs [viz])
 qslicer viz shor.py --circuit 3 --line 75  # another circuit the file builds, sliced from line 75

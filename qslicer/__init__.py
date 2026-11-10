@@ -29,7 +29,7 @@ __version__ = "0.1.0"
 __all__ = [
     "DependencyRule", "DependencyType", "QDG", "QuantumInstruction", "QuantumProgram",
     "QuantumSlicer", "SlicingCriterion", "SourceLocation", "StaticOpenQASMParser",
-    "StaticParseError", "StaticQiskitParser", "backward_slice", "example_path",
+    "StaticParseError", "StaticQiskitParser", "backward_slice", "chop", "example_path",
     "forward_slice", "get_rule_profile", "language_of", "lint_file", "lint_source",
     "list_rule_profiles", "parse", "parse_file",
 ]
@@ -95,6 +95,16 @@ def forward_slice(target: Union[QuantumProgram, QDG], node_idx: int,
     """Indices of the instructions ``node_idx`` can affect, itself included."""
     criterion = SlicingCriterion(node_idx, dep_types=set(dep_types) if dep_types else None)
     return QuantumSlicer.forward_slice(_graph(target, profile), criterion)
+
+
+def chop(target: Union[QuantumProgram, QDG], source_idx: int, target_idx: int,
+         dep_types: Optional[Iterable[DependencyType]] = None,
+         profile: str = "baseline") -> Set[int]:
+    """Indices of the instructions through which ``source_idx`` can affect
+    ``target_idx``: its forward slice intersected with the target's backward
+    slice. Empty when it cannot affect the target at all."""
+    return QuantumSlicer.chop(_graph(target, profile), source_idx, target_idx,
+                              set(dep_types) if dep_types else None)
 
 
 def lint_source(source: str, filename: str = "", language: Optional[str] = None,
