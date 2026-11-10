@@ -107,7 +107,7 @@ CORRELATED = ACCENT        # a wire whose measurement may be correlated with the
 ENTANGLED = "#cba6f7"      # an unmeasured wire it may still be entangled with
 MIRROR = TEXT_DIM
 
-# Mirror arcs: height above the box's top edge, growing with the pair's depth.
+# Mirror arcs: how far past the box's edge they reach, growing with the pair's depth.
 ARC_BASE, ARC_STEP, ARC_MAX_DEPTH = 14.0, 9.0, 6
 ARC_POINTS = 24
 
@@ -414,20 +414,26 @@ class Graph:
         return b if idx == a else a
 
     def mirror_arcs(self, pairs: Sequence[int]) -> np.ndarray:
-        """An arc above the boxes from one gate of each pair to the other,
-        ``(len(pairs), ARC_POINTS, 2)``; deeper (outer) pairs arc higher, so
-        nested pairs on a wire never cross. An arc leaves the top edge near the
-        corner facing the other gate, clear of the index label."""
+        """An arc from one gate of each pair to the other, ``(len(pairs),
+        ARC_POINTS, 2)``; deeper (outer) pairs arc further out, so nested pairs
+        on a wire never cross. The middle of the graph is the crowded part, so
+        an arc turns away from it: above the boxes on the top half of the
+        qubits (and on the middle wire of an odd number), below them on the
+        bottom half. It leaves the box near the corner facing the other gate."""
         pairs = np.asarray(pairs, dtype=np.int64)
         if not len(pairs):
             return np.zeros((0, ARC_POINTS, 2))
         a, b = self.mirror_first[pairs], self.mirror_second[pairs]
-        top = np.minimum(self.y[a], self.y[b]) - NODE_H / 2
+        middle = (self.lane_y(0) + self.lane_y(self.num_qubits - 1)) / 2
+        below = (self.y[a] + self.y[b]) / 2 > middle
+        edge = np.where(below, np.maximum(self.y[a], self.y[b]) + NODE_H / 2,
+                        np.minimum(self.y[a], self.y[b]) - NODE_H / 2)
         height = ARC_BASE + ARC_STEP * np.minimum(self.mirror_depth[pairs], ARC_MAX_DEPTH)
+        height = np.where(below, -height, height)
         t = np.linspace(0.0, 1.0, ARC_POINTS)[None, :]
         x0, x1 = self.right[a] - 6, self.left[b] + 6
         xs = x0[:, None] * (1 - t) + x1[:, None] * t
-        ys = top[:, None] - height[:, None] * np.sin(np.pi * t)
+        ys = edge[:, None] - height[:, None] * np.sin(np.pi * t)
         return np.stack([xs, ys], axis=-1)
 
     def marks(self, idx: int) -> List[Tuple[str, str]]:

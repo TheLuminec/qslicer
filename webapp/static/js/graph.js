@@ -54,7 +54,9 @@
                       '#b07aa1', '#edc948', '#76b7b2', '#ff9da7'];
   var MAX_STRIPES = 4;  // a node in more slices than this shows "+n" for the rest
   var STRIPE_H = 2;
-  // Mirror links: arcs above the nodes, higher for an outer pair, never past the cap.
+  // Mirror links: arcs away from the crowded middle of the graph (above the nodes
+  // on the top half of the qubits, below them on the bottom half), further out
+  // for an outer pair, never past the cap.
   var MIRROR_RISE = 20;
   var MIRROR_STEP = 12;
   var MIRROR_CAP = 68;
@@ -140,23 +142,35 @@
 
   /* The arc between two node boxes: from the inner top corner of each (clear
      of the index label), rising higher the deeper the pair is nested, capped.
-     Both control points sit 4/3 of the rise up, so a level arc peaks exactly
-     ``rise`` above its ends. Returns the path and its content-space box. */
-  function mirrorArc(a, b, depth) {
+     With ``down`` it leaves the bottom corners and hangs below instead. Both
+     control points sit 4/3 of the rise out, so a level arc peaks exactly
+     ``rise`` from its ends. Returns the path and its content-space box. */
+  function mirrorArc(a, b, depth, down) {
     var left = a.x <= b.x ? a : b;
     var right = left === a ? b : a;
     var x1 = left.x + left.w / 2 - 4;
     var x2 = right.x - right.w / 2 + 4;
     if (x2 < x1) { x1 = left.x; x2 = right.x; }   // dragged on top of each other
-    var y1 = left.y - left.h / 2 - 2;
-    var y2 = right.y - right.h / 2 - 2;
+    var side = down ? 1 : -1;
+    var y1 = left.y + side * (left.h / 2 + 2);
+    var y2 = right.y + side * (right.h / 2 + 2);
     var rise = Math.min(MIRROR_CAP, MIRROR_RISE + MIRROR_STEP * Math.max(0, depth || 0));
-    var cy = Math.min(y1, y2) - rise * 4 / 3;
+    var far = down ? Math.max(y1, y2) : Math.min(y1, y2);
+    var cy = far + side * rise * 4 / 3;
+    var peak = far + side * (rise + 2);
     return {
       d: 'M ' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + cy + ' ' + x2 + ' ' + cy + ' ' + x2 + ' ' + y2,
       rise: rise,
-      box: { x0: x1 - 2, x1: x2 + 2, y0: Math.min(y1, y2) - rise - 2, y1: Math.max(y1, y2) }
+      box: { x0: x1 - 2, x1: x2 + 2,
+             y0: Math.min(y1, y2, peak), y1: Math.max(y1, y2, peak) }
     };
+  }
+
+  /* Whether a pair's arc hangs below its nodes: when the pair sits on the bottom
+     half of the qubit lanes. ``middle`` is the y halfway down the lanes; a pair
+     exactly on it (the middle wire of an odd number) still arcs up. */
+  function mirrorHangs(a, b, middle) {
+    return (a.y + b.y) / 2 > middle;
   }
 
   /* ------------------------------------------------- insight wording ---- */
@@ -714,7 +728,10 @@
 
   QGraph.prototype._mirrorArc = function (index) {
     var pair = this.mirrorPairs[index];
-    return mirrorArc(this._pos(pair[0]), this._pos(pair[1]), pair[2]);
+    var a = this._pos(pair[0]);
+    var b = this._pos(pair[1]);
+    var middle = TOP_PAD + (Math.max(1, this.data.program.num_qubits) - 1) * LANE_H / 2;
+    return mirrorArc(a, b, pair[2], mirrorHangs(a, b, middle));
   };
 
   QGraph.prototype._mirrorDrawable = function (index) {
@@ -1924,7 +1941,7 @@
                      OVERSCAN: OVERSCAN };
   QGraph.slices = { COLORS: SLICE_COLORS, MAX_STRIPES: MAX_STRIPES, membership: sliceMembership,
                     stripes: stripesFor, sliceClass: sliceClass, sliceColor: sliceColor };
-  QGraph.mirrors = { index: mirrorIndex, arc: mirrorArc, CAP: MIRROR_CAP };
+  QGraph.mirrors = { index: mirrorIndex, arc: mirrorArc, hangs: mirrorHangs, CAP: MIRROR_CAP };
   QGraph.insightText = { phase: phaseSentence, kickback: kickbackSentence,
                          predetermined: predeterminedSentence, noEffect: noEffectSentence,
                          correlation: correlationSentences, normalize: normalizeInsights };

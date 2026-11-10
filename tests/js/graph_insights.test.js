@@ -104,6 +104,23 @@ test('a mirror arc runs between the inner top corners and rises with depth, capp
   assert.strictEqual(QGraph.mirrors.arc(b, a, 0).d, inner.d);
 });
 
+test('a mirror arc on the bottom half of the qubits hangs below its nodes', () => {
+  const a = { x: 100, y: 46, w: 34, h: 26 };
+  const b = { x: 300, y: 46, w: 34, h: 26 };
+  const up = QGraph.mirrors.arc(a, b, 1);
+  const down = QGraph.mirrors.arc(a, b, 1, true);
+  // From the inner bottom corners, as far below them as the other is above the top.
+  assert.ok(down.d.startsWith('M 113 61 C 113 '), down.d);
+  assert.ok(down.d.endsWith(' 287 61'), down.d);
+  assert.strictEqual(down.rise, up.rise);
+  assert.ok(down.box.y0 === 61 && down.box.y1 >= 61 + down.rise, 'the box covers the dip');
+  assert.ok(up.box.y1 === 31 && up.box.y0 <= 31 - up.rise);
+  // Above the middle of the lanes, or exactly on it, the arc goes up; below, down.
+  assert.strictEqual(QGraph.mirrors.hangs({ y: 40 }, { y: 40 }, 100), false);
+  assert.strictEqual(QGraph.mirrors.hangs({ y: 100 }, { y: 100 }, 100), false);
+  assert.strictEqual(QGraph.mirrors.hangs({ y: 160 }, { y: 160 }, 100), true);
+});
+
 /* --------------------------------------------------- insight wording -- */
 
 test('correlation sentences: singular and plural, unmeasured only when there are any', () => {

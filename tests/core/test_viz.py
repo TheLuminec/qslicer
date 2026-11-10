@@ -424,6 +424,22 @@ def test_mirror_arcs_for_the_hovered_node_the_criterion_and_the_toggle():
     assert arc[:, 1].min() < g.y[1] - model.NODE_H / 2                # above the boxes
 
 
+def test_mirror_arcs_turn_away_from_the_middle_of_the_graph(tmp_path):
+    """Up on the top half of the qubits and on the middle wire, down on the bottom half."""
+    path = tmp_path / "mirrors.py"
+    path.write_text("from qiskit import QuantumCircuit\nqc = QuantumCircuit(3)\n"
+                    "for q in range(3):\n    qc.h(q)\n    qc.t(q)\n    qc.h(q)\n",
+                    encoding="utf-8")
+    g = model.Document(str(path), lint=False).graph()
+    assert len(g.insights["mirrors"]) == 3           # also builds the mirror arrays
+    assert g.mirror_first.tolist() == [0, 3, 6]      # one h ... h pair per wire, q0 to q2
+    top, middle, bottom = g.mirror_arcs([0, 1, 2])
+    half = model.NODE_H / 2
+    assert top[:, 1].min() < g.y[0] - half and top[:, 1].max() <= g.y[0] - half
+    assert middle[:, 1].min() < g.y[3] - half and middle[:, 1].max() <= g.y[3] - half
+    assert bottom[:, 1].max() > g.y[6] + half and bottom[:, 1].min() >= g.y[6] + half
+
+
 def test_control_dependence_of_an_if_test_has_a_chip_and_can_be_ignored():
     view = _view(model.Document(TELEPORT, lint=False))
     g = view.graph
