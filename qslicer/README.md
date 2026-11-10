@@ -165,6 +165,8 @@ qslicer is a research prototype, and it accepts conservative approximations.
 
 ## Credits and licenses
 
+qslicer is released under the MIT License.
+
 The `lintq` linter is a port of [LintQ](https://github.com/sola-st/LintQ)
 (Paltenghi and Pradel, "Analyzing Quantum Programs with LintQ: A Static
 Analysis Framework for Qiskit", FSE 2024), Copyright (c) 2024 Matteo
@@ -172,4 +174,4 @@ Paltenghi, Michael Pradel, used under the MIT License. Its license text ships
 in the package as `qslicer/lint/lintq/LICENSE`.
 
 Source, the web app built on qslicer, the benchmark and the full documentation:
-<https://gitlab.csi.miamioh.edu/2026-spring-to-fall-capstone-projects/slicing-for-quantum-programs/slicing-for-quantum-programs>
+<https://github.com/TheLuminec/qslicer>

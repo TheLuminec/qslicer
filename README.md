@@ -38,9 +38,11 @@ qslicer slice my_circuit.py --line 12
 9. [Source locations](#source-locations)
 10. [Repository layout](#repository-layout)
 11. [Testing](#testing)
-12. [Deployment](#deployment)
-13. [Documentation](#documentation)
-14. [Status and limitations](#status-and-limitations)
+12. [Releasing](#releasing)
+13. [Deployment](#deployment)
+14. [Documentation](#documentation)
+15. [Status and limitations](#status-and-limitations)
+16. [License](#license)
 
 ## Quick start: the web app
 
@@ -453,6 +455,7 @@ and it is why parse errors and warnings land on a line.
 ├── benchmarks/                  run_benchmark.py and the datasets (Bugs4Q, vendored)
 ├── deploy/                      nginx config and systemd unit
 ├── tests/                       core/, webapp/, benchmark/, lintq/ and js/ suites
+├── .github/workflows/release.yml  Builds and publishes to TestPyPI / PyPI
 ├── Attachments/                 Sample circuits and images
 └── wiki/                        Research notes (separate repo)
 ```
@@ -476,6 +479,32 @@ Node's built-in test runner, so Node.js is required).
 Known gaps are recorded as strict `xfail`s in
 `tests/webapp/test_webapp_requirement_gaps.py`; one that starts passing fails the
 run, which is the cue to remove the marker.
+
+## Releasing
+
+`.github/workflows/release.yml` tests, builds and publishes the package with
+PyPI's trusted publishing, so no API token is kept anywhere.
+
+**Once:** on GitHub, add two environments under Settings > Environments,
+`testpypi` and `pypi` (give `pypi` a required reviewer if releases should need
+an approval). Then on both [TestPyPI](https://test.pypi.org/manage/account/publishing/)
+and [PyPI](https://pypi.org/manage/account/publishing/), add a pending
+publisher: project `qslicer`, owner `TheLuminec`, repository `qslicer`,
+workflow `release.yml`, environment `testpypi` or `pypi` respectively.
+
+**Each release:**
+
+1. Set `__version__` in `qslicer/__init__.py` (the package's only copy of the
+   version), commit and push to `main`.
+2. Actions > Release > Run workflow on `main` publishes it to TestPyPI. Check it
+   installs:
+   `pip install -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ qslicer`
+3. Tag the same commit and push the tag; the workflow publishes it to PyPI:
+   `git tag v0.1.0 && git push origin v0.1.0`
+
+A version number can be uploaded to PyPI only once, even after deleting it, so
+a fix after a release is a new version. The run stops before publishing if the
+tests fail, or if the tag does not match `__version__`.
 
 ## Deployment
 
@@ -528,3 +557,11 @@ approximations are accepted. Specifically:
   `transpile` and pass managers) is not followed, and control flow that depends
   on an unknown value and touches a circuit is refused rather than guessed.
 - **Export** covers PNG; JSON export of a slice is not done.
+
+## License
+
+qslicer is released under the MIT License; see [LICENSE](LICENSE). Code and
+data from other projects keep their own licenses: the LintQ port
+(`qslicer/lint/lintq/LICENSE`, MIT), LintQ's test programs
+(`tests/lintq/programs/lintq/LICENSE.md`, MIT) and the vendored Bugs4Q programs
+(`benchmarks/bugs4q/programs/LICENSE`, Apache 2.0).

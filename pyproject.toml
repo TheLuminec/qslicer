@@ -10,12 +10,18 @@ description = "Static slicing and linting for quantum programs written in Qiskit
 # The PyPI page; the repository's README.md is written for the GitLab checkout.
 readme = "qslicer/README.md"
 requires-python = ">=3.10"
-authors = [{ name = "Caleb Turner" }]
-# qslicer's own license is still to be chosen: add `license = "<SPDX id>"` and
-# `license-files = ["LICENSE"]` before the first upload. LintQ's MIT notice
-# (qslicer/lint/lintq/port.py is a port of LintQ) ships as package data below,
-# beside the port; listing it in license-files too makes setuptools warn that
-# qslicer.lint.lintq "would be ignored", since the file sits inside a package.
+# The team, as listed on the web app's team page (webapp/team.py).
+authors = [
+    { name = "Max Lovell" },
+    { name = "Ethan Tackett" },
+    { name = "Caleb Turner" },
+    { name = "Dylan Kendall" },
+]
+license = "MIT"
+# LintQ's MIT notice (qslicer/lint/lintq/port.py is a port of LintQ) ships as
+# package data below, beside the port; listing it here too makes setuptools
+# warn that qslicer.lint.lintq "would be ignored", since it sits in a package.
+license-files = ["LICENSE"]
 keywords = ["quantum", "qiskit", "openqasm", "slicing", "static analysis", "linter"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -46,8 +52,8 @@ viz = ["matplotlib"]
 qasm3 = ["qiskit-qasm3-import>=0.6"]
 
 [project.urls]
-Repository = "https://gitlab.csi.miamioh.edu/2026-spring-to-fall-capstone-projects/slicing-for-quantum-programs/slicing-for-quantum-programs"
-Issues = "https://gitlab.csi.miamioh.edu/2026-spring-to-fall-capstone-projects/slicing-for-quantum-programs/slicing-for-quantum-programs/-/issues"
+Repository = "https://github.com/TheLuminec/qslicer"
+Issues = "https://github.com/TheLuminec/qslicer/issues"
 
 [project.scripts]
 qslicer = "qslicer.cli:main"
