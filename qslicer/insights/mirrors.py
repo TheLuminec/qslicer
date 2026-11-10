@@ -100,6 +100,17 @@ def is_inverse(p, g) -> bool:
     return False
 
 
+_DAGGER_OF = {first: second for first, second in _DAGGER_PAIRS}
+
+
+def _partner_names(name: str) -> tuple:
+    """The names a gate's inverse can have: its own, its dagger's, or none."""
+    if name in SELF_INVERSE or name in _ONE_ANGLE:
+        return (name,)
+    dagger = _DAGGER_OF.get(name)
+    return (dagger,) if dagger is not None else ()
+
+
 def find_mirror_pairs(program: QuantumProgram, max_span: int = 64) -> List[MirrorPair]:
     """
     Every mirrored pair in ``program``, sorted by the first instruction's index.
@@ -135,9 +146,13 @@ def find_mirror_pairs(program: QuantumProgram, max_span: int = 64) -> List[Mirro
         partner = None
         stack = stacks.get(qubits[0], ())
         lowest = max(len(stack) - max_span, 0)
-        for pos in range(len(stack) - 1, lowest - 1, -1):
+        # Only a gate of one of these names can be the inverse, so the name is
+        # checked first: most candidates are ruled out without looking further.
+        wanted = _partner_names(inst.name)
+        for pos in range(len(stack) - 1, lowest - 1, -1) if wanted else ():
             candidate = program[stack[pos]]
-            if list(candidate.qubits) == qubits and is_inverse(candidate, inst):
+            if (candidate.name in wanted and list(candidate.qubits) == qubits
+                    and is_inverse(candidate, inst)):
                 partner = stack[pos]
                 break
         if partner is not None and any(partner not in members.get(q, ()) for q in qubits):
