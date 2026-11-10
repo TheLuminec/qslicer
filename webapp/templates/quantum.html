@@ -471,9 +471,10 @@
             Parsed against the
             <a href="https://openqasm.com/grammar/index.html" rel="noopener">OpenQASM
             grammar</a> by the language's reference parser, then interpreted without Qiskit.
-            Values known at compile time are worked out. An <code>if</code> on a measured value
-            becomes a test node that reads the bits it depends on, followed by the gates of
-            its branches; a <code>while</code> or <code>switch</code> becomes one node. Copying a measured bit into another keeps the
+            Values known at compile time are worked out. An <code>if</code> or
+            <code>switch</code> on a measured value becomes a test node that reads the bits it
+            depends on, followed by the gates of its branches; a <code>while</code> becomes
+            one node. Copying a measured bit into another keeps the
             dependency through a <code>store</code> node.
           </p>
           <p>

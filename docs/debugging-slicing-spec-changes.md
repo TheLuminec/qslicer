@@ -47,8 +47,10 @@ built as proposed.
    that reads the condition bits; each body instruction is its own node with a
    `CONTROL_CLASSICAL` edge from the predicate. After the block, a wire's reaching
    definitions are the union of both branches (or of the body and what came before, with
-   no `else`). OpenQASM `if` is treated the same. `while_loop`, `for_loop` and
-   `switch_case` stay single nodes for now.
+   no `else`). OpenQASM `if` is treated the same, and so is `switch`: every case reaches
+   past it, and what came before does too unless there is a `default` and every case
+   wrote. `while_loop` and `for_loop` stay single nodes for now: they need loop-carried
+   dependences.
 
 8. **Mirror links.** A new detection, not QD08 (which only finds adjacent pairs). A gate
    links to the nearest earlier unmatched gate on exactly its qubits that is its inverse

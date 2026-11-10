@@ -5,7 +5,7 @@ import runpy
 import io
 from contextlib import redirect_stdout
 from qiskit import QuantumCircuit
-from qiskit.circuit import ClassicalRegister, Clbit
+from qiskit.circuit import CASE_DEFAULT, ClassicalRegister, Clbit
 from qiskit.circuit.classical import expr
 
 def _condition_clbits(circuit: QuantumCircuit, condition, index_of=None) -> list:
@@ -88,13 +88,27 @@ class QiskitParser(AbstractParser):
                 "condition_clbits": _condition_clbits(circuit, condition_raw, clbit_of),
                 "guards": guards,
             }
-            if op.name == "if_else":
+            if op.name in ("if_else", "switch_case"):
                 predicate = len(self.program)
+                blocks = list(op.params)
+                if op.name == "if_else":
+                    metadata["arms"] = 2
+                else:
+                    # A switch reads its target; with a default its cases cover every value.
+                    blocks = list(op.blocks)
+                    target = op.target
+                    metadata["condition"] = target
+                    metadata["condition_clbits"] = _condition_clbits(
+                        circuit, target if isinstance(target, expr.Expr) else (target, None),
+                        clbit_of)
+                    has_default = any(CASE_DEFAULT in values
+                                      for values, _ in op.cases_specifier())
+                    metadata["arms"] = len(blocks) if has_default else None
                 self.program.add_instruction(QuantumInstruction(
                     name=op.name, qubits=[], clbits=[], params=[], metadata=metadata))
                 outer_qubits = [qubit_of(q) for q in instruction.qubits]
                 outer_clbits = [clbit_of(c) for c in instruction.clbits]
-                for branch, block in enumerate(op.params):
+                for branch, block in enumerate(blocks):
                     if block is None:
                         continue
                     # A block's bits stand for the instruction's, position by position.

@@ -26,7 +26,7 @@ class DataQubitRule(DependencyRule):
     name = "data_qubit"
 
     def build(self, program: QuantumProgram, graph: nx.MultiDiGraph) -> None:
-        defs = ReachingDefs()
+        defs = ReachingDefs(program)
 
         for idx in range(len(program)):
             instruction = program[idx]
@@ -100,7 +100,7 @@ class MeasurementRule(DependencyRule):
     name = "measurement"
 
     def build(self, program: QuantumProgram, graph: nx.MultiDiGraph) -> None:
-        measured = ReachingDefs()
+        measured = ReachingDefs(program)
 
         for idx in range(len(program)):
             instruction = program[idx]
@@ -121,7 +121,7 @@ class DataClassicalRule(DependencyRule):
     name = "data_classical"
 
     def build(self, program: QuantumProgram, graph: nx.MultiDiGraph) -> None:
-        writes = ReachingDefs()
+        writes = ReachingDefs(program)
 
         for idx in range(len(program)):
             instruction = program[idx]
@@ -136,8 +136,8 @@ class DataClassicalRule(DependencyRule):
 
 
 class ControlClassicalRule(DependencyRule):
-    """Builds control dependencies: an if_test's predicate to each instruction
-    of its branches (a nested if_test's predicate included)."""
+    """Builds control dependencies: the predicate of an if_test or switch to each
+    instruction of its branches (a nested block's predicate included)."""
 
     name = "control_classical"
 

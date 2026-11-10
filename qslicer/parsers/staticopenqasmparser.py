@@ -53,7 +53,7 @@ import time
 from .staticqiskitparser import (
     MAX_INSTRUCTIONS, MAX_STEPS, CircuitError, StaticCircuit, StaticGate,
     StaticInstruction, StaticParseError, StaticRegister, Symbol, Unknown, _Scope,
-    _mcx_name, _negate, _symbolic_binop, _symbolic_call, broadcast, circuit_to_program)
+    _mcx_name, _negate, _symbolic_binop, _symbolic_call, broadcast, circuit_to_program, SWITCH_HAS_DEFAULT)
 
 try:
     import openqasm3
@@ -1223,7 +1223,8 @@ class _QasmInterpreter:
         params = [StaticCircuit.body(p.scope.instructions, qubits, clbits) for p in paths]
         if default is None:
             params.pop()
-        self.append(StaticGate("switch_case", len(qubits), len(clbits), params),
+        label = SWITCH_HAS_DEFAULT if default is not None else None
+        self.append(StaticGate("switch_case", len(qubits), len(clbits), params, label=label),
                     qubits, clbits, openqasm3.dumps(node.target), bits)
 
     # -- loops --------------------------------------------------------------

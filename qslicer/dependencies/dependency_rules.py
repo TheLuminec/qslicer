@@ -76,7 +76,7 @@ def _severs_wire(instruction: QuantumInstruction) -> bool:
 
 def _guards(instruction: QuantumInstruction) -> Tuple[Tuple[int, int], ...]:
     """The ``(predicate index, branch)`` pairs an instruction sits under,
-    outermost first: empty outside every if_test block."""
+    outermost first: empty outside every if_test or switch block."""
     return tuple(instruction.metadata.get("guards") or ())
 
 
@@ -84,19 +84,28 @@ class ReachingDefs:
     """Which instructions may have last written each wire or bit, branch by branch.
 
     Outside a conditional a write replaces what was there. Inside one it does
-    so for the rest of its branch only: the else branch starts again from what
-    reached the block, and after the block both branches' writes reach (with
-    no else, the body's and whatever came before it).
+    so for the rest of its branch only: the next branch starts again from what
+    reached the block, and after the block every branch's writes reach. What
+    reached the block still reaches past it too, unless the branches cover
+    every case (the predicate's ``arms``: 2 for an if_test, the number of
+    cases of a switch with a default) and each of them wrote.
 
     Call ``enter`` with each instruction's guards before reading or writing.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, program: QuantumProgram = None) -> None:
+        self._program = program
         self._defs: Dict[Hashable, Tuple[int, ...]] = {}
-        # One frame per open block: [predicate, branch, saved, then]. ``saved``
-        # is what reached the block for every key written inside it; ``then``
-        # is what the true body left for those keys, once the else has begun.
+        # One frame per open block: [predicate, branch, saved, done, written].
+        # ``saved`` is what reached the block for every key written inside it,
+        # ``written`` the keys the current branch wrote, and ``done`` what each
+        # finished branch left for the keys it wrote.
         self._frames: List[List[Any]] = []
+
+    def _arms(self, predicate: int) -> Any:
+        if self._program is None:
+            return 2
+        return self._program[predicate].metadata.get("arms", 2)
 
     def enter(self, guards: Tuple[Tuple[int, int], ...]) -> None:
         """Open, switch and close blocks so the open ones are exactly ``guards``."""
@@ -113,24 +122,34 @@ class ReachingDefs:
         while len(frames) > keep + (1 if switching else 0):
             self._close()
         if switching:
-            frame = frames[keep]
-            saved = frame[2]
-            frame[3] = {key: self._defs.get(key, ()) for key in saved}
-            for key, before in saved.items():
-                self._defs[key] = before
-            frame[1] = guards[keep][1]
+            self._finish_branch(frames[keep])
+            frames[keep][1] = guards[keep][1]
             keep += 1
         for predicate, branch in guards[keep:]:
-            frames.append([predicate, branch, {}, None])
+            frames.append([predicate, branch, {}, [], set()])
+
+    def _finish_branch(self, frame: List[Any]) -> None:
+        saved, written = frame[2], frame[4]
+        frame[3].append({key: self._defs.get(key, ()) for key in written})
+        for key in written:
+            self._defs[key] = saved[key]
+        frame[4] = set()
 
     def _close(self) -> None:
-        _, _, saved, then = self._frames.pop()
-        parent = self._frames[-1][2] if self._frames else None
+        frame = self._frames.pop()
+        self._finish_branch(frame)
+        predicate, _, saved, done, _ = frame
+        arms = self._arms(predicate)
+        covered = arms is not None and len(done) >= arms
+        parent = self._frames[-1] if self._frames else None
         for key, before in saved.items():
-            other = before if then is None else then.get(key, before)
+            reaching = () if covered else before
+            for branch in done:
+                reaching += branch.get(key, before)
             if parent is not None:
-                parent.setdefault(key, before)
-            self._defs[key] = tuple(dict.fromkeys(other + self._defs.get(key, ())))
+                parent[2].setdefault(key, before)
+                parent[4].add(key)
+            self._defs[key] = tuple(dict.fromkeys(reaching))
 
     def reaching(self, key: Hashable) -> Tuple[int, ...]:
         """The instructions whose write of ``key`` may be the latest."""
@@ -139,5 +158,7 @@ class ReachingDefs:
     def write(self, key: Hashable, idx: int) -> None:
         """Record that instruction ``idx`` writes ``key``."""
         if self._frames:
-            self._frames[-1][2].setdefault(key, self._defs.get(key, ()))
+            frame = self._frames[-1]
+            frame[2].setdefault(key, self._defs.get(key, ()))
+            frame[4].add(key)
         self._defs[key] = (idx,)

@@ -384,9 +384,10 @@ _GATES: Dict[str, Dict[str, Any]] = {
     "switch_case": {
         "title": "Classical switch", "category": CLASSICAL, "qubits": 1,
         "summary": r"Runs one of several blocks, chosen by a classical value.",
-        "detail": r"Produced by an OpenQASM $\text{switch}$ on a measured value. Every case is "
-                  r"carried as a parameter, and the bits the target reads give it a "
-                  r"measurement dependency.",
+        "detail": r"Produced by an OpenQASM $\text{switch}$ on a measured value. This node is "
+                  r"the test itself, on no qubit: the bits the target reads give it a "
+                  r"measurement dependency, and each gate of a case is its own node with a "
+                  r"control dependency on this one.",
         "matrix": r"\text{not unitary}",
     },
     "store": {

@@ -204,11 +204,33 @@ def test_break_under_a_run_time_condition_keeps_everything_the_loop_does():
 def test_switch_on_a_measured_register():
     program = parse(HEAD + "c = measure q;\nint i = c;\nswitch (i) {\n"
                            "  case 0 { x q[0]; }\n  case 1, 2 { y q[1]; }\n  default { z q[2]; }\n}\n")
+    # 3 is the switch itself, on no qubit; its cases follow as instructions of their own.
     switch = program[3]
     assert switch.name == "switch_case"
     assert switch.metadata["condition_clbits"] == [0, 1, 2]
-    assert switch.qubits == [0, 1, 2] and len(switch.params) == 3
+    assert switch.qubits == [] and switch.params == []
+    assert switch.metadata["arms"] == 3          # with the default, every value is covered
+    assert shape(program)[4:] == [("x", [0], [], []), ("y", [1], [], []), ("z", [2], [], [])]
+    assert [program[i].metadata["guards"] for i in (4, 5, 6)] == [
+        ((3, 0),), ((3, 1),), ((3, 2),)]
     assert backward(program, 3, {DependencyType.MEASUREMENT}) == {0, 1, 2, 3}
+    assert backward(program, 5) == {0, 1, 2, 3, 5}
+
+
+@pytest.mark.requirement("FR-06")
+@pytest.mark.parametrize("default, reaches", [
+    ("  default { z q[0]; }\n", {3, 4, 5}),     # every case writes q[0]: the h is cut off
+    ("", {0, 3, 4}),                             # no default: the h before may still reach
+], ids=["default", "no-default"])
+def test_what_reaches_past_a_switch_depends_on_its_default(default, reaches):
+    program = parse(HEAD + "h q[0];\nc[0] = measure q[1];\nint i = c;\nswitch (i) {\n"
+                           "  case 0 { x q[0]; }\n  case 1 { y q[0]; }\n" + default + "}\n"
+                           "s q[0];\n")
+    # 0 h, 1 measure, 2 switch_case, 3 x, 4 y, (5 z,) and last the s.
+    graph = QDG(program).graph
+    sources = {u for u, _, d in graph.in_edges(len(program) - 1, data=True)
+               if d["dependency"] == DependencyType.DATA_QUBIT}
+    assert sources == reaches
 
 
 @pytest.mark.requirement("FR-06")

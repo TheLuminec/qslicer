@@ -538,3 +538,19 @@ big.h(0)
 big.cx(0, 1)
 ''')
     assert [(c["variable"], c["size"]) for c in parser.circuits] == [("big", 2), ("small", 1)]
+
+
+def test_an_if_else_spans_its_else_block():
+    program = parse(
+        "from qiskit import QuantumCircuit\n"
+        "qc = QuantumCircuit(2, 1)\n"
+        "qc.measure(0, 0)\n"
+        "with qc.if_test((qc.clbits[0], 1)) as else_:\n"   # line 4
+        "    qc.x(1)\n"
+        "with else_:\n"
+        "    qc.z(1)\n"
+        "    qc.h(1)\n"                                     # line 8
+    ).program
+    predicate = program[1]
+    assert predicate.name == "if_else"
+    assert (predicate.location.line, predicate.location.end_line) == (4, 8)

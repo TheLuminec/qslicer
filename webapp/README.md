@@ -74,9 +74,10 @@ the circuit on screen, so their node numbers match the graph.
 interprets the syntax tree without Qiskit, keeping every instruction's source
 line. It covers the language rather than the subset `qiskit.qasm3` can import:
 classical variables and arrays, subroutines, `extern`, physical qubits, and
-`if`/`while`/`switch` on measured values. A `while` or `switch` becomes one
-`while_loop`/`switch_case` node reading the bits it depends on; an `if` becomes
-an `if_else` node that reads them, followed by a node per gate of its branches. A copy
+`if`/`while`/`switch` on measured values. A `while` becomes one `while_loop`
+node reading the bits it depends on; an `if` or `switch` becomes an `if_else`
+or `switch_case` node that reads them, followed by a node per gate of its
+branches. A copy
 of a measured bit becomes a `store` node, so the dependency survives it. Its
 docstring lists the details. Export a circuit from Qiskit with
 `qiskit.qasm3.dumps(qc)`.

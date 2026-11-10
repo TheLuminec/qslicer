@@ -1614,6 +1614,11 @@ class _Interpreter:
         if not block or block[-1] is not context.instruction:
             raise CircuitError("the else block must immediately follow its if_test block")
         context.else_used = True
+        # The if_else now spans the else block too.
+        start, end = context.instruction.location, SourceLocation.of(node, self._via)
+        if start is not None and end is not None:
+            context.instruction.location = SourceLocation(
+                start.line, start.column, end.end_line, end.end_column, start.via)
         scope = _Scope()
         circuit._scopes.append(scope)
         if item.optional_vars is not None:
@@ -3691,15 +3696,24 @@ def _circuit_shape(circuit):
         for i in circuit.data))
 
 
+# Control-flow blocks whose branches become instructions of their own.
+_BRANCHING = frozenset({"if_else", "switch_case"})
+# The label of a switch_case that has a default, so its cases cover every value.
+SWITCH_HAS_DEFAULT = "default"
+
+
 def circuit_to_program(circuit, frontend) -> QuantumProgram:
     """The QuantumProgram IR of a StaticCircuit, source locations included.
 
-    An ``if_else`` becomes a predicate instruction on no qubit that reads the
-    condition bits, followed by the instructions of its branches. Each of those
-    carries ``guards``: the ``(predicate index, branch)`` pairs it sits under,
-    outermost first, branch 0 the true body and 1 the else. It also inherits
-    the predicate's ``condition`` (not its ``condition_clbits``: the predicate
-    is what reads them), so it reads as classically conditioned.
+    An ``if_else`` or ``switch_case`` becomes a predicate instruction on no
+    qubit that reads the condition bits, followed by the instructions of its
+    branches. Each of those carries ``guards``: the ``(predicate index,
+    branch)`` pairs it sits under, outermost first; for an if, branch 0 is the
+    true body and 1 the else, for a switch it is the case's position. It also
+    inherits the predicate's ``condition`` (not its ``condition_clbits``: the
+    predicate is what reads them), so it reads as classically conditioned.
+    The predicate's ``arms`` is how many branches cover every case: 2 for an
+    if, the number of cases for a switch with a default, None without one.
     """
     program = QuantumProgram()
     program.set_registers(num_qubits=circuit.num_qubits, num_clbits=circuit.num_clbits)
@@ -3718,12 +3732,18 @@ def circuit_to_program(circuit, frontend) -> QuantumProgram:
                 "condition_clbits": condition_clbits,
                 "guards": guards,
             }
-            if instruction.operation.name == "if_else":
+            operation = instruction.operation
+            if operation.name in _BRANCHING:
                 predicate = len(program)
+                if operation.name == "if_else":
+                    metadata["arms"] = 2
+                else:
+                    metadata["arms"] = (len(operation.params)
+                                        if operation.label == SWITCH_HAS_DEFAULT else None)
                 program.add_instruction(QuantumInstruction(
-                    name="if_else", qubits=[], clbits=[], params=[], metadata=metadata,
+                    name=operation.name, qubits=[], clbits=[], params=[], metadata=metadata,
                     location=instruction.location))
-                for branch, body in enumerate(instruction.operation.params):
+                for branch, body in enumerate(operation.params):
                     if body is not None:
                         emit(body.data, guards + ((predicate, branch),), metadata["condition"])
                 continue

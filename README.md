@@ -228,6 +228,8 @@ qslicer lint circuit.py --format json      # for scripts and CI
 qslicer list circuit.py                    # the instructions found, with source lines
 qslicer slice circuit.py 12                # backward slice from instruction 12
 qslicer slice circuit.py --forward --line 8 --deps DATA_QUBIT MEASUREMENT
+qslicer slice circuit.py --qubit 2         # backward from qubit 2's last measurement
+qslicer slice circuit.py 5 --chop-qubit 2  # only how instruction 5 reaches it
 qslicer rules                              # every linter and rule id
 qslicer viz circuit.py                     # the QDG in a matplotlib window
 qslicer viz shor.py --circuit 3 --line 75  # another circuit the file builds, sliced from line 75
@@ -370,12 +372,12 @@ meaning:
   measured bit becomes a `store` instruction that reads the source bits and
   writes the target, so the dependency survives the copy.
 - `if`/`else`, `switch` and `while` are taken or unrolled when the condition is
-  known at compile time. On a measured value a `switch` or `while` becomes one
-  `switch_case` or `while_loop` instruction, as Qiskit builds them, reading the
-  bits of any condition (`c[0] && c[1]`, `c > 2`, a variable computed from
-  bits). An `if` becomes an `if_else` instruction that only reads those bits,
-  followed by the instructions of its branches, each marked with the `if_else`
-  it sits under (`metadata["guards"]`). A variable set differently on two run-time paths becomes a run-time
+  known at compile time. On a measured value a `while` becomes one
+  `while_loop` instruction, as Qiskit builds it, reading the bits of any
+  condition (`c[0] && c[1]`, `c > 2`, a variable computed from bits). An `if`
+  or `switch` becomes an `if_else` or `switch_case` instruction that only reads
+  those bits, followed by the instructions of its branches, each marked with
+  the block it sits under (`metadata["guards"]`). A variable set differently on two run-time paths becomes a run-time
   value that remembers those bits.
 - **`for` loops are unrolled** and subroutines **inlined** (including
   `return measure q;`), so each iteration's gates are separate nodes, which is
