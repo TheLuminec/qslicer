@@ -15,8 +15,13 @@
     // messages and the PNG filename. The Interpreter dropdown decides the
     // front end, not this.
     filename: '',
-    direction: 'backward',
-    criterion: null,
+    direction: 'backward',   // or 'forward', or 'chop'
+    // The slice criteria: one node, or (backward, Ctrl/Shift-click) up to
+    // MAX_CRITERIA of them, each its own slice. Empty when there is no slice.
+    criteria: [],
+    // In Chop: the operation and the measurement to stop at, as they are picked.
+    chop: { from: null, to: null },
+    sideText: '',      // the side status the analysis left, shown again on Clear
     selectedQubit: null,
     activeDeps: null,   // Set of dependency names
     busy: false,
@@ -26,7 +31,7 @@
     bindings: [],
     circuit: 0,        // which of the file's circuits the output shows
     requestKey: null,  // the analyze request the output came from (see analysisCache)
-    retrySlice: null,  // a criterion to slice again once a forgotten analysis is redone
+    retrySlice: null,  // {criteria, chop} to slice again once a forgotten analysis is redone
     // FR-07: which source lines are linked to the graph right now. Cleared
     // whenever the text changes, since the payload no longer describes it.
     source: { linked: false, hover: [], slice: [], criterion: [], picked: null }
@@ -42,6 +47,7 @@
     graph = new window.QGraph($('graph'), {
       onNodePick: pickCriterion,
       onQubitPick: pickQubit,
+      onQubitSlice: sliceOnQubit,
       onHover: function (node, event, html) {
         showTooltip(node, event, html);
         hoverSource(node);
@@ -423,10 +429,22 @@
   function wireToolbar() {
     $('dir-backward').addEventListener('click', function () { setDirection('backward'); });
     $('dir-forward').addEventListener('click', function () { setDirection('forward'); });
-    $('slice-clear').addEventListener('click', clearSlice);
+    $('dir-chop').addEventListener('click', function () { setDirection('chop'); });
+    $('slice-clear').addEventListener('click', function () { clearSlice(); });
+    $('slice-qubit').addEventListener('change', function (event) {
+      var value = event.target.value;
+      event.target.value = '';      // an action, not a setting: ready to pick again
+      if (value !== '') sliceOnQubit(Number(value), null);
+    });
+    $('mirror-links').addEventListener('click', function () {
+      var on = !this.classList.contains('active');
+      this.classList.toggle('active', on);
+      this.setAttribute('aria-pressed', String(on));
+      graph.setShowMirrors(on);
+    });
     // Esc clears the slice, unless the key is meant for the editor or a field.
     document.addEventListener('keydown', function (event) {
-      if (event.key !== 'Escape' || state.criterion === null) return;
+      if (event.key !== 'Escape' || !hasSlice()) return;
       var tag = event.target && event.target.tagName;
       if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return;
       clearSlice();
@@ -454,11 +472,32 @@
     });
   }
 
+  /* Switching keeps what it can: a single criterion becomes Chop's operation,
+     Chop's operation becomes the criterion again, and several criteria going
+     Forward keep only the first (several at once are backward only). */
   function setDirection(direction) {
+    var before = state.direction;
     state.direction = direction;
-    $('dir-backward').classList.toggle('active', direction === 'backward');
-    $('dir-forward').classList.toggle('active', direction === 'forward');
-    if (state.criterion !== null) requestSlice(state.criterion);
+    setDirectionChips(direction);
+    if (!state.payload || before === direction) {
+      if (hasSlice()) requestSlice();
+      return;
+    }
+    if (direction === 'chop') {
+      var from = state.criteria.length === 1 ? state.criteria[0] : null;
+      clearSlice(true);
+      state.chop = { from: from, to: null };
+      showChopEnds();
+      return;
+    }
+    var start = before === 'chop' ? state.chop.from : null;
+    var criteria = before === 'chop' ? (start === null ? [] : [start]) : state.criteria.slice();
+    var dropped = direction === 'forward' && criteria.length > 1;
+    if (dropped) criteria = criteria.slice(0, 1);
+    if (before === 'chop') clearSlice(true);   // otherwise the new slice simply replaces the old
+    state.criteria = criteria;
+    if (criteria.length) requestSlice(dropped ? ' (Forward slices one criterion at a time: kept the first.)' : '');
+    else setStatus('Click a gate to slice from it.');
   }
 
   function applyRange() {
@@ -543,7 +582,7 @@
     // as dep_types: null.
     state.activeDeps = (active.length === all) ? null : active;
     graph.setActiveDeps(state.activeDeps);
-    if (state.criterion !== null) requestSlice(state.criterion);
+    if (hasSlice()) requestSlice();
   }
 
   function wireTabs() {
@@ -705,12 +744,12 @@
     if (!data.ok) {
       state.payload = null;
       state.token = null;
-      state.criterion = null;
-      $('slice-clear').disabled = true;
+      forgetSlice();
       graph.clear();
       $('graph-empty').hidden = false;
       renderInstructions(null);
       renderQubitFilter(null);
+      renderQubitSlicePicker(null);
       renderDepFilter(null);
       updateGutter(data.error && data.error.line);
       setStatus(data.error ? data.error.message : 'Analysis failed.');
@@ -719,8 +758,7 @@
 
     state.payload = data;
     state.token = data.token;
-    state.criterion = null;
-    $('slice-clear').disabled = true;
+    forgetSlice();
     state.selectedQubit = null;
     // A new rule set may offer different dependency types, so the filter goes
     // back to following everything it now has.
@@ -739,20 +777,30 @@
 
     renderInstructions(data);
     renderQubitFilter(data);
+    renderQubitSlicePicker(data);
 
     var program = data.program;
     setStatus(program.num_instructions + ' instructions, ' + program.num_qubits + ' qubits, ' +
       program.num_clbits + ' classical bits, ' + data.edges.length + ' dependency edges. ' +
-      'Click a gate to slice from it.' + (fromCache ? ' (Kept from earlier: no request.)' : ''));
+      (state.direction === 'chop' ? chopPrompt()
+        : 'Click a gate to slice from it, or "slice" under a wire name for its last measurement.') +
+      (fromCache ? ' (Kept from earlier: no request.)' : ''));
+
+    state.sideText = (data.route ? data.route + ' · ' : '') + 'rules: ' + data.rules.join(', ');
+    setSide(state.sideText);
 
     // The server had forgotten the analysis a slice was asked of; it has just
     // been redone, so the slice can go ahead.
     if (state.retrySlice !== null) {
       var retry = state.retrySlice;
       state.retrySlice = null;
-      if (retry < data.nodes.length) requestSlice(retry);
+      var known = function (id) { return id === null || id < data.nodes.length; };
+      if (retry.criteria.every(known) && known(retry.chop.from) && known(retry.chop.to)) {
+        state.criteria = retry.criteria;
+        state.chop = retry.chop;
+        requestSlice();
+      }
     }
-    setSide((data.route ? data.route + ' · ' : '') + 'rules: ' + data.rules.join(', '));
   }
 
   function formatErrorForConsole(error) {
@@ -1062,8 +1110,10 @@
     applySourceMarks();
   }
 
-  /* Paint the lines of a slice; returns them, sorted, for the status line. */
-  function sliceSource(ids, criterion) {
+  /* Paint the lines of a slice; returns them, sorted, for the status line.
+     ``criteria`` is the criterion's id, or a list of them (several slices,
+     or a chop's two ends). */
+  function sliceSource(ids, criteria) {
     if (!state.source.linked || !state.payload) return [];
     var nodes = state.payload.nodes;
     var lines = {};
@@ -1071,7 +1121,11 @@
       spanLines(nodes[id]).forEach(function (line) { lines[line] = true; });
     });
     state.source.slice = Object.keys(lines).map(Number).sort(function (a, b) { return a - b; });
-    state.source.criterion = spanLines(nodes[criterion]);
+    var ends = {};
+    [].concat(criteria).forEach(function (id) {
+      if (id !== null && id !== undefined) spanLines(nodes[id]).forEach(function (line) { ends[line] = true; });
+    });
+    state.source.criterion = Object.keys(ends).map(Number).sort(function (a, b) { return a - b; });
     applySourceMarks();
     if (state.source.criterion.length) revealLine(state.source.criterion[0]);
     return state.source.slice;
@@ -1165,39 +1219,216 @@
 
   /* ----------------------------------------------------------- slice ---- */
 
-  /* Clicking the criterion again (in the graph or the table) clears the slice. */
-  function pickCriterion(node) {
-    if (node.id === state.criterion) clearSlice();
-    else requestSlice(node.id);
+  var MAX_CRITERIA = 16;   // the most node_indices /api/slice takes at once
+
+  function additive(event) {
+    return !!(event && (event.ctrlKey || event.metaKey || event.shiftKey));
   }
 
-  function clearSlice() {
-    if (state.criterion === null) return;
-    state.criterion = null;
+  /* Anything picked: a criterion, or either end of a chop. */
+  function hasSlice() {
+    return state.criteria.length > 0 || state.chop.from !== null || state.chop.to !== null;
+  }
+
+  function insights() {
+    return (state.payload && state.payload.insights) || {};
+  }
+
+  /* "#12 (cx)" */
+  function nodeName(id) {
+    var node = state.payload && state.payload.nodes[id];
+    return '#' + id + (node ? ' (' + (node.short || node.label) + ')' : '');
+  }
+
+  /* A click on a node, in the graph or the table. A plain click slices from it
+     alone, and clicking the only criterion again clears. Backward, Ctrl/Cmd-
+     or Shift-click adds it to the criteria (each its own slice) or takes it
+     out. In Chop, clicks pick the two ends. */
+  function pickCriterion(node, event) {
+    if (!state.payload) return;
+    if (state.direction === 'chop') {
+      pickChopEnd(node.id, null);
+      return;
+    }
+    if (additive(event)) {
+      if (state.direction !== 'backward') {
+        setStatus('Several slices at once go backward only: switch to Backward, then Ctrl- or Shift-click.');
+        return;
+      }
+      toggleCriterion(node.id);
+      return;
+    }
+    if (state.criteria.length === 1 && state.criteria[0] === node.id) {
+      clearSlice();
+      return;
+    }
+    state.criteria = [node.id];
+    requestSlice();
+  }
+
+  function toggleCriterion(id) {
+    var at = state.criteria.indexOf(id);
+    if (at !== -1) {
+      state.criteria.splice(at, 1);
+    } else if (state.criteria.length >= MAX_CRITERIA) {
+      setStatus('At most ' + MAX_CRITERIA + ' slices at once. Remove one first: its × in the ' +
+        'list above the graph, or Ctrl-click it.');
+      return;
+    } else {
+      state.criteria.push(id);
+    }
+    if (state.criteria.length) requestSlice();
+    else clearSlice();
+  }
+
+  /* Slice on a qubit: a backward slice from its last measurement. Ctrl/Cmd- or
+     Shift-click adds it to the slices; in Chop it is the end to stop at. */
+  function sliceOnQubit(qubit, event) {
+    if (!state.payload) return;
+    var found = (insights().measurements || {})[String(qubit)] || [];
+    if (!found.length) {
+      setStatus('q' + qubit + ' is never measured, so there is no measurement to slice from.');
+      return;
+    }
+    var last = found[found.length - 1];
+    graph.reveal([last]);
+    if (state.direction === 'chop') {
+      pickChopEnd(null, last);
+      return;
+    }
+    if (state.direction !== 'backward') {
+      // A measurement's slice is what led to it: backward, whatever was on.
+      setDirectionChips('backward');
+      state.direction = 'backward';
+    }
+    if (additive(event)) {
+      if (state.criteria.indexOf(last) === -1) toggleCriterion(last);
+      else requestSlice();
+      return;
+    }
+    state.criteria = [last];
+    requestSlice();
+  }
+
+  function setDirectionChips(direction) {
+    ['backward', 'forward', 'chop'].forEach(function (name) {
+      var chip = $('dir-' + name);
+      chip.classList.toggle('active', direction === name);
+      chip.setAttribute('aria-pressed', String(direction === name));
+    });
+  }
+
+  /* Chop picks two ends: the operation (a node click), then the measurement to
+     stop at (a second node click, or a qubit, which gives its last
+     measurement). The qubit may come first; the next node click is then the
+     operation. Once both are there, the next node click starts a new chop. */
+  function pickChopEnd(nodeId, measurementId) {
+    var chop = state.chop;
+    if (nodeId === null) {
+      chop.to = measurementId;
+    } else if (chop.from === null) {
+      chop.from = nodeId;
+    } else if (chop.to === null) {
+      if (nodeId === chop.from) {
+        clearSlice();
+        return;
+      }
+      chop.to = nodeId;
+    } else {
+      chop.from = nodeId;
+      chop.to = null;
+    }
+    if (chop.from !== null && chop.to !== null) {
+      graph.setChop(chop.from, chop.to);
+      requestSlice();
+    } else {
+      showChopEnds();
+    }
+  }
+
+  /* The chop's ends so far, with no slice, and what the next click will do. */
+  function showChopEnds() {
+    state.sliceSeq++;                 // a chop still on its way is no longer wanted
+    graph.setSlice(null, null);
+    graph.setLaneMarks(null);
+    graph.setChop(state.chop.from, state.chop.to);
+    renderSliceLegend(null);
+    markSliceInTable([], [], state.chop, null);
+    sliceSource([], [state.chop.from, state.chop.to]);
+    $('slice-clear').disabled = !hasSlice();
+    setSide(state.sideText);
+    setStatus(chopPrompt());
+  }
+
+  function chopPrompt() {
+    var chop = state.chop;
+    if (chop.from === null && chop.to === null) {
+      return 'Chop: click the operation to start from.';
+    }
+    if (chop.to === null) {
+      return 'Chop from ' + nodeName(chop.from) + '. Next click: the measurement to stop at ' +
+        '(or a wire\'s "slice", for its last measurement). Click ' + nodeName(chop.from) +
+        ' again or Clear to start over.';
+    }
+    return 'Chop to ' + nodeName(chop.to) + '. Next click: the operation to start from.';
+  }
+
+  /* ``quiet`` leaves the status line alone, for a caller about to set it. */
+  function clearSlice(quiet) {
+    if (!hasSlice() && quiet !== true) return;
+    forgetSlice();
     state.sliceSeq++;                 // a slice still on its way is no longer wanted
     graph.setSlice(null, null);
-    markSliceInTable([], null);
+    graph.setChop(null);
+    graph.setLaneMarks(null);
+    markSliceInTable([], [], null, null);
     state.source.slice = [];
     state.source.criterion = [];
     applySourceMarks();
-    $('slice-clear').disabled = true;
-    setStatus('Slice cleared. Click a gate to slice from it.');
+    setSide(state.sideText);
+    if (quiet === true) return;
+    setStatus(state.direction === 'chop'
+      ? 'Chop cleared. ' + chopPrompt()
+      : 'Slice cleared. Click a gate to slice from it.');
   }
 
-  function requestSlice(nodeIdx) {
+  /* The page's record of the slice, for a new analysis (the graph resets itself). */
+  function forgetSlice() {
+    state.criteria = [];
+    state.chop = { from: null, to: null };
+    renderSliceLegend(null);
+    $('slice-clear').disabled = true;
+  }
+
+  /* Ask for the slice the state describes: one criterion, several (one
+     request with node_indices), or a chop with both ends picked. ``note`` is
+     added to the status line once the answer is in. */
+  function requestSlice(note) {
     if (!state.token) return;
-    state.criterion = nodeIdx;
+    var body = { token: state.token, dep_types: state.activeDeps };
+    var chop = state.direction === 'chop';
+    if (chop) {
+      if (state.chop.from === null || state.chop.to === null) return;
+      body.direction = 'chop';
+      body.node_idx = state.chop.from;
+      body.target_idx = state.chop.to;
+    } else if (state.criteria.length > 1) {
+      body.direction = 'backward';
+      body.node_indices = state.criteria.slice();
+    } else if (state.criteria.length === 1) {
+      body.direction = state.direction;
+      body.node_idx = state.criteria[0];
+    } else {
+      return;
+    }
     var seq = ++state.sliceSeq;
+    var asked = { criteria: state.criteria.slice(), chop: { from: state.chop.from, to: state.chop.to } };
+    $('slice-clear').disabled = false;
 
     fetch('/api/slice', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        token: state.token,
-        node_idx: nodeIdx,
-        direction: state.direction,
-        dep_types: state.activeDeps
-      })
+      body: JSON.stringify(body)
     })
       .then(function (response) { return response.json(); })
       .then(function (data) {
@@ -1206,7 +1437,7 @@
           // The server restarted or dropped this analysis (it keeps a few dozen),
           // while this tab still had it. Analyze again, then slice.
           cacheDrop(state.requestKey);
-          state.retrySlice = nodeIdx;
+          state.retrySlice = asked;
           setStatus('The server no longer had this analysis; analyzing again…');
           analyze(true);
           return;
@@ -1218,22 +1449,145 @@
           setStatus(text);
           return;
         }
-        graph.setSlice(data.slice, nodeIdx);
-        markSliceInTable(data.slice, nodeIdx);
-        $('slice-clear').disabled = false;
-        var node = state.payload.nodes[nodeIdx];
-        var lines = sliceSource(data.slice, nodeIdx);
-        var percent = Math.round((data.size / data.total) * 100);
-        setStatus(
-          data.direction + ' slice from #' + nodeIdx + ' (' + (node.short || node.label) + '): ' +
-          data.size + ' of ' + data.total + ' instructions (' + percent + '%)' +
-          (data.dep_types ? ' following ' + data.dep_types.join(', ') : ' following all dependencies') +
-          (lines.length ? '; source ' + formatLines(lines) : '')
-        );
+        showSlice(data, note || '');
       })
       .catch(function (error) {
         if (seq === state.sliceSeq) setStatus('Slice request failed: ' + error);
       });
+  }
+
+  function following(data) {
+    return data.dep_types ? ' following ' + data.dep_types.join(', ') : ' following all dependencies';
+  }
+
+  function sliceSummary(data) {
+    var percent = data.total ? Math.round((data.size / data.total) * 100) : 0;
+    return data.size + ' of ' + data.total + ' instructions (' + percent + '%)';
+  }
+
+  function showSlice(data, note) {
+    var lines;
+    var correlated = null;
+    if (data.slices) {
+      // Several criteria: each its own color and number, the union in the table.
+      state.criteria = data.node_indices.slice();
+      graph.setChop(null);
+      graph.setSlices(data.slices);
+      graph.setLaneMarks(null);
+      renderSliceLegend(data.slices);
+      markSliceInTable(data.slice, state.criteria, null, graph);
+      lines = sliceSource(data.slice, state.criteria);
+      setStatus('Backward slices from ' + data.slices.length + ' criteria (' +
+        data.slices.map(function (entry, k) { return (k + 1) + ': ' + nodeName(entry.node_idx); }).join(', ') +
+        '): ' + sliceSummary(data) + ' in all,' + following(data) +
+        (lines.length ? '; source ' + formatLines(lines) : '') + '.' + note);
+    } else if (data.direction === 'chop') {
+      var ends = 'Chop from ' + nodeName(data.node_idx) + ' to ' + nodeName(data.target_idx);
+      renderSliceLegend(null);
+      graph.setLaneMarks(null);
+      graph.setChop(data.node_idx, data.target_idx);
+      if (data.empty_reason) {
+        // Nothing connects them: both ends stay marked, no slice is shown.
+        graph.setSlice(null, null);
+        markSliceInTable([], [], state.chop, null);
+        sliceSource([], [data.node_idx, data.target_idx]);
+        setStatus(ends + ': ' + data.empty_reason + ' Click a node to start a new chop, or Clear.' + note);
+      } else {
+        graph.setSlice(data.slice, null);
+        markSliceInTable(data.slice, [], state.chop, null);
+        lines = sliceSource(data.slice, [data.node_idx, data.target_idx]);
+        setStatus(ends + ': ' + sliceSummary(data) + following(data) +
+          (lines.length ? '; source ' + formatLines(lines) : '') +
+          '. Click a node to start a new chop, or Clear.' + note);
+      }
+    } else {
+      var nodeIdx = data.node_idx;
+      state.criteria = [nodeIdx];
+      renderSliceLegend(null);
+      graph.setChop(null);
+      graph.setSlice(data.slice, nodeIdx);
+      markSliceInTable(data.slice, [nodeIdx], null, null);
+      lines = sliceSource(data.slice, nodeIdx);
+      setStatus(
+        data.direction + ' slice from ' + nodeName(nodeIdx) + ': ' + sliceSummary(data) + following(data) +
+        (lines.length ? '; source ' + formatLines(lines) : '') + note
+      );
+      correlated = (insights().correlations || {})[String(nodeIdx)] || null;
+    }
+    // A measurement as the single criterion: what it may be correlated with,
+    // beside the status and on the wire labels.
+    if (correlated) {
+      graph.setLaneMarks(correlated.qubits, correlated.unmeasured);
+      setSide(window.QGraph.insightText.correlation(correlated).join(' '));
+    } else {
+      graph.setLaneMarks(null);
+      setSide(state.sideText);
+    }
+    $('slice-clear').disabled = false;
+  }
+
+  /* The criteria of several slices: number and color, the node, the size, and
+     a button that takes it out. Clicking the node brings it into view. */
+  function renderSliceLegend(slices) {
+    var box = $('slice-legend');
+    box.textContent = '';
+    box.hidden = !slices || slices.length < 2;
+    if (box.hidden) return;
+    var label = document.createElement('span');
+    label.className = 'tool-label';
+    label.textContent = 'Slices';
+    box.appendChild(label);
+    slices.forEach(function (entry, k) {
+      var item = document.createElement('span');
+      item.className = 'slice-item';
+
+      var go = document.createElement('button');
+      go.type = 'button';
+      go.className = 'slice-go';
+      go.title = 'Show ' + nodeName(entry.node_idx) + ' in the graph';
+      var swatch = document.createElement('span');
+      swatch.className = 'slice-swatch ' + window.QGraph.slices.sliceClass(k);
+      swatch.textContent = String(k + 1);
+      go.appendChild(swatch);
+      go.appendChild(document.createTextNode(' ' + nodeName(entry.node_idx)));
+      go.addEventListener('click', function () { graph.reveal([entry.node_idx]); });
+      item.appendChild(go);
+
+      var size = document.createElement('span');
+      size.className = 'slice-size';
+      size.textContent = entry.size + ' instruction' + (entry.size === 1 ? '' : 's');
+      item.appendChild(size);
+
+      var remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'slice-remove';
+      remove.textContent = '×';
+      remove.setAttribute('aria-label', 'Remove slice ' + (k + 1) + ', from ' + nodeName(entry.node_idx));
+      remove.title = 'Remove this slice';
+      remove.addEventListener('click', function () { toggleCriterion(entry.node_idx); });
+      item.appendChild(remove);
+      box.appendChild(item);
+    });
+  }
+
+  /* The Slice picker's qubits, each slicing from that wire's last measurement. */
+  function renderQubitSlicePicker(data) {
+    var select = $('slice-qubit');
+    select.textContent = '';
+    var first = document.createElement('option');
+    first.value = '';
+    first.textContent = 'on qubit…';
+    select.appendChild(first);
+    select.disabled = !data;
+    if (!data) return;
+    var measured = (data.insights && data.insights.measurements) || {};
+    for (var q = 0; q < data.program.num_qubits; q++) {
+      var option = document.createElement('option');
+      option.value = String(q);
+      var count = (measured[String(q)] || []).length;
+      option.textContent = 'q' + q + (count ? '' : ' (never measured)');
+      select.appendChild(option);
+    }
   }
 
   /* ------------------------------------------------ instruction table --- */
@@ -1245,13 +1599,16 @@
      are drawn from it. */
   var TABLE_OVERSCAN = 30;     // rows drawn beyond the view, each way
   var table = { nodes: [], rowH: 0, start: -1, end: -1,
-                slice: null, criterion: null, picked: null, frame: null, hovered: null };
+                slice: null, criteria: [], chop: null, member: null,
+                picked: null, frame: null, hovered: null };
 
   function renderInstructions(data) {
     var body = $('instr-body');
     table.nodes = data ? data.nodes : [];
     table.slice = null;
-    table.criterion = null;
+    table.criteria = [];
+    table.chop = null;
+    table.member = null;
     table.picked = null;
     table.start = table.end = -1;
     if (!data) {
@@ -1264,17 +1621,25 @@
     drawTableRows(true);
   }
 
-  function markSliceInTable(sliceIds, criterion) {
+  /* ``criteria`` is a list (several slices number theirs), ``chop`` a chop's
+     ends or null, and ``member`` the graph, which knows which of several
+     slices a node is in, or null. */
+  function markSliceInTable(sliceIds, criteria, chop, member) {
     table.slice = sliceIds && sliceIds.length ? new Set(sliceIds) : null;
-    table.criterion = criterion;
+    table.criteria = criteria || [];
+    table.chop = chop ? { from: chop.from, to: chop.to } : null;
+    table.member = member;
     drawTableRows(true);
   }
 
   function tableRowHtml(node) {
     var inSlice = table.slice && table.slice.has(node.id);
+    var number = table.criteria.indexOf(node.id);
+    var end = !table.chop ? '' : (table.chop.from === node.id ? 'from'
+      : (table.chop.to === node.id ? 'to' : ''));
     var classes = [];
     if (inSlice) classes.push('in-slice');
-    if (node.id === table.criterion) classes.push('criterion');
+    if (number !== -1 || end) classes.push('criterion');
     if (table.picked && table.picked.has(node.id)) classes.push('marked');
     return '<tr data-id="' + node.id + '"' +
       (classes.length ? ' class="' + classes.join(' ') + '"' : '') + '>' +
@@ -1287,9 +1652,20 @@
         ? '<span class="line-link" title="Show in the editor">' +
           escapeHtml(window.describeSource(node.source)) + '</span>'
         : '—') + '</td>' +
-      '<td class="slice-cell">' + (node.id === table.criterion
-        ? '<span class="tick">criterion</span>'
-        : (inSlice ? '<span class="tick">✓</span>' : '')) + '</td></tr>';
+      '<td class="slice-cell">' + sliceCell(node.id, inSlice, number, end) + '</td></tr>';
+  }
+
+  /* "criterion", "criterion 2", "from", "to", a tick, or a tick and the
+     numbers of the slices a node is in, while there are several. */
+  function sliceCell(id, inSlice, number, end) {
+    var several = table.criteria.length > 1;
+    if (end) return '<span class="tick">' + end + '</span>';
+    if (number !== -1) return '<span class="tick">criterion' + (several ? ' ' + (number + 1) : '') + '</span>';
+    if (!inSlice) return '';
+    var positions = several && table.member ? table.member.sliceMember(id) : [];
+    return '<span class="tick">✓</span>' + (positions.length ? ' ' + positions.map(function (k) {
+      return '<span class="slice-swatch ' + window.QGraph.slices.sliceClass(k) + '">' + (k + 1) + '</span>';
+    }).join(' ') : '');
   }
 
   function spacerRow(height) {
@@ -1351,7 +1727,7 @@
         jumpToLine(node.source.line);
         return;
       }
-      pickCriterion(node);
+      pickCriterion(node, event);
     });
     body.addEventListener('mouseover', function (event) {
       var node = rowNode(event);
@@ -1686,9 +2062,12 @@
         return;
       }
       var base = (state.filename || 'circuit').replace(/\.(py|qasm3?)$/i, '');
-      var suffix = state.criterion === null
-        ? 'qdg'
-        : state.direction + '-slice-' + state.criterion;
+      var suffix = 'qdg';
+      if (state.direction === 'chop' && state.chop.from !== null && state.chop.to !== null) {
+        suffix = 'chop-' + state.chop.from + '-' + state.chop.to;
+      } else if (state.criteria.length) {
+        suffix = state.direction + '-slice-' + state.criteria.join('-');
+      }
       var url = URL.createObjectURL(blob);
       var link = document.createElement('a');
       link.href = url;
@@ -1706,14 +2085,14 @@
   function resetOutput() {
     state.payload = null;
     state.token = null;
-    state.criterion = null;
-    $('slice-clear').disabled = true;
+    forgetSlice();
     state.selectedQubit = null;
     resetSourceLinks(false);
     graph.clear();
     $('graph-empty').hidden = false;
     renderInstructions(null);
     renderQubitFilter(null);
+    renderQubitSlicePicker(null);
     renderDepFilter(null);
     state.activeDeps = null;
     $('console-out').textContent = '(nothing yet)';

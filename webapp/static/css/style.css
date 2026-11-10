@@ -30,6 +30,20 @@
   --dep-control-classical: #795548;
   --dep-phase:             #8d1eac;
 
+  /* Several slices at once, matching SLICE_COLORS in graph.js */
+  --slice-0: #4e9fe6;
+  --slice-1: #f28e2b;
+  --slice-2: #59c26b;
+  --slice-3: #e15759;
+  --slice-4: #b07aa1;
+  --slice-5: #edc948;
+  --slice-6: #76b7b2;
+  --slice-7: #ff9da7;
+  /* Node marks from the insight passes, and mirror links */
+  --mark-phase:    #cba6f7;
+  --mark-kickback: #f5c2e7;
+  --mirror:        #94e2d5;
+
   --radius: 10px;
   --radius-sm: 6px;
   --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
@@ -811,6 +825,119 @@ a.diag-code:hover { color: var(--accent); }
 .diag-nodes { font-family: var(--mono); font-size: 0.74rem; color: var(--text-faint); }
 #graph .node.marked .node-shape { stroke: var(--accent); stroke-width: 3; }
 #graph .node.marked .node-line { fill: var(--accent); font-weight: 700; }
+
+/* Several backward slices at once: each its own color (SLICE_COLORS in
+   graph.js, same order) and number. A node in one slice takes its color; a
+   node in several is neutral with a thin stripe per slice, "+n" past four. A
+   criterion keeps its slice's color, a white outline and its number. */
+#graph .node.sl-0 .node-shape, #graph .node.criterion.sl-0 .node-shape { fill: var(--slice-0); }
+#graph .node.sl-1 .node-shape, #graph .node.criterion.sl-1 .node-shape { fill: var(--slice-1); }
+#graph .node.sl-2 .node-shape, #graph .node.criterion.sl-2 .node-shape { fill: var(--slice-2); }
+#graph .node.sl-3 .node-shape, #graph .node.criterion.sl-3 .node-shape { fill: var(--slice-3); }
+#graph .node.sl-4 .node-shape, #graph .node.criterion.sl-4 .node-shape { fill: var(--slice-4); }
+#graph .node.sl-5 .node-shape, #graph .node.criterion.sl-5 .node-shape { fill: var(--slice-5); }
+#graph .node.sl-6 .node-shape, #graph .node.criterion.sl-6 .node-shape { fill: var(--slice-6); }
+#graph .node.sl-7 .node-shape, #graph .node.criterion.sl-7 .node-shape { fill: var(--slice-7); }
+#graph .node.sl-many .node-shape, #graph .node.criterion.sl-many .node-shape { fill: var(--text); }
+.sl-0 { --slice: var(--slice-0); } .sl-1 { --slice: var(--slice-1); }
+.sl-2 { --slice: var(--slice-2); } .sl-3 { --slice: var(--slice-3); }
+.sl-4 { --slice: var(--slice-4); } .sl-5 { --slice: var(--slice-5); }
+.sl-6 { --slice: var(--slice-6); } .sl-7 { --slice: var(--slice-7); }
+#graph .slice-stripe { fill: var(--slice); pointer-events: none; }
+#graph .node.striped .node-text { transform: translateY(-4px); }
+#graph .slice-more { fill: var(--text); font-size: 8px; font-family: var(--mono); text-anchor: end; pointer-events: none; }
+#graph .slice-num circle { fill: var(--slice); stroke: #fff; stroke-width: 1.5; }
+#graph .slice-num text, #graph .chop-tag text {
+  fill: #11111b; font-size: 9px; font-weight: 700; font-family: var(--sans); text-anchor: middle;
+  pointer-events: none;
+}
+
+/* Chop: the operation (from) and the measurement it stops at (to), each with
+   a tag as well as its own outline. */
+#graph .node.chop-from .node-shape { fill: var(--criterion); stroke: #fff; stroke-width: 2.5; }
+#graph .node.chop-to .node-shape { stroke: #fff; stroke-width: 2.5; stroke-dasharray: 4 2; }
+#graph .chop-tag rect { fill: #11111b; stroke-width: 1.3; }
+#graph .chop-tag.chop-from rect { stroke: var(--criterion); }
+#graph .chop-tag.chop-to rect { stroke: var(--accent-2); }
+#graph .chop-tag text { fill: var(--text); font-size: 8px; }
+
+/* What the insight passes found: square tags on the bottom-right corner,
+   dark with a colored outline, unlike the round, filled lint badge. */
+#graph .insight-mark rect { fill: #11111b; stroke-width: 1.2; }
+#graph .insight-mark text {
+  font-size: 8.5px; font-weight: 700; font-family: var(--sans); text-anchor: middle; pointer-events: none;
+}
+#graph .insight-mark.mark-phase rect { stroke: var(--mark-phase); }
+#graph .insight-mark.mark-phase text { fill: var(--mark-phase); }
+#graph .insight-mark.mark-kickback rect { stroke: var(--mark-kickback); }
+#graph .insight-mark.mark-kickback text { fill: var(--mark-kickback); }
+#graph .insight-mark.mark-always rect { stroke: var(--ok); }
+#graph .insight-mark.mark-always text { fill: var(--ok); }
+#graph .lod-far .insight-mark, #graph .lod-far .slice-more,
+#graph .lod-far .chop-tag text, #graph .lod-far .slice-num text { display: none; }
+
+/* Mirror links: a dotted arc above a gate and its later inverse on the same
+   qubits. Drawn for the hovered node and the criteria, or for everything in
+   view with the Mirrors chip on. A visual aid, not a proof. */
+#graph .mirror-arc {
+  fill: none; stroke: var(--mirror); stroke-width: 1.3; stroke-dasharray: 2 3; opacity: 0.7;
+  pointer-events: stroke;
+}
+#graph .mirror-arc.focus, #graph .mirror-arc.hot { stroke-width: 2; opacity: 1; }
+#graph .mirror-arc.hot { stroke-dasharray: none; }
+#graph .node.mirror-partner .node-shape { stroke: var(--mirror); stroke-width: 3; stroke-dasharray: none; }
+
+/* "slice" under each wire name: a backward slice from its last measurement. */
+#graph .lane-slice { cursor: pointer; }
+#graph .lane-slice rect { fill: var(--surface-2); stroke: var(--surface-3); }
+#graph .lane-slice text { fill: var(--text-dim); font-size: 8px; font-family: var(--sans); text-anchor: middle; pointer-events: none; }
+#graph .lane-slice:hover rect { stroke: var(--accent); }
+#graph .lane-slice:hover text { fill: var(--accent); }
+#graph .lane-slice.unmeasured { opacity: 0.45; }
+/* Wires the single criterion may be correlated with: a glyph and a color. */
+#graph .lane-label.corr-measured { fill: var(--accent-2); font-weight: 700; }
+#graph .lane-label.corr-unmeasured { fill: var(--mark-kickback); font-style: italic; }
+#graph .lane-glyph { font-size: 11px; }
+
+.tooltip .tip-insight { margin-top: 0.5rem; padding-top: 0.45rem; border-top: 1px solid var(--surface-3); }
+.tooltip .tip-insight p { margin: 0 0 0.25rem; font-size: 0.8rem; }
+.tip-mark {
+  display: inline-block; min-width: 1.3em; padding: 0 0.25em; margin-right: 0.2em;
+  border: 1px solid currentColor; border-radius: 3px; background: #11111b;
+  font-size: 0.7rem; font-weight: 700; text-align: center; line-height: 1.35;
+}
+.tip-mark.mark-phase { color: var(--mark-phase); }
+.tip-mark.mark-kickback { color: var(--mark-kickback); }
+.tip-mark.mark-always { color: var(--ok); }
+.tip-mark.mark-mirror { color: var(--mirror); }
+.tip-slice, .slice-swatch {
+  display: inline-grid; place-items: center; min-width: 1.35em; height: 1.35em; padding: 0 0.2em;
+  border-radius: 999px; background: var(--slice); color: #11111b;
+  font-size: 0.7rem; font-weight: 700; line-height: 1;
+}
+
+/* The criteria of several slices, under the Follow chips. */
+.slice-legend {
+  display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+  padding: 0.35rem 0.9rem; border-bottom: 1px solid var(--line); flex: none; font-size: 0.78rem;
+}
+.slice-item {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.12rem 0.25rem 0.12rem 0.3rem; border: 1px solid var(--surface-3);
+  border-radius: 999px; background: var(--surface); font-family: var(--mono); color: var(--text);
+}
+.slice-item .slice-go { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.slice-item .slice-go:hover { color: var(--accent); }
+.slice-item .slice-size { color: var(--text-faint); }
+.slice-item .slice-remove {
+  background: none; border: 0; padding: 0 0.2rem; font: inherit; line-height: 1;
+  color: var(--text-faint); cursor: pointer;
+}
+.slice-item .slice-remove:hover { color: var(--err); }
+.slice-qubit {
+  background: var(--surface); color: var(--text); border: 1px solid var(--surface-3);
+  border-radius: var(--radius-sm); padding: 0.18rem 0.3rem; font: inherit; font-size: 0.78rem;
+}
 
 /* status bar */
 

@@ -47,6 +47,18 @@
   var LOD_LABELS = 0.4; // below this zoom the index and line labels are hidden
   var LOD_TEXT = 0.25;  // below this the gate names too: they are unreadable by then
 
+  /* Several backward slices at once: each gets one of these colors and a
+     number, cycling after eight. style.css (.sl-0 ... .sl-7) has the same
+     colors in the same order, so change both. */
+  var SLICE_COLORS = ['#4e9fe6', '#f28e2b', '#59c26b', '#e15759',
+                      '#b07aa1', '#edc948', '#76b7b2', '#ff9da7'];
+  var MAX_STRIPES = 4;  // a node in more slices than this shows "+n" for the rest
+  var STRIPE_H = 2;
+  // Mirror links: arcs above the nodes, higher for an outer pair, never past the cap.
+  var MIRROR_RISE = 20;
+  var MIRROR_STEP = 12;
+  var MIRROR_CAP = 68;
+
   /* Edges whose dependency travels through a classical bit: drawn down to the
      bit's wire, along it, and up into the reader, as a circuit diagram would. */
   var CLASSICAL_DEPS = { MEASUREMENT: -1, DATA_CLASSICAL: 1 };
@@ -84,6 +96,117 @@
     return Math.max(MIN_NODE_W, Math.round(label.length * CHAR_W) + 16);
   }
 
+  /* ------------------------------------------- several slices at once --- */
+
+  /* id -> the positions (0, 1, ...) of the slices it is in, ascending, for
+     slices given as [{node_idx, slice}]. Built once per response, so drawing a
+     node only looks itself up. */
+  function sliceMembership(slices) {
+    var member = new Map();
+    (slices || []).forEach(function (entry, k) {
+      (entry.slice || []).forEach(function (id) {
+        var list = member.get(id);
+        if (!list) member.set(id, [k]);
+        else if (list[list.length - 1] !== k) list.push(k);
+      });
+    });
+    return member;
+  }
+
+  function sliceClass(k) { return 'sl-' + (k % SLICE_COLORS.length); }
+  function sliceColor(k) { return SLICE_COLORS[k % SLICE_COLORS.length]; }
+
+  /* The stripes a node in several slices shows: the first ``max`` slices, and
+     how many more there are. */
+  function stripesFor(positions, max) {
+    var cap = max || MAX_STRIPES;
+    return { shown: positions.slice(0, cap), more: Math.max(0, positions.length - cap) };
+  }
+
+  /* --------------------------------------------------- mirror links ---- */
+
+  /* id -> indices of the mirrored pairs ([first, second, depth]) it is an end of. */
+  function mirrorIndex(pairs) {
+    var byNode = new Map();
+    (pairs || []).forEach(function (pair, index) {
+      [pair[0], pair[1]].forEach(function (id) {
+        var list = byNode.get(id);
+        if (list) list.push(index);
+        else byNode.set(id, [index]);
+      });
+    });
+    return byNode;
+  }
+
+  /* The arc between two node boxes: from the inner top corner of each (clear
+     of the index label), rising higher the deeper the pair is nested, capped.
+     Both control points sit 4/3 of the rise up, so a level arc peaks exactly
+     ``rise`` above its ends. Returns the path and its content-space box. */
+  function mirrorArc(a, b, depth) {
+    var left = a.x <= b.x ? a : b;
+    var right = left === a ? b : a;
+    var x1 = left.x + left.w / 2 - 4;
+    var x2 = right.x - right.w / 2 + 4;
+    if (x2 < x1) { x1 = left.x; x2 = right.x; }   // dragged on top of each other
+    var y1 = left.y - left.h / 2 - 2;
+    var y2 = right.y - right.h / 2 - 2;
+    var rise = Math.min(MIRROR_CAP, MIRROR_RISE + MIRROR_STEP * Math.max(0, depth || 0));
+    var cy = Math.min(y1, y2) - rise * 4 / 3;
+    return {
+      d: 'M ' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + cy + ' ' + x2 + ' ' + cy + ' ' + x2 + ' ' + y2,
+      rise: rise,
+      box: { x0: x1 - 2, x1: x2 + 2, y0: Math.min(y1, y2) - rise - 2, y1: Math.max(y1, y2) }
+    };
+  }
+
+  /* ------------------------------------------------- insight wording ---- */
+
+  function qubitList(qubits) { return 'q' + qubits.join(', q'); }
+
+  function phaseSentence(multi) {
+    return 'Phase only: this gate cannot change a measurement outcome until a ' +
+      'non-diagonal gate follows on this wire.' + (multi ? ' It can still entangle.' : '');
+  }
+
+  function kickbackSentence(controls) {
+    return 'Phase kickback: the target is left as it is and the phase lands on control' +
+      (controls.length === 1 ? ' ' : 's ') + qubitList(controls) + '.';
+  }
+
+  function predeterminedSentence(value) {
+    return 'This measurement always gives ' + value + ': the qubit is provably |' + value + '> here.';
+  }
+
+  function noEffectSentence(reason) {
+    return 'No effect here: ' + String(reason).replace(/[.\s]+$/, '') + '.';
+  }
+
+  /* What a measurement's correlations entry says, as sentences. */
+  function correlationSentences(entry) {
+    var out = [];
+    if (!entry) return out;
+    var measurements = entry.measurements || [];
+    var qubits = entry.qubits || [];
+    var unmeasured = entry.unmeasured || [];
+    if (measurements.length && qubits.length) {
+      out.push('May be correlated with the measurement' + (measurements.length === 1 ? '' : 's') +
+        ' of ' + qubitList(qubits) + '.');
+    }
+    if (unmeasured.length) out.push('May still be entangled with unmeasured ' + qubitList(unmeasured) + '.');
+    return out;
+  }
+
+  /* The response's insights with every key present, so lookups need no guards. */
+  function normalizeInsights(found) {
+    var source = found || {};
+    var out = {};
+    ['measurements', 'kickback', 'no_effect', 'predetermined', 'correlations', 'guards'].forEach(function (key) {
+      out[key] = source[key] || {};
+    });
+    out.mirrors = source.mirrors || [];
+    return out;
+  }
+
   function QGraph(svg, options) {
     this.svg = svg;
     this.options = options || {};
@@ -102,6 +225,17 @@
     this.lint = {};            // id -> the lint diagnostics about that node
     this.lintQubits = {};      // wire -> the lint diagnostics about that wire (QD07)
     this.showLint = true;      // draw lint markers on the nodes
+    this.criteria = null;      // several backward criteria, in order, or null
+    this.member = null;        // with them: id -> the slice positions it is in
+    this.chop = null;          // {from, to} ends of a chop (either may be null), or null
+    this.laneMarks = { correlated: new Set(), unmeasured: new Set() };
+    this.insights = normalizeInsights(null);
+    this.mirrorPairs = [];     // [first, second, depth], from the insights
+    this.mirrorsByNode = new Map();
+    this.showMirrors = false;  // every mirror link in view, not just the focused ones
+    this.mirrorsInWindow = []; // with showMirrors: pair indices overlapping the window
+    this.hoverMirrors = null;  // pair indices of the hovered node
+    this.mirrorPartners = null; // Set of ids at the other end of them
 
     this.edgeMeta = [];        // per edge: ends, dependency, parallel rank, classical bit
     this.edgesByNode = {};     // id -> indices into edgeMeta
@@ -109,7 +243,8 @@
     this.mountedNodes = new Map();  // id -> <g>, the nodes that exist in the DOM
     this.mountedTicks = new Map();  // id -> [<g>], their classical-bit ticks
     this.mountedEdges = new Map();  // edge index -> <path>
-    this.window = null;        // the content-space box currently drawn
+    this.mountedMirrors = new Map(); // mirror pair index -> <path>
+    this.window = null;       // the content-space box currently drawn
     this.viewW = 0;            // size of the svg, cached: reading it forces a layout
     this.viewH = 0;
     this.lod = '';
@@ -121,10 +256,13 @@
     this.svg.appendChild(this.root);
     this.layerEdges = el('g', { class: 'edges' });
     this.layerLanes = el('g', { class: 'lanes' });
+    this.layerMirrors = el('g', { class: 'mirrors' });
     this.layerNodes = el('g', { class: 'nodes' });
     this.root.appendChild(this.layerLanes);
     this.root.appendChild(this.layerEdges);
     this.root.appendChild(this.layerNodes);
+    // Over the nodes: a gate between the pair (a cx between two lanes) would hide the arc.
+    this.root.appendChild(this.layerMirrors);
 
     this._installArrowheads();
     this._installPanZoom();
@@ -164,9 +302,22 @@
     this.marked = null;
     this.markedQubits = null;
     this.hoveredId = null;
+    this.criteria = null;
+    this.member = null;
+    this.chop = null;
+    this.laneMarks = { correlated: new Set(), unmeasured: new Set() };
     this.lint = lintByNode(data.diagnostics);
     this.lintQubits = lintByQubit(data.diagnostics);
     this._computeLayout();
+    this.insights = normalizeInsights(data.insights);
+    var byId = this.byId;
+    this.mirrorPairs = this.insights.mirrors.filter(function (pair) {
+      return byId[pair[0]] && byId[pair[1]];
+    });
+    this.mirrorsByNode = mirrorIndex(this.mirrorPairs);
+    this.mirrorsInWindow = [];
+    this.hoverMirrors = null;
+    this.mirrorPartners = null;
     this.edgeMeta = prepareEdges(data.edges, this.byId);
     this.edgesByNode = edgesByNode(this.edgeMeta);
     this._computeRouted();
@@ -183,13 +334,67 @@
     this.layerLanes.textContent = '';
     this.edgeMeta = [];
     this.edgesByNode = {};
+    this.mirrorPairs = [];
+    this.mirrorsByNode = new Map();
+    this.mirrorsInWindow = [];
+    this.hoverMirrors = null;
+    this.mirrorPartners = null;
     this._showOverview(false);
   };
 
   QGraph.prototype.setSlice = function (ids, criterion) {
     this.slice = ids ? new Set(ids) : null;
     this.criterion = (criterion === undefined) ? this.criterion : criterion;
+    this.criteria = null;
+    this.member = null;
+    this._sliceChanged();
+  };
+
+  /* Several backward slices at once, as the response's ``slices`` gives them
+     ([{node_idx, slice}], in order): each its own color and number. */
+  QGraph.prototype.setSlices = function (slices) {
+    var union = new Set();
+    (slices || []).forEach(function (entry) {
+      (entry.slice || []).forEach(function (id) { union.add(id); });
+    });
+    this.slice = union;
+    this.criterion = null;
+    this.criteria = (slices || []).map(function (entry) { return entry.node_idx; });
+    this.member = sliceMembership(slices);
+    this._sliceChanged();
+  };
+
+  /* The two ends of a chop, either still unpicked (null); or null for none. */
+  QGraph.prototype.setChop = function (from, to) {
+    var none = (from === null || from === undefined) && (to === null || to === undefined);
+    this.chop = none ? null : { from: from === undefined ? null : from, to: to === undefined ? null : to };
+    this._sliceChanged();
+  };
+
+  /* Wire labels for what the slice criterion may be correlated with: qubits
+     whose measurements it may agree with, and qubits never measured that it may
+     still be entangled with. */
+  QGraph.prototype.setLaneMarks = function (correlated, unmeasured) {
+    this.laneMarks = { correlated: new Set(correlated || []), unmeasured: new Set(unmeasured || []) };
+    this._renderLanes();
+  };
+
+  /* Every mirror link in view, or only those of the hovered node and the criteria. */
+  QGraph.prototype.setShowMirrors = function (on) {
+    this.showMirrors = !!on;
+    if (this.window) this._scanMirrors();
+    this._syncMirrors();
+  };
+
+  /* The positions (0, 1, ...) of the slices ``id`` is in, while there are several. */
+  QGraph.prototype.sliceMember = function (id) {
+    return this.member ? (this.member.get(id) || []) : [];
+  };
+
+  QGraph.prototype._sliceChanged = function () {
     this._refreshClasses();
+    this._refreshDecorations();
+    this._syncMirrors();
     this._overviewChanged();
   };
 
@@ -489,15 +694,121 @@
     wantEdges.forEach(function (index) {
       if (!self.mountedEdges.has(index)) self._mountEdge(index);
     });
+
+    this._scanMirrors();
+    this._syncMirrors();
   };
 
   QGraph.prototype._clearMounted = function () {
     this.layerEdges.textContent = '';
+    this.layerMirrors.textContent = '';
     this.layerNodes.textContent = '';
     this.mountedNodes.clear();
     this.mountedTicks.clear();
     this.mountedEdges.clear();
+    this.mountedMirrors.clear();
     this.window = null;
+  };
+
+  /* ---------------------------------------------------- mirror links ---- */
+
+  QGraph.prototype._mirrorArc = function (index) {
+    var pair = this.mirrorPairs[index];
+    return mirrorArc(this._pos(pair[0]), this._pos(pair[1]), pair[2]);
+  };
+
+  QGraph.prototype._mirrorDrawable = function (index) {
+    var pair = this.mirrorPairs[index];
+    return this.window && this._inRange(pair[0]) && this._inRange(pair[1]) &&
+      overlaps(this._mirrorArc(index).box, this.window);
+  };
+
+  /* With the Mirrors chip on: the pairs that reach into the drawn window, found
+     with the same linear scan as nodes and edges, only when that window moves. */
+  QGraph.prototype._scanMirrors = function () {
+    this.mirrorsInWindow = [];
+    if (!this.showMirrors) return;
+    for (var i = 0; i < this.mirrorPairs.length; i++) {
+      if (this._mirrorDrawable(i)) this.mirrorsInWindow.push(i);
+    }
+  };
+
+  /* The pairs to draw without the chip: the hovered node's, and the criteria's. */
+  QGraph.prototype._mirrorFocus = function () {
+    var self = this;
+    var focus = new Set(this.hoverMirrors || []);
+    var ends = (this.criteria || []).slice();
+    if (this.criterion !== null && this.criterion !== undefined) ends.push(this.criterion);
+    if (this.chop) ends.push(this.chop.from, this.chop.to);
+    ends.forEach(function (id) {
+      (self.mirrorsByNode.get(id) || []).forEach(function (index) { focus.add(index); });
+    });
+    return focus;
+  };
+
+  /* Make the DOM hold exactly the mirror links wanted now: those in view with
+     the chip on, plus the focused ones. Touches only links, never nodes. */
+  QGraph.prototype._syncMirrors = function () {
+    var self = this;
+    if (!this.data) return;
+    var focus = this._mirrorFocus();
+    var want = new Set(this.mirrorsInWindow);
+    focus.forEach(function (index) { if (self._mirrorDrawable(index)) want.add(index); });
+    this.mountedMirrors.forEach(function (path, index) {
+      if (!want.has(index)) {
+        path.remove();
+        self.mountedMirrors.delete(index);
+      }
+    });
+    var hot = new Set(this.hoverMirrors || []);
+    want.forEach(function (index) {
+      var path = self.mountedMirrors.get(index);
+      if (!path) path = self._mountMirror(index);
+      path.setAttribute('class', 'mirror-arc' + (focus.has(index) ? ' focus' : '') +
+        (hot.has(index) ? ' hot' : ''));
+    });
+  };
+
+  QGraph.prototype._mountMirror = function (index) {
+    var pair = this.mirrorPairs[index];
+    var path = el('path', { class: 'mirror-arc', d: this._mirrorArc(index).d });
+    path.appendChild(el('title')).textContent =
+      this._nodeName(pair[0]) + ' mirrors ' + this._nodeName(pair[1]) +
+      ': a gate and a later inverse on the same qubits';
+    this.layerMirrors.appendChild(path);
+    this.mountedMirrors.set(index, path);
+    return path;
+  };
+
+  /* "#12 (cx)" */
+  QGraph.prototype._nodeName = function (id) {
+    var node = this.byId[id];
+    return '#' + id + (node ? ' (' + (node.short || node.label) + ')' : '');
+  };
+
+  /* The hovered node's mirror links are drawn, and the nodes at their other
+     ends lit, by class on just those elements. ``id`` null ends it. */
+  QGraph.prototype._hoverMirrors = function (id) {
+    var self = this;
+    var pairs = id === null ? null : (this.mirrorsByNode.get(id) || null);
+    if (!pairs && !this.hoverMirrors) return;
+    (this.mirrorPartners || new Set()).forEach(function (other) {
+      var g = self.mountedNodes.get(other);
+      if (g) g.classList.remove('mirror-partner');
+    });
+    this.hoverMirrors = pairs;
+    this.mirrorPartners = null;
+    if (pairs) {
+      this.mirrorPartners = new Set();
+      pairs.forEach(function (index) {
+        var pair = self.mirrorPairs[index];
+        var other = pair[0] === id ? pair[1] : pair[0];
+        self.mirrorPartners.add(other);
+        var g = self.mountedNodes.get(other);
+        if (g) g.classList.add('mirror-partner');
+      });
+    }
+    this._syncMirrors();
   };
 
   /* --------------------------------------------------------- drawing ---- */
@@ -531,17 +842,36 @@
         x: LEFT_PAD - 40, y: y - LANE_H / 2 + 4,
         width: this.contentWidth, height: LANE_H - 8
       });
+      // What the slice criterion may be correlated with: a glyph as well as a color.
+      var corr = this.laneMarks.correlated.has(q) ? 'measured'
+        : (this.laneMarks.unmeasured.has(q) ? 'unmeasured' : '');
       var label = el('text', {
         class: 'lane-label' + (this.selectedQubit === q ? ' selected' : '') +
-          (lint ? ' lint-flagged' : '') + marked,
+          (lint ? ' lint-flagged' : '') + marked + (corr ? ' corr-' + corr : ''),
         x: LEFT_PAD - 38, y: y + 4
       });
       label.textContent = 'q' + q;
-      if (lint) {
-        var title = el('title');
-        title.textContent = lint.map(function (d) { return d.code + ': ' + d.message; }).join('\n');
-        label.appendChild(title);
+      var notes = lint ? lint.map(function (d) { return d.code + ': ' + d.message; }) : [];
+      if (corr) {
+        label.appendChild(el('tspan', { class: 'lane-glyph' })).textContent = corr === 'measured' ? '≈' : '~';
+        notes.push(corr === 'measured'
+          ? 'The slice criterion may be correlated with the measurement of q' + q + '.'
+          : 'The slice criterion may still be entangled with q' + q + ', which is never measured.');
       }
+      if (notes.length) label.appendChild(el('title')).textContent = notes.join('\n');
+
+      // "slice": a backward slice from the wire's last measurement.
+      var measured = (this.insights.measurements[String(q)] || []).length > 0;
+      var action = el('g', {
+        class: 'lane-slice' + (measured ? '' : ' unmeasured'),
+        transform: 'translate(' + (LEFT_PAD - 40) + ',' + (y + 9) + ')'
+      });
+      action.appendChild(el('rect', { x: 0, y: 0, width: 30, height: 12, rx: 3 }));
+      action.appendChild(el('text', { x: 15, y: 9 })).textContent = 'slice';
+      action.appendChild(el('title')).textContent = measured
+        ? 'Slice on q' + q + ': a backward slice from its last measurement. ' +
+          'Ctrl- or Shift-click to add it to the slices. In Chop, stop at that measurement.'
+        : 'q' + q + ' is never measured, so there is no measurement to slice from.';
 
       (function (qubit) {
         function pick(event) {
@@ -550,10 +880,17 @@
         }
         hit.addEventListener('click', pick);
         label.addEventListener('click', pick);
+        // The view pans on pointerdown; a press on the button is not a pan.
+        action.addEventListener('pointerdown', function (event) { event.stopPropagation(); });
+        action.addEventListener('click', function (event) {
+          event.stopPropagation();
+          if (self.options.onQubitSlice) self.options.onQubitSlice(qubit, event);
+        });
       })(q);
 
       group.appendChild(hit);
       group.appendChild(label);
+      group.appendChild(action);
     }
 
     // Classical wires: a thin double line per clbit, as circuit diagrams draw them.
@@ -698,6 +1035,17 @@
     var classes = 'node cat-' + node.category.replace('-qubit', '');
     if (this.slice) classes += this.slice.has(node.id) ? ' in-slice' : ' dimmed';
     if (this.criterion === node.id) classes += ' criterion';
+    if (this.member) {
+      // Several slices: one slice's color, or neutral with a stripe per slice.
+      var positions = this.member.get(node.id);
+      if (positions) classes += positions.length === 1 ? ' ' + sliceClass(positions[0]) : ' sl-many striped';
+      if (this.criteria.indexOf(node.id) !== -1) classes += ' criterion';
+    }
+    if (this.chop) {
+      if (this.chop.from === node.id) classes += ' chop-from';
+      if (this.chop.to === node.id) classes += ' chop-to';
+    }
+    if (this.mirrorPartners && this.mirrorPartners.has(node.id)) classes += ' mirror-partner';
     if (this.hoveredId === node.id) classes += ' hovered';
     if (this.marked && this.marked.has(node.id)) classes += ' marked';
     if (this.selectedQubit !== null && node.qubits.indexOf(this.selectedQubit) !== -1) {
@@ -772,9 +1120,105 @@
       g.appendChild(badge);
     }
 
+    // What the insight passes found: small square tags on the bottom-right
+    // corner, a different shape from the round lint badge. Their sentences are
+    // in the hover card rather than a <title> each: most of a phase-heavy
+    // circuit (Shor) carries one.
+    var right = pos.w / 2 + 4;
+    this._insightMarks(node).forEach(function (mark) {
+      var width = 5 + 5.4 * mark.text.length;
+      var tag = el('g', { class: 'insight-mark ' + mark.cls,
+                          transform: 'translate(' + (right - width) + ',' + (pos.h / 2 - 6) + ')' });
+      tag.appendChild(el('rect', { width: width, height: 11, rx: 2 }));
+      tag.appendChild(el('text', { x: width / 2, y: 8.2 })).textContent = mark.text;
+      g.appendChild(tag);
+      right -= width + 2;
+    });
+
+    this._decorate(g, node);
     this.layerNodes.appendChild(g);
     this.mountedNodes.set(node.id, g);
     this.mountedTicks.set(node.id, this._createTicks(node));
+  };
+
+  /* The badges a node gets from the insights: [{cls, text, title}]. */
+  QGraph.prototype._insightMarks = function (node) {
+    var key = String(node.id);
+    var found = this.insights || normalizeInsights(null);
+    var marks = [];
+    var outcome = found.predetermined[key];
+    if (outcome !== undefined && outcome !== null) {
+      marks.push({ cls: 'mark-always', text: '=' + outcome, title: predeterminedSentence(outcome) });
+    }
+    if (found.kickback[key]) {
+      marks.push({ cls: 'mark-kickback', text: 'kb', title: kickbackSentence(found.kickback[key]) });
+    }
+    if (this._gateInfo(node).phase) {
+      marks.push({ cls: 'mark-phase', text: 'φ', title: phaseSentence(node.qubits.length > 1) });
+    }
+    return marks;
+  };
+
+  /* What a node shows for the slice state beyond its class: its number among
+     several criteria, a stripe per slice it is in, a chop end's tag. Built on
+     mounting, and again on the mounted nodes when that state changes (a slice
+     response), never on hover. */
+  QGraph.prototype._decorate = function (g, node) {
+    if (g.qDeco) {
+      g.qDeco.remove();
+      g.qDeco = null;
+    }
+    var pos = this._pos(node.id);
+    var deco = null;
+    function add(child) {
+      if (!deco) deco = el('g', { class: 'node-deco' });
+      deco.appendChild(child);
+      return child;
+    }
+
+    var positions = this.member ? this.member.get(node.id) : null;
+    if (positions && positions.length > 1) {
+      var stripes = stripesFor(positions, MAX_STRIPES);
+      var n = stripes.shown.length;
+      stripes.shown.forEach(function (k, i) {
+        add(el('rect', { class: 'slice-stripe ' + sliceClass(k),
+                         x: -pos.w / 2 + 4, y: pos.h / 2 - 2 - STRIPE_H * (n - i),
+                         width: pos.w - 8, height: STRIPE_H }));
+      });
+      if (stripes.more) {
+        add(el('text', { class: 'slice-more', x: -pos.w / 2 - 2, y: pos.h / 2 })).textContent =
+          '+' + stripes.more;
+      }
+    }
+
+    var number = this.criteria ? this.criteria.indexOf(node.id) : -1;
+    if (number !== -1) {
+      var badge = add(el('g', { class: 'slice-num ' + sliceClass(number),
+                                transform: 'translate(' + (-pos.w / 2) + ',' + (-pos.h / 2) + ')' }));
+      badge.appendChild(el('circle', { r: 7 }));
+      badge.appendChild(el('text', { x: 0, y: 3.2 })).textContent = String(number + 1);
+    }
+
+    if (this.chop) {
+      [['from', this.chop.from], ['to', this.chop.to]].forEach(function (end) {
+        if (end[1] !== node.id) return;
+        var tag = add(el('g', { class: 'chop-tag chop-' + end[0],
+                                transform: 'translate(' + (-pos.w / 2 - 4) + ',' + (-pos.h / 2) + ')' }));
+        tag.appendChild(el('rect', { x: -12, y: -6, width: 24, height: 12, rx: 6 }));
+        tag.appendChild(el('text', { x: 0, y: 3 })).textContent = end[0];
+      });
+    }
+
+    if (deco) {
+      g.appendChild(deco);
+      g.qDeco = deco;
+    }
+  };
+
+  QGraph.prototype._refreshDecorations = function () {
+    var self = this;
+    if (!this.data) return;
+    this.mountedNodes.forEach(function (g, id) { self._decorate(g, self.byId[id]); });
   };
 
   QGraph.prototype._unmountNode = function (id) {
@@ -786,6 +1230,7 @@
     // A node that leaves the DOM under the pointer never gets its mouseout.
     if (this.hoveredId === id) {
       this.hoveredId = null;
+      this._hoverMirrors(null);
       if (this.options.onHoverEnd) this.options.onHoverEnd();
     }
   };
@@ -820,6 +1265,10 @@
       var path = self.mountedEdges.get(index);
       if (path) path.setAttribute('d', self._edgePath(self.edgeMeta[index]));
     });
+    (this.mirrorsByNode.get(id) || []).forEach(function (index) {
+      var path = self.mountedMirrors.get(index);
+      if (path) path.setAttribute('d', self._mirrorArc(index).d);
+    });
   };
 
   /* ------------------------------------------------- node interaction --- */
@@ -844,6 +1293,7 @@
       if (previous) previous.classList.remove('hovered');
       self.hoveredId = id;
       g.classList.add('hovered');
+      self._hoverMirrors(id);
       var node = self.byId[id];
       if (self.options.onHover) self.options.onHover(node, event, self._tooltipHtml(node));
     });
@@ -854,6 +1304,7 @@
       if (self.hoveredId !== Number(g.getAttribute('data-id'))) return;
       self.hoveredId = null;
       g.classList.remove('hovered');
+      self._hoverMirrors(null);
       if (self.options.onHoverEnd) self.options.onHoverEnd();
     });
 
@@ -892,7 +1343,8 @@
       self._drag = null;
       try { drag.g.releasePointerCapture(event.pointerId); } catch (err) { /* already released */ }
       if (!drag.moved) {
-        if (self.options.onNodePick) self.options.onNodePick(self.byId[drag.id]);
+        // The event goes along: Ctrl/Cmd or Shift adds to the slices.
+        if (self.options.onNodePick) self.options.onNodePick(self.byId[drag.id], event);
         return;
       }
       // Edges that now reach into or out of the view are drawn or dropped.
@@ -952,6 +1404,8 @@
     if (!gate.known) {
       parts.push('<div class="tip-note">No reference entry for this gate yet.</div>');
     }
+    var insight = this._insightHtml(node);
+    if (insight) parts.push('<div class="tip-insight">' + insight + '</div>');
     var lint = this.showLint ? this.lint[node.id] : null;
     if (lint) {
       parts.push('<div class="tip-lint">' + lint.map(function (d) {
@@ -960,6 +1414,36 @@
       }).join('') + '</div>');
     }
     return parts.join('');
+  };
+
+  /* The hover card's lines from the insights and the slices: each badge's
+     sentence (with the badge beside it), no effect, correlations, mirror
+     partners, and which of several slices the node is in. */
+  QGraph.prototype._insightHtml = function (node) {
+    var self = this;
+    var key = String(node.id);
+    var found = this.insights || normalizeInsights(null);
+    var lines = this._insightMarks(node).map(function (mark) {
+      return '<p><span class="tip-mark ' + mark.cls + '">' + escapeHtml(mark.text) + '</span> ' +
+        escapeHtml(mark.title) + '</p>';
+    });
+    if (found.no_effect[key]) lines.push('<p>' + escapeHtml(noEffectSentence(found.no_effect[key])) + '</p>');
+    correlationSentences(found.correlations[key]).forEach(function (sentence) {
+      lines.push('<p>' + escapeHtml(sentence) + '</p>');
+    });
+    ((this.mirrorsByNode && this.mirrorsByNode.get(node.id)) || []).forEach(function (index) {
+      var pair = self.mirrorPairs[index];
+      var other = pair[0] === node.id ? pair[1] : pair[0];
+      lines.push('<p><span class="tip-mark mark-mirror">⌒</span> mirrors ' +
+        escapeHtml(self._nodeName(other)) + '</p>');
+    });
+    var positions = this.sliceMember ? this.sliceMember(node.id) : [];
+    if (positions.length) {
+      lines.push('<p>In slice' + (positions.length === 1 ? ' ' : 's ') + positions.map(function (k) {
+        return '<span class="tip-slice ' + sliceClass(k) + '">' + (k + 1) + '</span>';
+      }).join(' ') + '</p>');
+    }
+    return lines.join('');
   };
 
   /* id -> diagnostics, from each diagnostic's ``nodes`` (set by the analysis). */
@@ -1246,11 +1730,17 @@
       var ys = node.qubits.length ? node.qubits.map(laneY) : [height - pad];
       var color = CATEGORY_FILL[node.category] || CATEGORY_FILL['single-qubit'];
       var alpha = 0.75;
+      var end = self.criterion === node.id ||
+        (self.criteria && self.criteria.indexOf(node.id) !== -1) ||
+        (self.chop && (self.chop.from === node.id || self.chop.to === node.id));
       if (!self._inRange(node.id)) alpha = 0.12;
-      else if (self.criterion === node.id) { color = OVERVIEW.criterion; alpha = 1; }
+      else if (end) { color = OVERVIEW.criterion; alpha = 1; }
       else if (self.marked && self.marked.has(node.id)) { color = OVERVIEW.marked; alpha = 1; }
       else if (self.slice) {
-        if (self.slice.has(node.id)) { color = OVERVIEW.slice; alpha = 1; }
+        // Several slices: the first one a node is in gives its color.
+        var positions = self.member ? self.member.get(node.id) : null;
+        if (positions) { color = sliceColor(positions[0]); alpha = 1; }
+        else if (self.slice.has(node.id)) { color = OVERVIEW.slice; alpha = 1; }
         else alpha = 0.18;
       }
       var key = color + '|' + alpha;
@@ -1343,8 +1833,35 @@
     '.lint-badge.sev-error circle { fill: #f38ba8; }',
     '.lint-badge.sev-warning circle { fill: #f9e2af; }',
     '.lint-badge.sev-info circle { fill: #89dceb; }',
-    '.lint-badge text { fill: #11111b; font-size: 9px; font-weight: 700; font-family: sans-serif; text-anchor: middle; }'
-  ].join('\n');
+    '.lint-badge text { fill: #11111b; font-size: 9px; font-weight: 700; font-family: sans-serif; text-anchor: middle; }',
+    '.node.sl-many .node-shape { fill: #cdd6f4; }',
+    '.node.striped .node-text { transform: translateY(-4px); }',
+    '.slice-more { fill: #cdd6f4; font-size: 8px; font-family: monospace; text-anchor: end; }',
+    '.slice-num circle { stroke: #ffffff; stroke-width: 1.5; }',
+    '.slice-num text { fill: #11111b; font-size: 9px; font-weight: 700; font-family: sans-serif; text-anchor: middle; }',
+    '.node.chop-from .node-shape { fill: #ff6b35; stroke: #ffffff; stroke-width: 2.5; }',
+    '.node.chop-to .node-shape { stroke: #ffffff; stroke-width: 2.5; stroke-dasharray: 4 2; }',
+    '.chop-tag rect { fill: #11111b; stroke-width: 1.3; }',
+    '.chop-tag.chop-from rect { stroke: #ff6b35; }',
+    '.chop-tag.chop-to rect { stroke: #b4befe; }',
+    '.chop-tag text { fill: #cdd6f4; font-size: 8px; font-weight: 700; font-family: sans-serif; text-anchor: middle; }',
+    '.insight-mark rect { fill: #11111b; stroke-width: 1.2; }',
+    '.insight-mark text { font-size: 8.5px; font-weight: 700; font-family: sans-serif; text-anchor: middle; }',
+    '.insight-mark.mark-phase rect { stroke: #cba6f7; } .insight-mark.mark-phase text { fill: #cba6f7; }',
+    '.insight-mark.mark-kickback rect { stroke: #f5c2e7; } .insight-mark.mark-kickback text { fill: #f5c2e7; }',
+    '.insight-mark.mark-always rect { stroke: #a6e3a1; } .insight-mark.mark-always text { fill: #a6e3a1; }',
+    '.lod-far .insight-mark, .lod-far .slice-more, .lod-far .chop-tag text, .lod-far .slice-num text { display: none; }',
+    '.mirror-arc { fill: none; stroke: #94e2d5; stroke-width: 1.3; stroke-dasharray: 2 3; opacity: 0.7; }',
+    '.mirror-arc.focus, .mirror-arc.hot { stroke-width: 2; opacity: 1; }',
+    '.lane-slice rect { fill: #313244; stroke: #45475a; }',
+    '.lane-slice text { fill: #a6adc8; font-size: 8px; font-family: sans-serif; text-anchor: middle; }',
+    '.lane-slice.unmeasured { opacity: 0.45; }',
+    '.lane-label.corr-measured { fill: #b4befe; font-weight: 700; }',
+    '.lane-label.corr-unmeasured { fill: #f5c2e7; font-style: italic; }'
+  ].concat(SLICE_COLORS.map(function (color, k) {
+    return '.node.sl-' + k + ' .node-shape, .node.criterion.sl-' + k + ' .node-shape { fill: ' + color + '; } ' +
+      '.slice-stripe.sl-' + k + ', .slice-num.sl-' + k + ' circle { fill: ' + color + '; }';
+  })).join('\n');
 
   QGraph.prototype.toPngBlob = function (filename, callback) {
     var rect = this.svg.getBoundingClientRect();
@@ -1405,5 +1922,11 @@
                      prepareEdges: prepareEdges };
   QGraph.culling = { drawWindow: drawWindow, contains: contains, overlaps: overlaps,
                      OVERSCAN: OVERSCAN };
+  QGraph.slices = { COLORS: SLICE_COLORS, MAX_STRIPES: MAX_STRIPES, membership: sliceMembership,
+                    stripes: stripesFor, sliceClass: sliceClass, sliceColor: sliceColor };
+  QGraph.mirrors = { index: mirrorIndex, arc: mirrorArc, CAP: MIRROR_CAP };
+  QGraph.insightText = { phase: phaseSentence, kickback: kickbackSentence,
+                         predetermined: predeterminedSentence, noEffect: noEffectSentence,
+                         correlation: correlationSentences, normalize: normalizeInsights };
   window.QGraph = QGraph;
 })();

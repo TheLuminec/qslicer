@@ -134,8 +134,16 @@
       <div class="graph-toolbar">
         <div class="tool-group" role="group" aria-label="Slice direction">
           <span class="tool-label">Slice</span>
-          <button class="chip chip-toggle active" id="dir-backward" type="button">Backward</button>
-          <button class="chip chip-toggle" id="dir-forward" type="button">Forward</button>
+          <button class="chip chip-toggle active" id="dir-backward" type="button" aria-pressed="true"
+                  title="What the clicked node depends on. Ctrl- or Shift-click more nodes to slice from several at once.">Backward</button>
+          <button class="chip chip-toggle" id="dir-forward" type="button" aria-pressed="false"
+                  title="What depends on the clicked node">Forward</button>
+          <button class="chip chip-toggle" id="dir-chop" type="button" aria-pressed="false"
+                  title="Between two nodes: click the operation, then the measurement to stop at">Chop</button>
+          <select class="slice-qubit" id="slice-qubit" aria-label="Slice on a qubit"
+                  title="Slice on a qubit: a backward slice from its last measurement (in Chop, stop there). The &quot;slice&quot; tag under each wire name does the same, and Ctrl- or Shift-click on it adds a slice.">
+            <option value="">on qubit&hellip;</option>
+          </select>
           <button class="chip" id="slice-clear" type="button" disabled
                   title="Clear the slice (Esc, or click the criterion again)">Clear</button>
         </div>
@@ -151,6 +159,8 @@
         <div class="tool-group tool-group-right">
           <button class="chip chip-toggle active" id="lint-markers" type="button" aria-pressed="true"
                   title="Mark the nodes lint findings are about; click a finding to find its nodes">Lint markers</button>
+          <button class="chip chip-toggle" id="mirror-links" type="button" aria-pressed="false"
+                  title="Link every gate in view to its mirror: a later inverse on the same qubits. Off, only the hovered node's and the slice criterion's links show. A visual aid, not a proof.">Mirrors</button>
           <button class="chip" id="download-png" type="button"
                   title="Download a PNG of the current view">PNG</button>
         </div>
@@ -164,6 +174,10 @@
           the dependency types the rules produce appear here
         </span>
       </div>
+
+      <!-- Several backward slices at once: one entry per criterion, with its
+           number, color, size and a remove button. Hidden for a single slice. -->
+      <div class="slice-legend" id="slice-legend" aria-label="Slices" hidden></div>
 
       <div class="graph-stage" id="graph-stage">
         <svg id="graph" role="img" aria-label="quantum dependence graph"></svg>
@@ -196,7 +210,7 @@
         </div>
 
         <div class="tooltip" id="tooltip" hidden></div>
-        <div class="graph-hint">drag to pan &middot; scroll to zoom &middot; drag a node to move it &middot; click a node to slice</div>
+        <div class="graph-hint">drag to pan &middot; scroll to zoom &middot; drag a node to move it &middot; click a node to slice &middot; Ctrl/Shift-click to add a slice</div>
       </div>
 
       <div class="graph-status" id="graph-status">
