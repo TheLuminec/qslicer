@@ -115,7 +115,7 @@ def test_analyze_qasm_success_payload(ghz_qasm_result):
     assert body["route"] == "OpenQASM, parsed without executing"
     assert [n["name"] for n in body["nodes"]] == ["h", "cx", "cx", "measure", "measure", "measure"]
     assert body["edges"], "a GHZ circuit has dependencies"
-    assert body["rules"] == ["data_qubit", "measurement", "data_classical"]
+    assert body["rules"] == ["data_qubit", "measurement", "data_classical", "control_classical"]
     for key in ("stats", "dependency_types", "diagnostics", "stdout"):
         assert key in body
 

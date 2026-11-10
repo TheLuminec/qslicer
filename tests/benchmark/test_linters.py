@@ -262,8 +262,10 @@ def test_dead_gates_walk_once_matches_one_slice_per_writer(name):
     # And so the findings are the ones the per-writer slices gave.
     dead = [d["nodes"][0] for d in checks._dead_gates(program, qdg)]
     if any(program[i].name == "measure" for i in writers):
+        # A dead if_test block is reported at its predicate only, not for each gate inside.
         assert dead == [i for i in range(len(program)) if i not in expected
-                        and program[i].name not in checks._NOT_GATES and checks._line(program[i])]
+                        and program[i].name not in checks._NOT_GATES and checks._line(program[i])
+                        and all(p in expected for p, _ in program[i].metadata.get("guards") or ())]
     else:
         assert dead == []
 

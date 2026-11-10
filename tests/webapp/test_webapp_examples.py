@@ -152,7 +152,7 @@ def test_example_analyzes_successfully(example_results, key):
 
 
 # Past this many nodes, slice from an even spread of them instead of every one:
-# the Shor example has 12,776, and two slices from each would take minutes.
+# the Shor example has 12,821, and two slices from each would take minutes.
 SLICE_EVERY_NODE_UP_TO = 400
 
 
@@ -222,8 +222,12 @@ def test_claim_stress_test_dimensions(example_results):
 @pytest.mark.slow
 def test_claim_shors_algorithm_dimensions_and_circuits(example_results):
     body = _ok(example_results, "shors_algorithm")
-    assert body["program"] == {"num_qubits": 13, "num_clbits": 10, "num_instructions": 12776}
-    assert len(body["edges"]) == 23944
+    assert body["program"] == {"num_qubits": 13, "num_clbits": 10, "num_instructions": 12821}
+    # 45 if_test blocks of one gate each: 45 more nodes than when an if_else
+    # was one node, and 210 more edges (a predicate->body CONTROL_CLASSICAL
+    # edge each, and after m blocks in a row on a wire the next gate there
+    # depends on all m bodies and the gate before them).
+    assert len(body["edges"]) == 24154
     circuits = body["circuits"]
     assert len(circuits) == 11 and circuits[0]["variable"] == "qc"
     assert circuits[0]["name"] == "order_finding(a=2, N=21)" and not circuits[0]["used_inside"]

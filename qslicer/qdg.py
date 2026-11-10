@@ -7,7 +7,8 @@ from .dependencies.dependency_rules import DependencyRule
 from .dependencies.rules import (
     DataQubitRule,
     MeasurementRule,
-    DataClassicalRule
+    DataClassicalRule,
+    ControlClassicalRule,
 )
 
 
@@ -16,7 +17,8 @@ def _baseline_rules() -> Tuple[DependencyRule, ...]:
     return (
         DataQubitRule(),
         MeasurementRule(),
-        DataClassicalRule()
+        DataClassicalRule(),
+        ControlClassicalRule(),
     )
 
 

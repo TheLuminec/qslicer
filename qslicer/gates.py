@@ -349,16 +349,19 @@ _GATES: Dict[str, Dict[str, Any]] = {
     "reset": {
         "title": "Reset", "category": MEASURE, "qubits": 1,
         "summary": r"Forces a qubit back to $|0>$.",
-        "detail": r"Also irreversible; treated as a write to the wire.",
+        "detail": r"Also irreversible. Nothing before it on the wire reaches anything after "
+                  r"it, so a slice stops here (unless it sits in an if_test block and only "
+                  r"may run).",
         "matrix": r"\text{not unitary}",
     },
     "if_else": {
         "title": "Classical conditional", "category": CLASSICAL, "qubits": 1,
         "summary": r"Runs a block of gates only when a classical bit matches.",
         "detail": r"Produced by a $\text{with qc.if_test((clbit, value))}$ block, or an "
-                  r"OpenQASM $\text{if}$ on a measured value. The body is carried as a "
-                  r"parameter, so the graph shows the branch as one node; the classical bits "
-                  r"it reads are what give it a measurement dependency.",
+                  r"OpenQASM $\text{if}$ on a measured value. This node is the test "
+                  r"itself: it acts on no qubit and reads the condition bits, which give it a "
+                  r"measurement dependency. Each gate of the block is its own node, with a "
+                  r"control dependency on this one.",
         "matrix": r"\text{not unitary}",
     },
     "while_loop": {
@@ -404,8 +407,8 @@ _GATES: Dict[str, Dict[str, Any]] = {
     "barrier": {
         "title": "Barrier", "category": BARRIER, "qubits": 0,
         "summary": r"Optimization fence and visual divider.",
-        "detail": r"Carries no physics, but it does touch every qubit it spans, so it appears "
-                  r"in the data-qubit chain and quietly links wires that never interact.",
+        "detail": r"Carries no physics, so it takes part in no dependency: the wires it "
+                  r"spans stay separate in a slice.",
         "matrix": r"\text{none}",
     },
     "init": {

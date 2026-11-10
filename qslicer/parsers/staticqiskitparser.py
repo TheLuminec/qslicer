@@ -3692,25 +3692,49 @@ def _circuit_shape(circuit):
 
 
 def circuit_to_program(circuit, frontend) -> QuantumProgram:
-    """The QuantumProgram IR of a StaticCircuit, source locations included."""
+    """The QuantumProgram IR of a StaticCircuit, source locations included.
+
+    An ``if_else`` becomes a predicate instruction on no qubit that reads the
+    condition bits, followed by the instructions of its branches. Each of those
+    carries ``guards``: the ``(predicate index, branch)`` pairs it sits under,
+    outermost first, branch 0 the true body and 1 the else. It also inherits
+    the predicate's ``condition`` (not its ``condition_clbits``: the predicate
+    is what reads them), so it reads as classically conditioned.
+    """
     program = QuantumProgram()
     program.set_registers(num_qubits=circuit.num_qubits, num_clbits=circuit.num_clbits)
-    for instruction in circuit.data:
-        condition_clbits = []
-        for bit in instruction.condition_bits:
-            index = circuit.find(bit)
-            if index not in condition_clbits:
-                condition_clbits.append(index)
-        program.add_instruction(QuantumInstruction(
-            name=instruction.operation.name,
-            qubits=[circuit.find(q) for q in instruction.qubits],
-            clbits=[circuit.find(c) for c in instruction.clbits],
-            params=list(instruction.operation.params),
-            metadata={
+
+    def emit(instructions, guards, inherited):
+        for instruction in instructions:
+            condition_clbits = []
+            for bit in instruction.condition_bits:
+                index = circuit.find(bit)
+                if index not in condition_clbits:
+                    condition_clbits.append(index)
+            condition = instruction.condition
+            metadata = {
                 "frontend": frontend,
-                "condition": instruction.condition,
+                "condition": inherited if condition is None else condition,
                 "condition_clbits": condition_clbits,
-            },
-            location=instruction.location,
-        ))
+                "guards": guards,
+            }
+            if instruction.operation.name == "if_else":
+                predicate = len(program)
+                program.add_instruction(QuantumInstruction(
+                    name="if_else", qubits=[], clbits=[], params=[], metadata=metadata,
+                    location=instruction.location))
+                for branch, body in enumerate(instruction.operation.params):
+                    if body is not None:
+                        emit(body.data, guards + ((predicate, branch),), metadata["condition"])
+                continue
+            program.add_instruction(QuantumInstruction(
+                name=instruction.operation.name,
+                qubits=[circuit.find(q) for q in instruction.qubits],
+                clbits=[circuit.find(c) for c in instruction.clbits],
+                params=list(instruction.operation.params),
+                metadata=metadata,
+                location=instruction.location,
+            ))
+
+    emit(circuit.data, (), None)
     return program

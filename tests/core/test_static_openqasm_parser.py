@@ -82,10 +82,12 @@ if (c[0] == 1) {
 }
 """)
     assert [(i.name, i.location.line) for i in program.instructions] == [
-        ("h", 5), ("h", 5), ("h", 5), ("cx", 7), ("cx", 7), ("measure", 9), ("if_else", 10)]
-    if_else = program[6]
+        ("h", 5), ("h", 5), ("h", 5), ("cx", 7), ("cx", 7), ("measure", 9), ("if_else", 10),
+        ("x", 11)]
+    # The predicate spans the whole block; its body gate keeps its own line.
+    if_else, body = program[6], program[7]
     assert (if_else.location.line, if_else.location.end_line) == (10, 12)
-    assert if_else.params[0].data[0].location.line == 11
+    assert (body.location.line, body.metadata["guards"]) == (11, ((6, 0),))
 
 
 @pytest.mark.requirement("FR-07")
@@ -101,7 +103,8 @@ def test_openqasm_2_is_read_too():
                     'h q[0];\ncx q[0],q[1];\nmeasure q -> c;\nif (c == 3) x q[0];\n')
     assert shape(program) == [("h", [0], [], []), ("cx", [0, 1], [], []),
                               ("measure", [0], [0], []), ("measure", [1], [1], []),
-                              ("if_else", [0], [0, 1], [0, 1])]
+                              ("if_else", [], [], [0, 1]), ("x", [0], [], [])]
+    assert program[5].metadata["guards"] == ((4, 0),)
 
 
 def test_compile_time_values_are_evaluated():
@@ -230,23 +233,28 @@ def test_constant_bits_are_settled_at_compile_time():
 def test_copying_a_measured_bit_keeps_the_dependency():
     program = parse(HEAD + "bit b;\nc[0] = measure q[0];\nb = c[0];\nif (b) x q[1];\n")
     assert shape(program) == [("measure", [0], [0], []), ("store", [], [3], [0]),
-                              ("if_else", [1], [3], [3])]
+                              ("if_else", [], [], [3]), ("x", [1], [], [])]
     assert backward(program, 2) == {0, 1, 2}
+    assert backward(program, 3) == {0, 1, 2, 3}
 
 
 def test_a_variable_set_on_a_run_time_path_carries_its_condition():
     program = parse(HEAD + "int n = 0;\nc[0] = measure q[0];\nif (c[0]) { n = 1; }\n"
                            "if (n == 1) x q[1];\n")
     # No empty if_else for the assignment; the later branch reads c[0] itself.
-    assert shape(program) == [("measure", [0], [0], []), ("if_else", [1], [0], [0])]
+    assert shape(program) == [("measure", [0], [0], []), ("if_else", [], [], [0]),
+                              ("x", [1], [], [])]
+    assert program[2].metadata["condition"] == "n == 1"
 
 
 def test_measuring_into_variables_and_subroutines():
     program = parse(HEAD + "bool b = measure q[0];\nif (b) x q[1];\n"
                            "def m(qubit a) -> bit { return measure a; }\n"
                            "c[2] = m(q[2]);\nif (c[2]) h q[0];\nmeasure q[1];\n")
-    assert shape(program) == [("measure", [0], [3], []), ("if_else", [1], [3], [3]),
-                              ("measure", [2], [2], []), ("if_else", [0], [2], [2]),
+    assert shape(program) == [("measure", [0], [3], []), ("if_else", [], [], [3]),
+                              ("x", [1], [], []),
+                              ("measure", [2], [2], []), ("if_else", [], [], [2]),
+                              ("h", [0], [], []),
                               ("measure", [1], [], [])]
     assert program.num_clbits == 4
 
@@ -259,7 +267,8 @@ def test_physical_qubits_arrays_externs_and_builtins():
                     "rx(a[2]) $1;\nry(n) $0;\nif (w == 2) cx $0, $1;\n"
                     "c[0] = measure $1;\nif (coin(c[0])) x $0;\n")
     assert [(i.name, list(i.qubits)) for i in program.instructions] == [
-        ("rx", [1]), ("ry", [0]), ("cx", [0, 1]), ("measure", [1]), ("if_else", [0])]
+        ("rx", [1]), ("ry", [0]), ("cx", [0, 1]), ("measure", [1]), ("if_else", []),
+        ("x", [0])]
     assert program[0].params[0] == pytest.approx(0.4)
     assert program[1].params[0] == 3.0
     assert program[4].metadata["condition_clbits"] == [0]

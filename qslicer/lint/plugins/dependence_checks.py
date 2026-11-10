@@ -156,10 +156,16 @@ def _dead_gates(program, qdg) -> List[Dict[str, Any]]:
         instruction = program[idx]
         if idx in live or instruction.name in _NOT_GATES or not _line(instruction):
             continue
+        # A dead if_test block is reported once, at the block: not again for
+        # each gate inside it.
+        if any(predicate not in live
+               for predicate, _ in instruction.metadata.get("guards") or ()):
+            continue
+        what = ("This if_test block" if instruction.name == "if_else"
+                else f"{instruction.name} on qubit(s) {list(instruction.qubits)}")
         findings.append(_finding(
             "QD01", _line(instruction),
-            f"{instruction.name} on qubit(s) {list(instruction.qubits)} cannot affect any "
-            "classical bit the circuit writes.",
+            f"{what} cannot affect any classical bit the circuit writes.",
             "Either it is left over, or a measurement that should follow it is missing.",
             nodes=[idx],
         ))
@@ -175,9 +181,12 @@ def _overwritten_measurements(program) -> List[Dict[str, Any]]:
             pending.pop(clbit, None)
         if instruction.name != "measure":
             continue
+        # A measurement inside an if_test only may run, so the earlier result
+        # can still reach the output.
+        conditional = instruction.metadata.get("condition") is not None
         for clbit in instruction.clbits:
             earlier = pending.get(clbit)
-            if earlier is not None and _line(instruction):
+            if earlier is not None and _line(instruction) and not conditional:
                 findings.append(_finding(
                     "QD02", _line(instruction),
                     f"Classical bit {clbit} is overwritten here; the measurement at line "

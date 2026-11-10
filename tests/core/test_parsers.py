@@ -91,9 +91,16 @@ def test_if_test_condition_parses_from_both_frontends():
     text = qasm3.dumps(qc)
     from_qiskit = QiskitParser(qc).program
     from_qasm = OpenQASMParser(qasm3.loads(text)).parse()
-    assert [i.name for i in from_qiskit.instructions] == ["measure", "if_else"]
+    # The if_else is a predicate on no wire; its body gate follows it.
+    assert shape(from_qiskit) == [
+        ("measure", [0], [0]), ("if_else", [], []), ("x", [1], [])]
     assert shape(from_qiskit) == shape(from_qasm)
     assert list(from_qiskit[1].metadata["condition_clbits"]) == [0]
+    body = from_qiskit[2]
+    assert body.metadata["guards"] == ((1, 0),)
+    assert body.metadata["condition"] is not None
+    assert list(body.metadata["condition_clbits"]) == []
+    assert from_qasm[2].metadata["guards"] == ((1, 0),)
 
 
 @pytest.mark.requirement("FR-07")

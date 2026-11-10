@@ -10,7 +10,9 @@ from .dependency_rules import (
     _PHASE_GATES,
     _NO_DEPENDENCE,
     _condition_clbits,
+    _guards,
     _severs_wire,
+    ReachingDefs,
 )
 
 class DataQubitRule(DependencyRule):
@@ -24,22 +26,19 @@ class DataQubitRule(DependencyRule):
     name = "data_qubit"
 
     def build(self, program: QuantumProgram, graph: nx.MultiDiGraph) -> None:
-        last_def: Dict[int, int] = {}
+        defs = ReachingDefs()
 
         for idx in range(len(program)):
             instruction = program[idx]
             if instruction.name in _NO_DEPENDENCE:
                 continue
+            defs.enter(_guards(instruction))
             severs = _severs_wire(instruction)
             for qubit in instruction.qubits:
-                if qubit in last_def and not severs:
-                    self.add_dependency(
-                        graph,
-                        last_def[qubit],
-                        idx,
-                        DependencyType.DATA_QUBIT,
-                    )
-                last_def[qubit] = idx
+                if not severs:
+                    for source in defs.reaching(qubit):
+                        self.add_dependency(graph, source, idx, DependencyType.DATA_QUBIT)
+                defs.write(qubit, idx)
 
 
 class EntanglementRule(DependencyRule):
@@ -101,23 +100,19 @@ class MeasurementRule(DependencyRule):
     name = "measurement"
 
     def build(self, program: QuantumProgram, graph: nx.MultiDiGraph) -> None:
-        last_measured: Dict[int, int] = {}
+        measured = ReachingDefs()
 
         for idx in range(len(program)):
             instruction = program[idx]
+            measured.enter(_guards(instruction))
 
             if instruction.name in _MEASUREMENT_GATES:
                 for clbit in instruction.clbits:
-                    last_measured[clbit] = idx
+                    measured.write(clbit, idx)
 
             for clbit in _condition_clbits(instruction):
-                if clbit in last_measured:
-                    self.add_dependency(
-                        graph,
-                        last_measured[clbit],
-                        idx,
-                        DependencyType.MEASUREMENT,
-                    )
+                for source in measured.reaching(clbit):
+                    self.add_dependency(graph, source, idx, DependencyType.MEASUREMENT)
 
 
 class DataClassicalRule(DependencyRule):
@@ -126,31 +121,32 @@ class DataClassicalRule(DependencyRule):
     name = "data_classical"
 
     def build(self, program: QuantumProgram, graph: nx.MultiDiGraph) -> None:
-        last_write: Dict[int, int] = {}
+        writes = ReachingDefs()
 
         for idx in range(len(program)):
             instruction = program[idx]
+            writes.enter(_guards(instruction))
 
             for clbit in _condition_clbits(instruction):
-                if clbit in last_write:
-                    self.add_dependency(
-                        graph,
-                        last_write[clbit],
-                        idx,
-                        DependencyType.DATA_CLASSICAL,
-                    )
+                for source in writes.reaching(clbit):
+                    self.add_dependency(graph, source, idx, DependencyType.DATA_CLASSICAL)
 
             for clbit in instruction.clbits:
-                last_write[clbit] = idx
+                writes.write(clbit, idx)
 
 
 class ControlClassicalRule(DependencyRule):
-    """Placeholder for future control-dependence analysis."""
+    """Builds control dependencies: an if_test's predicate to each instruction
+    of its branches (a nested if_test's predicate included)."""
 
     name = "control_classical"
 
     def build(self, program: QuantumProgram, graph: nx.MultiDiGraph) -> None:
-        return
+        for idx in range(len(program)):
+            guards = _guards(program[idx])
+            if guards:
+                self.add_dependency(
+                    graph, guards[-1][0], idx, DependencyType.CONTROL_CLASSICAL)
 
 
 class PhaseRule(DependencyRule):

@@ -8,12 +8,16 @@ from qiskit import QuantumCircuit
 from qiskit.circuit import ClassicalRegister, Clbit
 from qiskit.circuit.classical import expr
 
-def _condition_clbits(circuit: QuantumCircuit, condition) -> list:
+def _condition_clbits(circuit: QuantumCircuit, condition, index_of=None) -> list:
     """Indices of the classical bits a condition reads.
 
     A condition is ``(Clbit, value)``, ``(ClassicalRegister, value)``, or a
     classical expression; only the bits it actually names are returned.
+    ``index_of`` maps a bit to its index when the bit belongs to a block
+    rather than to ``circuit`` itself.
     """
+    if index_of is None:
+        index_of = lambda bit: circuit.find_bit(bit).index
     if condition is None:
         return []
     if isinstance(condition, tuple):
@@ -26,7 +30,7 @@ def _condition_clbits(circuit: QuantumCircuit, condition) -> list:
         bits = list(target) if isinstance(target, ClassicalRegister) else [target]
         for bit in bits:
             if isinstance(bit, Clbit):
-                index = circuit.find_bit(bit).index
+                index = index_of(bit)
                 if index not in indices:
                     indices.append(index)
     return indices
@@ -58,35 +62,55 @@ class QiskitParser(AbstractParser):
             num_clbits=circuit.num_clbits,
         )
 
-        # Iterate over instructions
-        for instruction in circuit.data:
-            op = instruction.operation
-            name = op.name
-            qubits = [circuit.find_bit(q).index for q in instruction.qubits]
-            clbits = [circuit.find_bit(c).index for c in instruction.clbits]
-            params = list(op.params)
-
-            # Classical condition, e.g. from `with qc.if_test((clbit, value))`
-            condition_raw = getattr(op, 'condition', None)
-            condition_clbits = _condition_clbits(circuit, condition_raw)
-
-            ir_instr = QuantumInstruction(
-                name=name,
-                qubits=qubits,
-                clbits=clbits,
-                params=params,
-                metadata={
-                    "frontend": "qiskit",
-                    "condition": condition_raw,
-                    "condition_clbits": condition_clbits,
-                },
-            )
-
-            self.program.add_instruction(ir_instr)
+        self._emit(circuit, circuit.data, (), None,
+                   lambda q: circuit.find_bit(q).index, lambda c: circuit.find_bit(c).index)
 
         self.validate()
         return self.program
     
+    def _emit(self, circuit, instructions, guards, inherited, qubit_of, clbit_of) -> None:
+        """Add ``instructions`` to the program, the branches of an if_else included.
+
+        An ``if_else`` becomes a predicate instruction on no qubit that reads
+        the condition bits, followed by the instructions of its branches. Each
+        of those carries ``guards``: the ``(predicate index, branch)`` pairs it
+        sits under, outermost first, branch 0 the true body and 1 the else. It
+        also inherits the predicate's ``condition`` (not its
+        ``condition_clbits``), so it reads as classically conditioned.
+        """
+        for instruction in instructions:
+            op = instruction.operation
+            # Classical condition, e.g. from `with qc.if_test((clbit, value))`
+            condition_raw = getattr(op, 'condition', None)
+            metadata = {
+                "frontend": "qiskit",
+                "condition": inherited if condition_raw is None else condition_raw,
+                "condition_clbits": _condition_clbits(circuit, condition_raw, clbit_of),
+                "guards": guards,
+            }
+            if op.name == "if_else":
+                predicate = len(self.program)
+                self.program.add_instruction(QuantumInstruction(
+                    name=op.name, qubits=[], clbits=[], params=[], metadata=metadata))
+                outer_qubits = [qubit_of(q) for q in instruction.qubits]
+                outer_clbits = [clbit_of(c) for c in instruction.clbits]
+                for branch, block in enumerate(op.params):
+                    if block is None:
+                        continue
+                    # A block's bits stand for the instruction's, position by position.
+                    qmap = dict(zip(block.qubits, outer_qubits))
+                    cmap = dict(zip(block.clbits, outer_clbits))
+                    self._emit(circuit, block.data, guards + ((predicate, branch),),
+                               metadata["condition"], qmap.__getitem__, cmap.__getitem__)
+                continue
+            self.program.add_instruction(QuantumInstruction(
+                name=op.name,
+                qubits=[qubit_of(q) for q in instruction.qubits],
+                clbits=[clbit_of(c) for c in instruction.clbits],
+                params=list(op.params),
+                metadata=metadata,
+            ))
+
     def parse_file(self, path: str) -> QuantumProgram:
         """Dynamically execute a python script and extract the generated QuantumCircuit."""
         # Suppress stdout to avoid unwanted print statements (like circuit.draw) during parsing

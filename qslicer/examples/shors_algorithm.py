@@ -3,7 +3,7 @@ Shor's algorithm, end to end, as a hybrid quantum-classical program.
 
 In the slicer this is the stress test for the static parser and the viewer.
 The parser follows main() through argparse, the retry loop, an lru_cache and
-a dozen helper functions, and rebuilds an order-finding circuit of 12,776
+a dozen helper functions, and rebuilds an order-finding circuit of 12,821
 instructions on 13 qubits (N=21, a=2), with 10 more circuits -- each c-U(a),
 each cmult(a) and its inverse -- under the Circuit picker. Three changes from
 the plain program keep that deterministic: `--a` defaults to 2 (0 picks a

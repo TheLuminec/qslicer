@@ -96,9 +96,11 @@ with qc.if_test((qc.clbits[0], 1)):
 """).program
     lines = [(i.name, i.location.line, i.location.via) for i in program.instructions]
     assert lines == [("h", 3, (7,)), ("cx", 4, (7,)), ("x", 9, ()), ("x", 9, ()),
-                     ("measure", 10, ()), ("if_else", 11, ())]
-    body = program[5].params[0]
-    assert body.data[0].location.line == 12
+                     ("measure", 10, ()), ("if_else", 11, ()), ("z", 12, ())]
+    # The predicate spans the whole `with` block; its body gate keeps its own line.
+    predicate, body = program[5], program[6]
+    assert (predicate.location.line, predicate.location.end_line) == (11, 12)
+    assert body.metadata["guards"] == ((5, 0),)
 
 
 @pytest.mark.requirement("FR-07")
@@ -158,11 +160,75 @@ with qc.if_test((qc.clbits[2], 1)) as else_:
 with else_:
     qc.z(0)
 """).program
+    # measure, if_else (predicate), x, measure (true body), z (else body)
     instruction = program[1]
     assert instruction.name == "if_else"
-    assert (instruction.qubits, instruction.clbits) == ([3, 1, 0], [2, 1])
+    assert (instruction.qubits, instruction.clbits, instruction.params) == ([], [], [])
     assert instruction.metadata["condition_clbits"] == [2]
-    assert [len(body.data) for body in instruction.params] == [2, 1]
+    assert shape(program)[2:] == [("x", [3], []), ("measure", [1], [1]), ("z", [0], [])]
+    assert [i.metadata["guards"] for i in program.instructions[2:]] == [
+        ((1, 0),), ((1, 0),), ((1, 1),)]
+    assert all(i.metadata["condition"] == instruction.metadata["condition"]
+               and i.metadata["condition_clbits"] == [] for i in program.instructions[2:])
+
+
+NESTED_IF = """
+from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
+q = QuantumRegister(3, "q")
+c = ClassicalRegister(2, "c")
+d = ClassicalRegister(1, "d")
+qc = QuantumCircuit(q, c, d)
+qc.h(0)
+qc.measure(0, 0)
+with qc.if_test((c[0], 1)) as else_:
+    qc.x(1)
+    qc.measure(1, 1)
+    with qc.if_test((c, 3)):
+        qc.cx(1, 2)
+    with qc.if_test((d[0], 1)):
+        qc.z(0)
+with else_:
+    qc.y(2)
+    qc.measure(2, 2)
+qc.h(2)
+"""
+
+
+def test_if_else_with_nested_ifs_flattens_the_same_from_both_frontends(tmp_path):
+    path = tmp_path / "nested_if.py"
+    path.write_text(NESTED_IF)
+    static = StaticQiskitParser().parse_file(str(path))
+    executed = QiskitParser().parse_file(str(path))
+
+    def flat(program):
+        return [(i.name, list(i.qubits), list(i.clbits), tuple(i.metadata["guards"]),
+                 list(i.metadata["condition_clbits"])) for i in program.instructions]
+
+    assert flat(static) == flat(executed) == [
+        ("h", [0], [], (), []),
+        ("measure", [0], [0], (), []),
+        ("if_else", [], [], (), [0]),                         # 2
+        ("x", [1], [], ((2, 0),), []),
+        ("measure", [1], [1], ((2, 0),), []),
+        ("if_else", [], [], ((2, 0),), [0, 1]),               # 5  reads the register
+        ("cx", [1, 2], [], ((2, 0), (5, 0)), []),
+        ("if_else", [], [], ((2, 0),), [2]),                  # 7
+        ("z", [0], [], ((2, 0), (7, 0)), []),
+        ("y", [2], [], ((2, 1),), []),                        # the else body
+        ("measure", [2], [2], ((2, 1),), []),
+        ("h", [2], [], (), []),
+    ]
+    # A predicate keeps its own condition; every body instruction reads as
+    # conditioned, on the condition of the predicate it sits directly under.
+    for program in (static, executed):
+        for i in program.instructions:
+            guards = i.metadata["guards"]
+            if i.name == "if_else":
+                assert i.metadata["condition"] is not None
+            elif guards:
+                assert i.metadata["condition"] is program[guards[-1][0]].metadata["condition"]
+            else:
+                assert i.metadata["condition"] is None
 
 
 def test_compose_gates_and_measure_all():

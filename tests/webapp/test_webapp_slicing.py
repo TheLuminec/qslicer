@@ -135,46 +135,54 @@ def test_bell_pair_slices_match_reachability(client, bell_result):
 
 # ---------------------------------------- teleportation (Python, slow) --
 #   0 ry q0 | 1 rz q0 | 2 h q1 | 3 cx q1,q2 | 4 cx q0,q1 | 5 h q0
-#   6 measure q0->c0 | 7 measure q1->c1 | 8 if(c1) x q2 | 9 if(c0) z q2 | 10 measure q2
+#   6 measure q0->c0 | 7 measure q1->c1 | 8 if(c1) | 9   x q2 | 10 if(c0) | 11   z q2
+#   12 measure q2
+# Each if is a predicate on no qubit (8, 10), its body gate right after it.
+# q2's DATA_QUBIT edges: 3->9, 3->11, 9->11, 3->12, 9->12, 11->12 (with no
+# else, the wire after a block holds the body's write or what came before).
 
 @pytest.mark.slow
 @pytest.mark.requirement("FR-12")
 @pytest.mark.requirement("VV-05")
 def test_teleportation_backward_from_final_measurement_is_everything(client, teleport_result):
-    assert slice_of(client, teleport_result, 10) == list(range(11))
+    assert slice_of(client, teleport_result, 12) == list(range(13))
 
 
 @pytest.mark.slow
 @pytest.mark.requirement("FR-14")
 @pytest.mark.requirement("VV-05")
 def test_teleportation_measurement_only_from_final_measurement(client, teleport_result):
-    assert slice_of(client, teleport_result, 10, dep_types=["MEASUREMENT"]) == [10]
+    assert slice_of(client, teleport_result, 12, dep_types=["MEASUREMENT"]) == [12]
 
 
 @pytest.mark.slow
 @pytest.mark.requirement("FR-14")
 @pytest.mark.requirement("VV-05")
 def test_teleportation_measurement_only_from_first_correction(client, teleport_result):
-    # #8 is conditioned on c1 alone, so only the measurement into c1 (#7) reaches it.
+    # Predicate #8 reads c1 alone, so only the measurement into c1 (#7) reaches it.
     assert slice_of(client, teleport_result, 8, dep_types=["MEASUREMENT"]) == [7, 8]
-    # #9 is conditioned on c0, written by the measurement at #6.
-    assert slice_of(client, teleport_result, 9, dep_types=["MEASUREMENT"]) == [6, 9]
+    # Predicate #10 reads c0, written by the measurement at #6.
+    assert slice_of(client, teleport_result, 10, dep_types=["MEASUREMENT"]) == [6, 10]
+    # The correction itself reaches the measurement through its predicate.
+    assert slice_of(client, teleport_result, 9, dep_types=["MEASUREMENT"]) == [9]
+    assert slice_of(client, teleport_result, 9,
+                    dep_types=["MEASUREMENT", "CONTROL_CLASSICAL"]) == [7, 8, 9]
 
 
 @pytest.mark.slow
 @pytest.mark.requirement("FR-13")
 @pytest.mark.requirement("VV-05")
 def test_teleportation_forward_from_bell_cnot(client, teleport_result):
-    assert slice_of(client, teleport_result, 3, "forward") == list(range(3, 11))
+    assert slice_of(client, teleport_result, 3, "forward") == list(range(3, 13))
 
 
 @pytest.mark.slow
 @pytest.mark.requirement("FR-14")
 def test_teleportation_data_qubit_only_skips_the_classical_link(client, teleport_result):
     # Bob's wire q2 is reached from Alice's measurements only via classical bits.
-    got = slice_of(client, teleport_result, 10, dep_types=["DATA_QUBIT"])
-    assert 6 not in got and 7 not in got
-    assert {2, 3, 8, 9, 10} <= set(got)
+    got = slice_of(client, teleport_result, 12, dep_types=["DATA_QUBIT"])
+    assert not {6, 7, 8, 10} & set(got)
+    assert got == [2, 3, 9, 11, 12]
 
 
 @pytest.mark.slow
@@ -187,8 +195,11 @@ def test_teleportation_slices_match_reachability(client, teleport_result):
 @pytest.mark.slow
 @pytest.mark.requirement("FR-07")
 def test_teleportation_condition_clbits(teleport_result):
+    # The predicates read the bits; their body gates read none themselves.
     assert teleport_result["nodes"][8]["condition_clbits"] == [1]
-    assert teleport_result["nodes"][9]["condition_clbits"] == [0]
+    assert teleport_result["nodes"][10]["condition_clbits"] == [0]
+    assert teleport_result["nodes"][9]["condition_clbits"] == []
+    assert teleport_result["nodes"][11]["condition_clbits"] == []
 
 
 # ------------------------------------------------ chop and multi-selection --

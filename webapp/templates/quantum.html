@@ -249,11 +249,11 @@
           <p>
             The ordinary kind, and still needed: classical bits hold measurement outcomes and
             those outcomes control later operations. Reaching definitions on classical bits are
-            in the default rule set; control dependence on a classical branch is a placeholder
-            rule that emits nothing yet.
+            in the default rule set, and so is control dependence: every gate inside an
+            <code>if_test</code> block depends on the test that decides whether it runs.
           </p>
           <p class="dep-status on">
-            Data on by default (<code>DataClassicalRule</code>); control is a stub.
+            On by default (<code>DataClassicalRule</code>, <code>ControlClassicalRule</code>).
           </p>
         </article>
       </div>
@@ -330,7 +330,7 @@
                 <tr>
                   <td><span class="swatch" data-dep-swatch="CONTROL_CLASSICAL"></span>Control classical</td>
                   <td>Control dependence on a classical branch.</td>
-                  <td class="off">placeholder rule</td>
+                  <td class="on">on by default</td>
                 </tr>
                 <tr>
                   <td><span class="swatch" data-dep-swatch="ENTANGLEMENT"></span>Entanglement</td>
@@ -471,9 +471,9 @@
             Parsed against the
             <a href="https://openqasm.com/grammar/index.html" rel="noopener">OpenQASM
             grammar</a> by the language's reference parser, then interpreted without Qiskit.
-            Values known at compile time are worked out. An <code>if</code>,
-            <code>while</code> or <code>switch</code> on a measured value becomes one node that
-            reads the bits it depends on, and copying a measured bit into another keeps the
+            Values known at compile time are worked out. An <code>if</code> on a measured value
+            becomes a test node that reads the bits it depends on, followed by the gates of
+            its branches; a <code>while</code> or <code>switch</code> becomes one node. Copying a measured bit into another keeps the
             dependency through a <code>store</code> node.
           </p>
           <p>

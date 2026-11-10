@@ -32,7 +32,9 @@ def edges(graph):
 
 
 def conditional_circuit():
-    """0 h q0; 1 measure q0->c0; 2 measure q1->c0 (overwrites c0); 3 if(c0) x q1."""
+    """0 h q0; 1 measure q0->c0; 2 measure q1->c0 (overwrites c0); 3 if(c0); 4   x q1.
+
+    3 is the if_test's predicate (on no qubit, reads c0); 4 its true body."""
     qc = QuantumCircuit(2, 1)
     qc.h(0)
     qc.measure(0, 0)
@@ -58,7 +60,8 @@ def test_data_qubit_rule_links_consecutive_uses_per_wire():
 @pytest.mark.requirement("FR-09")
 def test_measurement_rule_links_measure_to_if_test():
     graph = run(MeasurementRule(), conditional_circuit())
-    # Only the latest measurement into c0 feeds the condition.
+    # Only the latest measurement into c0 feeds the condition, at the
+    # predicate (3) that reads it, not at the body gate (4).
     assert edges(graph) == {(2, 3, DependencyType.MEASUREMENT)}
 
 
@@ -78,11 +81,71 @@ def test_classical_rules_emit_nothing_without_a_condition():
 
 
 @pytest.mark.requirement("FR-11")
-def test_control_classical_rule_runs():
-    # Placeholder rule today: it must run cleanly, and any edges it does emit
-    # must be labelled CONTROL_CLASSICAL.
-    graph = run(ControlClassicalRule(), conditional_circuit())
-    assert all(d == DependencyType.CONTROL_CLASSICAL for _, _, d in edges(graph))
+def test_control_classical_rule_links_a_predicate_to_its_branches():
+    assert edges(run(ControlClassicalRule(), conditional_circuit())) == {
+        (3, 4, DependencyType.CONTROL_CLASSICAL)}
+
+
+@pytest.mark.requirement("FR-11")
+def test_control_classical_rule_on_a_nested_if_and_an_else():
+    qc = QuantumCircuit(3, 2)
+    qc.measure(0, 0)                                      # 0
+    with qc.if_test((qc.clbits[0], 1)) as else_:          # 1  predicate
+        qc.x(1)                                           # 2
+        with qc.if_test((qc.clbits[1], 1)):               # 3  nested predicate
+            qc.z(2)                                       # 4
+    with else_:
+        qc.y(2)                                           # 5
+    qc.h(2)                                               # 6  after the block
+    C = DependencyType.CONTROL_CLASSICAL
+    # Each instruction hangs off the predicate it sits directly under: the
+    # nested body off the nested predicate, not off the outer one.
+    assert edges(run(ControlClassicalRule(), qc)) == {(1, 2, C), (1, 3, C), (3, 4, C), (1, 5, C)}
+
+
+@pytest.mark.requirement("FR-09")
+def test_data_qubit_after_an_if_without_else_sees_the_body_and_what_came_before():
+    qc = QuantumCircuit(2, 1)
+    qc.h(1)                                               # 0
+    qc.measure(0, 0)                                      # 1
+    with qc.if_test((qc.clbits[0], 1)):                   # 2  predicate, on no qubit
+        qc.x(1)                                           # 3
+    qc.z(1)                                               # 4  q1 holds 3's write or 0's
+    D = DependencyType.DATA_QUBIT
+    assert edges(run(DataQubitRule(), qc)) == {(0, 3, D), (0, 4, D), (3, 4, D)}
+
+
+@pytest.mark.requirement("FR-09")
+def test_data_qubit_through_an_if_else_takes_the_last_write_of_each_branch():
+    qc = QuantumCircuit(2, 1)
+    qc.h(1)                                               # 0
+    qc.measure(0, 0)                                      # 1
+    with qc.if_test((qc.clbits[0], 1)) as else_:          # 2
+        qc.x(1)                                           # 3
+        qc.s(1)                                           # 4
+    with else_:
+        qc.y(1)                                           # 5  starts again from 0
+    qc.z(1)                                               # 6
+    D = DependencyType.DATA_QUBIT
+    got = edges(run(DataQubitRule(), qc))
+    assert got == {(0, 3, D), (3, 4, D), (0, 5, D), (4, 6, D), (5, 6, D)}
+    # The else never follows the true body, and both branches write q1, so
+    # what came before the block does not reach past it.
+    assert not {(3, 5, D), (4, 5, D), (0, 6, D)} & got
+
+
+@pytest.mark.requirement("FR-09")
+def test_a_measurement_inside_a_body_feeds_a_later_condition_with_the_one_before():
+    qc = QuantumCircuit(2, 1)
+    qc.measure(0, 0)                                      # 0
+    with qc.if_test((qc.clbits[0], 1)):                   # 1
+        qc.x(1)                                           # 2
+        qc.measure(1, 0)                                  # 3  may overwrite c0
+    with qc.if_test((qc.clbits[0], 1)):                   # 4  reads c0 from 0 or 3
+        qc.z(1)                                           # 5
+    for rule, kind in ((MeasurementRule(), DependencyType.MEASUREMENT),
+                       (DataClassicalRule(), DependencyType.DATA_CLASSICAL)):
+        assert edges(run(rule, qc)) == {(0, 1, kind), (0, 4, kind), (3, 4, kind)}
 
 
 @pytest.mark.requirement("FR-10")

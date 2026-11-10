@@ -273,7 +273,7 @@ instructions left to right on their wires, classical edges routed along their
 bit, the slice from whichever instruction you click, and the linters' findings
 as dashed outlines and badges (`[` and `]` step through them, `l` hides them,
 `--no-lint` skips running them). `?` in the window lists the keys. Only what is
-in view is drawn, so the 12,776-instruction Shor example pans and slices as
+in view is drawn, so the 12,821-instruction Shor example pans and slices as
 quickly as a small circuit.
 
 ![The qslicer viz window: a backward slice in the teleportation example](Attachments/Images/qslicer-viz.png)
@@ -370,10 +370,12 @@ meaning:
   measured bit becomes a `store` instruction that reads the source bits and
   writes the target, so the dependency survives the copy.
 - `if`/`else`, `switch` and `while` are taken or unrolled when the condition is
-  known at compile time. On a measured value each becomes one `if_else`,
+  known at compile time. On a measured value a `switch` or `while` becomes one
   `switch_case` or `while_loop` instruction, as Qiskit builds them, reading the
   bits of any condition (`c[0] && c[1]`, `c > 2`, a variable computed from
-  bits). A variable set differently on two run-time paths becomes a run-time
+  bits). An `if` becomes an `if_else` instruction that only reads those bits,
+  followed by the instructions of its branches, each marked with the `if_else`
+  it sits under (`metadata["guards"]`). A variable set differently on two run-time paths becomes a run-time
   value that remembers those bits.
 - **`for` loops are unrolled** and subroutines **inlined** (including
   `return measure q;`), so each iteration's gates are separate nodes, which is

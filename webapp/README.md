@@ -74,8 +74,9 @@ the circuit on screen, so their node numbers match the graph.
 interprets the syntax tree without Qiskit, keeping every instruction's source
 line. It covers the language rather than the subset `qiskit.qasm3` can import:
 classical variables and arrays, subroutines, `extern`, physical qubits, and
-`if`/`while`/`switch` on measured values, each of which becomes one
-`if_else`/`while_loop`/`switch_case` node reading the bits it depends on. A copy
+`if`/`while`/`switch` on measured values. A `while` or `switch` becomes one
+`while_loop`/`switch_case` node reading the bits it depends on; an `if` becomes
+an `if_else` node that reads them, followed by a node per gate of its branches. A copy
 of a measured bit becomes a `store` node, so the dependency survives it. Its
 docstring lists the details. Export a circuit from Qiskit with
 `qiskit.qasm3.dumps(qc)`.
@@ -152,7 +153,7 @@ are not stored. The `X-Analysis-Cache` header says `hit` or `miss`.
 JSON API responses of 4 KB or more are gzipped (level 5) when the request's
 `Accept-Encoding` allows it, with `Content-Encoding: gzip` and
 `Vary: Accept-Encoding`; browsers decode this themselves. A large circuit's
-analysis is several megabytes of very repetitive JSON (Shor's example, 12,776
+analysis is several megabytes of very repetitive JSON (Shor's example, 12,821
 instructions: about 5.8 MB, 0.28 MB gzipped).
 
 ## Layout
@@ -333,7 +334,7 @@ visible instead of silent.
 ### Large circuits
 
 The page stays responsive on circuits of tens of thousands of instructions
-(the Shor example has 12,776 and 23,944 edges):
+(the Shor example has 12,821 and 24,154 edges):
 
 * **Only what is in view is drawn.** `graph.js` keeps in the DOM just the nodes
   and edges that overlap the view plus half a view on every side. Panning moves

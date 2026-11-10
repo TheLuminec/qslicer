@@ -5,12 +5,14 @@ Circuit (index: instruction):
     1: cx q0, q1
     2: x  q2
     3: measure q1 -> c0
-    4: if (c0) x q2
+    4: if (c0)      the predicate: reads c0, on no qubit
+    5:   x q2       its true body
 
 Hand-derived edges with the baseline rules:
-    DATA_QUBIT     0->1 (q0), 1->3 (q1), 2->4 (q2)
-    MEASUREMENT    3->4
-    DATA_CLASSICAL 3->4
+    DATA_QUBIT        0->1 (q0), 1->3 (q1), 2->5 (q2)
+    MEASUREMENT       3->4
+    DATA_CLASSICAL    3->4
+    CONTROL_CLASSICAL 4->5
 """
 
 import networkx as nx
@@ -51,7 +53,8 @@ def forward(qdg, idx, deps=None):
     (1, {0, 1}),
     (2, {2}),
     (3, {0, 1, 3}),
-    (4, {0, 1, 2, 3, 4}),
+    (4, {0, 1, 3, 4}),
+    (5, {0, 1, 2, 3, 4, 5}),
 ])
 def test_backward_slice(qdg, idx, expected):
     assert backward(qdg, idx) == expected
@@ -59,10 +62,11 @@ def test_backward_slice(qdg, idx, expected):
 
 @pytest.mark.requirement("FR-13")
 @pytest.mark.parametrize("idx, expected", [
-    (0, {0, 1, 3, 4}),
-    (2, {2, 4}),
-    (3, {3, 4}),
-    (4, {4}),
+    (0, {0, 1, 3, 4, 5}),
+    (2, {2, 5}),
+    (3, {3, 4, 5}),
+    (4, {4, 5}),
+    (5, {5}),
 ])
 def test_forward_slice(qdg, idx, expected):
     assert forward(qdg, idx) == expected
@@ -70,9 +74,13 @@ def test_forward_slice(qdg, idx, expected):
 
 @pytest.mark.requirement("FR-14")
 def test_dep_type_filter_restricts_backward(qdg):
-    assert backward(qdg, 4, {D.DATA_QUBIT}) == {2, 4}
+    assert backward(qdg, 5, {D.DATA_QUBIT}) == {2, 5}
     assert backward(qdg, 4, {D.MEASUREMENT}) == {3, 4}
-    assert backward(qdg, 4, {D.MEASUREMENT, D.DATA_QUBIT}) == {0, 1, 2, 3, 4}
+    # The body gate reaches the measurement only through its predicate.
+    assert backward(qdg, 5, {D.MEASUREMENT, D.DATA_QUBIT}) == {2, 5}
+    assert backward(qdg, 5, {D.MEASUREMENT, D.CONTROL_CLASSICAL}) == {3, 4, 5}
+    assert backward(qdg, 5, {D.MEASUREMENT, D.DATA_QUBIT, D.CONTROL_CLASSICAL}) == {
+        0, 1, 2, 3, 4, 5}
 
 
 @pytest.mark.requirement("FR-14")
@@ -98,8 +106,8 @@ def test_slice_contains_criterion_and_only_connected_nodes(qdg, deps):
 
 @pytest.mark.requirement("NFR-08")
 def test_slices_are_deterministic(qdg):
-    first = backward(qdg, 4)
-    assert all(backward(qdg, 4) == first for _ in range(3))
+    first = backward(qdg, 5)
+    assert all(backward(qdg, 5) == first for _ in range(3))
 
 
 def chop(qdg, source, target, deps=None):
