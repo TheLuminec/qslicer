@@ -74,9 +74,11 @@ built as proposed.
     Grover loop is labelled, not just the first. A target in |+> is reported as "gate has
     no effect" instead.
 
-11. **Predetermined measurement warning** is "info", merges with QD03 (always 0) and keeps
-    its exemption for circuits a function receives. It fires only when the outcome is
-    known before running (qubit known |0> or |1>).
+11. **Predetermined measurement** is a mark on the node ("always 0" / "always 1"), not a
+    lint warning. It shows only when the outcome is known before running (qubit known |0>
+    or |1>). A warning would fire on every output of Bernstein-Vazirani and Deutsch-Jozsa,
+    whose outcomes are deterministic by design (the tracker proves BV's secret string).
+    QD03 (measured before any gate, always 0) stays as the warning.
 
 12. **Diagonal ("phase only") label** comes from one gate set, `qslicer.gates.PHASE`. The
     `_PHASE_GATES` set in the dependency rules wrongly lists `rx`, `ry`, `u2`, `u3`, `u`
