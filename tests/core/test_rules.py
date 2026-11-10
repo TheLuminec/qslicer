@@ -120,3 +120,27 @@ def test_every_edge_carries_a_dependency_type(rule):
     for _, _, data in graph.edges(data=True):
         assert isinstance(data["dependency"], DependencyType)
         assert data["rule"] == rule.name
+
+
+@pytest.mark.requirement("FR-09")
+def test_barriers_do_not_link_the_wires_they_span():
+    qc = QuantumCircuit(2)
+    qc.h(0)          # 0
+    qc.x(1)          # 1
+    qc.barrier()     # 2
+    qc.z(0)          # 3
+    qc.y(1)          # 4
+    D = DependencyType.DATA_QUBIT
+    assert edges(run(DataQubitRule(), qc)) == {(0, 3, D), (1, 4, D)}
+
+
+@pytest.mark.requirement("FR-09")
+def test_a_reset_cuts_its_wire_off_from_what_came_before():
+    qc = QuantumCircuit(2)
+    qc.h(0)          # 0
+    qc.cx(0, 1)      # 1
+    qc.reset(0)      # 2  nothing before it reaches past it on q0
+    qc.x(0)          # 3
+    qc.z(1)          # 4  q1 still carries what the cx did
+    D = DependencyType.DATA_QUBIT
+    assert edges(run(DataQubitRule(), qc)) == {(0, 1, D), (2, 3, D), (1, 4, D)}

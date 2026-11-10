@@ -223,7 +223,7 @@ def test_claim_stress_test_dimensions(example_results):
 def test_claim_shors_algorithm_dimensions_and_circuits(example_results):
     body = _ok(example_results, "shors_algorithm")
     assert body["program"] == {"num_qubits": 13, "num_clbits": 10, "num_instructions": 12776}
-    assert len(body["edges"]) == 23953
+    assert len(body["edges"]) == 23944
     circuits = body["circuits"]
     assert len(circuits) == 11 and circuits[0]["variable"] == "qc"
     assert circuits[0]["name"] == "order_finding(a=2, N=21)" and not circuits[0]["used_inside"]

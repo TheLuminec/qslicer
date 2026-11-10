@@ -333,7 +333,7 @@ visible instead of silent.
 ### Large circuits
 
 The page stays responsive on circuits of tens of thousands of instructions
-(the Shor example has 12,776 and 23,953 edges):
+(the Shor example has 12,776 and 23,944 edges):
 
 * **Only what is in view is drawn.** `graph.js` keeps in the DOM just the nodes
   and edges that overlap the view plus half a view on every side. Panning moves

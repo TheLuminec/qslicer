@@ -8,11 +8,18 @@ from .dependency_rules import (
     _BASELINE_ENTANGLING_GATES,
     _MEASUREMENT_GATES,
     _PHASE_GATES,
-    _condition_clbits
+    _NO_DEPENDENCE,
+    _condition_clbits,
+    _severs_wire,
 )
 
 class DataQubitRule(DependencyRule):
-    """Builds qubit data dependencies with def-use semantics."""
+    """Builds qubit data dependencies with def-use semantics.
+
+    A barrier or delay is neither a use nor a definition, so the wires it spans
+    stay separate. A reset that always runs is a definition only: nothing
+    before it on the wire reaches anything after it.
+    """
 
     name = "data_qubit"
 
@@ -21,8 +28,11 @@ class DataQubitRule(DependencyRule):
 
         for idx in range(len(program)):
             instruction = program[idx]
+            if instruction.name in _NO_DEPENDENCE:
+                continue
+            severs = _severs_wire(instruction)
             for qubit in instruction.qubits:
-                if qubit in last_def:
+                if qubit in last_def and not severs:
                     self.add_dependency(
                         graph,
                         last_def[qubit],
@@ -50,6 +60,12 @@ class EntanglementRule(DependencyRule):
 
         for idx in range(len(program)):
             instruction = program[idx]
+            if instruction.name in _NO_DEPENDENCE:
+                continue
+            if _severs_wire(instruction):
+                for qubit in instruction.qubits:
+                    entangle_source.pop(qubit, None)
+                continue
 
             if instruction.name in self.entangling_gates:
                 for qubit in instruction.qubits:
@@ -149,6 +165,12 @@ class PhaseRule(DependencyRule):
 
         for idx in range(len(program)):
             instruction = program[idx]
+            if instruction.name in _NO_DEPENDENCE:
+                continue
+            if _severs_wire(instruction):
+                for qubit in instruction.qubits:
+                    phase_source.pop(qubit, None)
+                continue
 
             for qubit in instruction.qubits:
                 if qubit in phase_source and phase_source[qubit] != idx:

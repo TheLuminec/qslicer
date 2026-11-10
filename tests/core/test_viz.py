@@ -194,10 +194,10 @@ def test_lint_markers_and_finding_steps():
 
 
 def test_shor_draws_only_what_is_in_view(shor):
-    """12,776 instructions and 23,953 edges, but a few hundred artists at most."""
+    """12,776 instructions and 23,944 edges, but a few hundred artists at most."""
     view = _view(shor)
     g = view.graph
-    assert (g.n, len(g.edge_source)) == (12776, 23953)
+    assert (g.n, len(g.edge_source)) == (12776, 23944)
     assert 0 < view.drawn_nodes < 300 and view.drawn_edges < 1000
     view.set_criterion(g.n // 2, reveal=True)
     assert view.slice_mask[g.n // 2]

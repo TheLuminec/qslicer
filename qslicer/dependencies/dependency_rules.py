@@ -5,6 +5,7 @@ import networkx as nx
 
 from ..ir.qprogram import QuantumProgram
 from ..ir.qinstruction import QuantumInstruction
+from .. import gates
 
 _MEASUREMENT_GATES = frozenset({"measure", "measure_all"})
 
@@ -13,10 +14,17 @@ _BASELINE_ENTANGLING_GATES = frozenset({
     "ccx", "c3x", "c4x", "dcx", "ecr", "iswap", "rzz", "rxx", "ryy", "cswap",
 })
 
-_PHASE_GATES = frozenset({
-    "z", "t", "tdg", "s", "sdg", "rz", "ry", "rx", "p", "cp", "crz",
-    "u1", "u2", "u3", "u",
-})
+# Diagonal in the computational basis: they change phases only. The one list is
+# qslicer.gates.PHASE, which the gate cards and the "phase only" label also use.
+_PHASE_GATES = gates.PHASE
+
+# Instructions that span qubits without reading or writing them: they take part
+# in no dependence, so wires a barrier spans stay separate in a slice.
+_NO_DEPENDENCE = frozenset({"barrier", "delay"})
+
+# Instructions that put a qubit into a fixed state whatever came before, so
+# nothing earlier on the wire reaches past them (initialize resets first).
+_WIRE_RESETS = frozenset({"reset", "initialize"})
 
 class DependencyType(Enum):
     ENTANGLEMENT = auto()
@@ -54,3 +62,12 @@ class DependencyRule(ABC):
 def _condition_clbits(instruction: QuantumInstruction) -> Iterable[int]:
     """Return the classical bits read by a classically-conditioned instruction."""
     return instruction.metadata.get("condition_clbits", [])
+
+
+def _severs_wire(instruction: QuantumInstruction) -> bool:
+    """Whether an instruction cuts its wires off from what came before: a reset
+    that always runs. One under a classical condition only may run, so the
+    earlier state can still get past it."""
+    return (instruction.name in _WIRE_RESETS
+            and instruction.metadata.get("condition") is None
+            and not instruction.metadata.get("guards"))
