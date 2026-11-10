@@ -17,7 +17,8 @@ JSON API
     GET  /api/examples          list the bundled example circuits
     GET  /api/examples/<key>    fetch one example's source
     POST /api/analyze           {source, filename, profile, language} -> graph payload
-    POST /api/slice             {token, node_idx, direction, dep_types} -> slice
+    POST /api/slice             {token, node_idx, direction, dep_types, target_idx,
+                                node_indices} -> slice (backward, forward or chop)
     GET  /api/linters           every linter, its rules, and the default selection
     GET  /api/linters/rules/<id>  one rule explained, with what it reports on its example
     GET  /api/benchmark         a dataset (?dataset=<id>, default Bugs4Q): summary and bug list
@@ -342,19 +343,39 @@ def api_slice():
     node_idx = payload.get("node_idx")
     direction = payload.get("direction", "backward")
     dep_types = payload.get("dep_types")
+    target_idx = payload.get("target_idx")
+    node_indices = payload.get("node_indices")
 
-    # bool is a subclass of int, so JSON true/false would otherwise pass.
-    if (not token or not isinstance(token, str)
-            or isinstance(node_idx, bool) or not isinstance(node_idx, int)):
+    def is_int(value):
+        # bool is a subclass of int, so JSON true/false would otherwise pass.
+        return isinstance(value, int) and not isinstance(value, bool)
+
+    if node_indices is not None:
+        # Several criteria at once; node_idx is then not needed.
+        if not token or not isinstance(token, str):
+            return _bad_request("token and node_indices are required.", stage="slicing")
+        limit = analysis.MAX_SLICE_NODES
+        if (not isinstance(node_indices, list) or not 1 <= len(node_indices) <= limit
+                or not all(is_int(i) for i in node_indices)):
+            return _bad_request(f"node_indices must be a list of 1 to {limit} integers.",
+                                stage="slicing")
+        if direction != "backward":
+            return _bad_request("node_indices can only be used with a backward slice.",
+                                stage="slicing")
+    elif not token or not isinstance(token, str) or not is_int(node_idx):
         return _bad_request("token and node_idx are required.", stage="slicing")
-    if direction not in ("backward", "forward"):
-        return _bad_request("direction must be backward or forward.", stage="slicing")
+    if direction not in ("backward", "forward", "chop"):
+        return _bad_request("direction must be backward, forward or chop.", stage="slicing")
+    if direction == "chop" and not is_int(target_idx):
+        return _bad_request("A chop needs an integer target_idx.", stage="slicing")
     if dep_types is not None and (
         not isinstance(dep_types, list) or not all(isinstance(n, str) for n in dep_types)
     ):
         return _bad_request("dep_types must be a list of dependency names.", stage="slicing")
 
-    result = analysis.slice_program(token, node_idx, direction=direction, dep_types=dep_types)
+    result = analysis.slice_program(token, node_idx, direction=direction, dep_types=dep_types,
+                                    target_idx=target_idx if direction == "chop" else None,
+                                    node_indices=node_indices)
     return jsonify(result), (200 if result.get("ok") else 409)
 
 

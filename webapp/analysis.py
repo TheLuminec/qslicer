@@ -1029,22 +1029,53 @@ def _slice_error(kind: str, message: str, hint: str = "", **extra: Any) -> Dict[
     return result
 
 
+MAX_SLICE_NODES = 16
+CHOP_EMPTY_REASON = "This operation cannot affect that measurement."
+
+
+def _is_int(value: Any) -> bool:
+    # bool is a subclass of int, so JSON true/false would otherwise pass.
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def slice_program(
     token: str,
-    node_idx: int,
+    node_idx: Optional[int] = None,
     direction: str = "backward",
     dep_types: Optional[List[str]] = None,
+    target_idx: Optional[int] = None,
+    node_indices: Optional[List[int]] = None,
 ) -> Dict[str, Any]:
     """Run the real slicer over a cached QDG.
 
     ``dep_types`` is a list of DependencyType names; None or empty means follow
     every dependency, matching SlicingCriterion's default.
+
+    ``direction`` is "backward", "forward" or "chop". A chop runs from
+    ``node_idx`` (the operation) to ``target_idx`` (e.g. a measurement): the
+    nodes on some dependence path between them. ``node_indices`` (backward
+    only, 1 to MAX_SLICE_NODES of them) slices from several nodes at once and
+    takes precedence over ``node_idx``.
     """
     if _IMPORT_ERROR is not None:
         return _slice_error("backend_unavailable", "The analysis backend is unavailable.")
 
-    if isinstance(node_idx, bool) or not isinstance(node_idx, int):
+    if node_indices is not None:
+        if (not isinstance(node_indices, list) or not node_indices
+                or len(node_indices) > MAX_SLICE_NODES
+                or not all(_is_int(i) for i in node_indices)):
+            return _slice_error(
+                "invalid_request",
+                f"node_indices must be a list of 1 to {MAX_SLICE_NODES} integers.")
+        if direction != "backward":
+            return _slice_error("invalid_request",
+                                "node_indices can only be used with a backward slice.")
+        node_indices = list(dict.fromkeys(node_indices))
+        node_idx = node_indices[0]
+    if not _is_int(node_idx):
         return _slice_error("invalid_request", "node_idx must be an integer.")
+    if direction == "chop" and not _is_int(target_idx):
+        return _slice_error("invalid_request", "A chop needs an integer target_idx.")
     if dep_types is not None and (
         not isinstance(dep_types, list) or not all(isinstance(n, str) for n in dep_types)
     ):
@@ -1061,8 +1092,9 @@ def slice_program(
 
     qdg = entry["qdg"]
     program = entry["program"]
-    if not 0 <= node_idx < len(program):
-        return _slice_error("out_of_range", f"Instruction {node_idx} is outside this program.")
+    for idx in (node_indices or [node_idx]) + ([target_idx] if direction == "chop" else []):
+        if not 0 <= idx < len(program):
+            return _slice_error("out_of_range", f"Instruction {idx} is outside this program.")
 
     selected = None
     if dep_types:
@@ -1071,13 +1103,28 @@ def slice_program(
         if not selected:
             selected = None
 
-    criterion = SlicingCriterion(node_idx=node_idx, dep_types=selected)
-    if direction == "forward":
-        indices = QuantumSlicer.forward_slice(qdg, criterion)
+    extra: Dict[str, Any] = {}
+    if node_indices is not None:
+        slices = QuantumSlicer.backward_slices(qdg, node_indices, selected)
+        indices = set().union(*slices.values())
+        extra = {
+            "node_indices": node_indices,
+            "slices": [{"node_idx": i, "slice": sorted(slices[i]), "size": len(slices[i])}
+                       for i in node_indices],
+        }
+    elif direction == "chop":
+        indices = QuantumSlicer.chop(qdg, node_idx, target_idx, selected)
+        extra = {"target_idx": target_idx}
+        if not indices:
+            extra["empty_reason"] = CHOP_EMPTY_REASON
     else:
-        indices = QuantumSlicer.backward_slice(qdg, criterion)
+        criterion = SlicingCriterion(node_idx=node_idx, dep_types=selected)
+        if direction == "forward":
+            indices = QuantumSlicer.forward_slice(qdg, criterion)
+        else:
+            indices = QuantumSlicer.backward_slice(qdg, criterion)
 
-    return {
+    result = {
         "ok": True,
         "direction": direction,
         "node_idx": node_idx,
@@ -1086,3 +1133,5 @@ def slice_program(
         "size": len(indices),
         "total": len(program),
     }
+    result.update(extra)
+    return result

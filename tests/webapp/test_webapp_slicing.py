@@ -189,3 +189,132 @@ def test_teleportation_slices_match_reachability(client, teleport_result):
 def test_teleportation_condition_clbits(teleport_result):
     assert teleport_result["nodes"][8]["condition_clbits"] == [1]
     assert teleport_result["nodes"][9]["condition_clbits"] == [0]
+
+
+# ------------------------------------------------ chop and multi-selection --
+# GHZ edges: 0->1, 1->2, 1->4, 2->3, 2->5 (all DATA_QUBIT).
+
+def post_ok(client, result, **payload):
+    response, body = post_slice(client, token=result["token"], **payload)
+    assert response.status_code == 200, body
+    assert body["ok"] is True
+    assert body["size"] == len(body["slice"])
+    assert body["total"] == len(result["nodes"])
+    return body
+
+
+@pytest.mark.parametrize("source, target, expected", [
+    (1, 3, [1, 2, 3]),
+    (0, 4, [0, 1, 4]),
+    (2, 2, [2]),
+])
+def test_ghz_chop(client, ghz_qasm_result, source, target, expected):
+    body = post_ok(client, ghz_qasm_result, node_idx=source, target_idx=target,
+                   direction="chop")
+    assert body["direction"] == "chop"
+    assert body["node_idx"] == source and body["target_idx"] == target
+    assert body["slice"] == expected
+    assert "empty_reason" not in body
+
+
+@pytest.mark.parametrize("source, target, deps", [
+    (4, 5, None),             # different wires after the split
+    (3, 0, None),             # against the edges
+    (0, 4, ["MEASUREMENT"]),  # a path exists, but not through this dependency type
+])
+def test_ghz_empty_chop_says_why(client, ghz_qasm_result, source, target, deps):
+    payload = dict(node_idx=source, target_idx=target, direction="chop")
+    if deps is not None:
+        payload["dep_types"] = deps
+    body = post_ok(client, ghz_qasm_result, **payload)
+    assert body["slice"] == [] and body["size"] == 0
+    assert body["empty_reason"] == "This operation cannot affect that measurement."
+
+
+def test_ghz_chop_matches_forward_meet_backward(client, ghz_qasm_result):
+    n = len(ghz_qasm_result["nodes"])
+    for source in range(n):
+        for target in range(n):
+            got = post_ok(client, ghz_qasm_result, node_idx=source, target_idx=target,
+                          direction="chop")["slice"]
+            fwd = set(expected_by_reachability(ghz_qasm_result, source, "forward", None))
+            bwd = set(expected_by_reachability(ghz_qasm_result, target, "backward", None))
+            assert got == sorted(fwd & bwd), (source, target)
+
+
+def test_ghz_multi_selection_unions_in_given_order(client, ghz_qasm_result):
+    body = post_ok(client, ghz_qasm_result, node_indices=[5, 4, 5])
+    assert body["direction"] == "backward"
+    assert body["node_idx"] == 5
+    assert body["node_indices"] == [5, 4]
+    assert body["slices"] == [
+        {"node_idx": 5, "slice": [0, 1, 2, 5], "size": 4},
+        {"node_idx": 4, "slice": [0, 1, 4], "size": 3},
+    ]
+    assert body["slice"] == [0, 1, 2, 4, 5]
+
+
+def test_ghz_multi_selection_takes_precedence_and_filters(client, ghz_qasm_result):
+    body = post_ok(client, ghz_qasm_result, node_idx=0, node_indices=[3],
+                   dep_types=["MEASUREMENT"])
+    assert body["node_idx"] == 3 and body["slice"] == [3]
+    assert body["slices"] == [{"node_idx": 3, "slice": [3], "size": 1}]
+
+
+def test_plain_slice_has_no_new_fields(client, ghz_qasm_result):
+    body = post_ok(client, ghz_qasm_result, node_idx=4)
+    assert set(body) == {"ok", "direction", "node_idx", "dep_types", "slice", "size", "total"}
+
+
+@pytest.mark.parametrize("payload, message", [
+    ({"node_idx": 0, "direction": "chop"}, "target_idx"),
+    ({"node_idx": 0, "direction": "chop", "target_idx": "3"}, "target_idx"),
+    ({"node_idx": 0, "direction": "chop", "target_idx": True}, "target_idx"),
+    ({"node_indices": []}, "node_indices"),
+    ({"node_indices": list(range(6)) * 3}, "node_indices"),
+    ({"node_indices": [0, True]}, "node_indices"),
+    ({"node_indices": [0, 1.0]}, "node_indices"),
+    ({"node_indices": 3}, "node_indices"),
+    ({"node_indices": [0], "direction": "forward"}, "backward"),
+    ({"node_indices": [0], "direction": "chop", "target_idx": 3}, "backward"),
+])
+def test_chop_and_multi_reject_malformed_input(client, ghz_qasm_result, payload, message):
+    response, body = post_slice(client, token=ghz_qasm_result["token"], **payload)
+    assert response.status_code == 400
+    assert body["ok"] is False
+    assert body["error"]["kind"] == "invalid_request"
+    assert body["error"]["stage"] == "slicing"
+    assert message in body["error"]["message"]
+
+
+@pytest.mark.parametrize("payload", [
+    {"node_idx": 0, "direction": "chop", "target_idx": 6},
+    {"node_idx": 0, "direction": "chop", "target_idx": -1},
+    {"node_idx": 9, "direction": "chop", "target_idx": 3},
+    {"node_indices": [0, 6]},
+    {"node_indices": [-1]},
+])
+def test_chop_and_multi_out_of_range(client, ghz_qasm_result, payload):
+    response, body = post_slice(client, token=ghz_qasm_result["token"], **payload)
+    assert response.status_code == 409
+    assert body["ok"] is False
+    assert body["error"]["kind"] == "out_of_range"
+    assert body["error"]["stage"] == "slicing"
+    assert "outside this program" in body["error"]["message"]
+    assert "slice" not in body
+
+
+def test_multi_selection_still_needs_a_token(client):
+    response, body = post_slice(client, node_indices=[0])
+    assert response.status_code == 400 and body["error"]["kind"] == "invalid_request"
+
+
+def test_analysis_rejects_malformed_chop_and_multi(ghz_qasm_result):
+    import analysis
+
+    token = ghz_qasm_result["token"]
+    for kwargs in ({"direction": "chop", "node_idx": 0},
+                   {"node_indices": []},
+                   {"node_indices": [0], "direction": "forward"}):
+        result = analysis.slice_program(token, **kwargs)
+        assert result["ok"] is False and result["error"]["kind"] == "invalid_request"
