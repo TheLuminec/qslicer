@@ -47,9 +47,12 @@ above, so it can gate CI or a pre-commit hook. Files ending in `.qasm`,
 `.qasm2` or `.qasm3` go to the OpenQASM front end; `--language` overrides the
 extension. `python -m qslicer` works too.
 
-`viz` opens an interactive window: click an instruction to slice from it,
-hover one for its gate, source line and lint findings, `[` and `]` step
-through the findings, and `?` lists the keys. It runs the linters unless
+`viz` opens an interactive window: click an instruction to slice from it
+(ctrl- or shift-click for several slices at once), click a wire name to slice
+on that qubit, `c` to chop from an operation to a measurement, hover an
+instruction for its gate, source line, lint findings and what the insight
+passes found, `m` for every mirror arc in view, `[` and `]` step through the
+findings, and `?` lists the keys. It runs the linters unless
 `--no-lint` is given, and `--save` writes an image instead of opening a window.
 
 ## Python

@@ -20,10 +20,14 @@ only moves the axes limits; leaving it, zooming, a slice or a filter rebuilds
 the few hundred artists in view. The linters run on a background thread, so
 the window opens before they finish.
 
-Mouse:  click an instruction to slice from it; drag to pan; scroll to pan
-        (shift+scroll up and down, ctrl+scroll to zoom); click or drag the
-        overview strip to jump there; hover an instruction for its card.
-Keys:   left/right previous/next criterion   b/f/d  backward/forward/toggle
+Mouse:  click an instruction to slice from it (ctrl- or shift-click: one
+        more backward slice, up to 16, or one less); click a wire name to
+        slice on that qubit; drag to pan; scroll to pan (shift+scroll up and
+        down, ctrl+scroll to zoom); click or drag the overview strip to jump
+        there; hover an instruction for its card.
+Keys:   left/right previous/next criterion   b/f/c/d  backward/forward/chop/next
+        w  slice on the wire under the pointer (W: one more slice)
+        m  every mirror arc in view on/off
         [ ]  previous/next lint finding        l  lint markers on/off
         , .  previous/next circuit             1-6  follow a dependency type
         + -  zoom    0  fit    home/end  start/end    esc  clear    ?  help
@@ -34,6 +38,7 @@ import os
 import re
 import sys
 import threading
+import textwrap
 import time
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -52,10 +57,11 @@ from matplotlib.widgets import Button
 
 from ..qdg import QDG, list_rule_profiles
 from . import model
-from .model import (ACCENT, BG, BG_SUNKEN, CATEGORIES, CATEGORY_FILL, CL_SHIFT, CRITERION,
-                    DEP_COLORS, DEPENDENCIES, IN_SLICE, INK, NODE_H, SEVERITY_COLORS,
-                    SEVERITY_NAME, SURFACE, SURFACE_2, SURFACE_3, TEXT, TEXT_DIM, TEXT_FAINT,
-                    Document, Graph)
+from .model import (ACCENT, BG, BG_SUNKEN, CATEGORIES, CATEGORY_FILL, CHOP_FROM, CHOP_TO,
+                    CL_SHIFT, CORRELATED, CRITERION, DEP_COLORS, DEPENDENCIES, ENTANGLED,
+                    IN_SLICE, INK, MARK_COLORS, MAX_SLICES, MAX_STRIPES, MIRROR, NODE_H,
+                    SEVERITY_COLORS, SEVERITY_NAME, SHARED_SLICE, SLICE_PALETTE, SURFACE,
+                    SURFACE_2, SURFACE_3, TEXT, TEXT_DIM, TEXT_FAINT, Document, Graph)
 
 # --------------------------------------------------------------------------
 # View constants (graph.js)
@@ -75,6 +81,8 @@ MONO = "monospace"
 _CATEGORY_RGBA = to_rgba_array([CATEGORY_FILL[c] for c in CATEGORIES])
 _DEP_RGBA = to_rgba_array([DEP_COLORS[d] for d in DEPENDENCIES])
 _SEVERITY_RGBA = {rank: to_rgba(SEVERITY_COLORS[name]) for rank, name in SEVERITY_NAME.items()}
+_PALETTE_RGBA = to_rgba_array(SLICE_PALETTE)
+DIRECTIONS = ("backward", "forward", "chop")
 
 # A rounded box as an octagon: (sign of w/2, offset, sign of h/2, offset).
 _CHAMFER = 4.0
@@ -86,13 +94,16 @@ _BOX = np.array([(-1, _CHAMFER, -1, 0), (1, -_CHAMFER, -1, 0), (1, 0, -1, _CHAMF
 # the log-scale and grid toggles, which would wreck the graph's axes. The rest
 # (s to save, p and o for the toolbar's pan and zoom, h for home, q to close)
 # keep working.
-_TAKEN_KEYS = {"left", "right", "home", "end", "b", "f", "d", "l", "k", "L", "g", "G",
+_TAKEN_KEYS = {"left", "right", "home", "end", "b", "f", "c", "d", "l", "k", "L", "g", "G",
+               "m", "w", "W",
                "0", "1", "2", "3", "4", "5", "6", "+", "-", "=", "[", "]", ",", ".",
                "escape", "?", "shift+left", "shift+right"}
 
 HELP = """\
 Mouse
   click an instruction      slice from it
+  ctrl/shift+click          one more backward slice (up to 16), or one less
+  click a wire name         slice on that qubit: from its last measurement
   drag / scroll             pan    (shift+scroll: up and down)
   ctrl+scroll               zoom around the pointer
   click the overview strip  jump there
@@ -100,7 +111,10 @@ Mouse
 
 Keys
   left / right    previous / next instruction as the criterion
-  b  f  d         backward slice / forward slice / toggle
+  b  f  c  d      backward / forward / chop / the next of them
+                  chop: click the operation, then the measurement to stop at
+  w  W            slice on the wire under the pointer / add it as one more
+  m               every mirror arc in view on / off
   1 - 6           follow or ignore a dependency type
   [  ]            previous / next lint finding
   l               lint markers on / off
@@ -144,12 +158,22 @@ class QDGVisualizer:
         self.criterion: Optional[int] = None
         self.slice_mask: Optional[np.ndarray] = None
         self.slice_size = 0
+        # Several backward slices (modifier-click): instruction -> its number,
+        # which picks its colour; the masks are kept until a filter changes.
+        self.criteria: Dict[int, int] = {}
+        self.criteria_masks: Dict[int, np.ndarray] = {}
+        self.slice_stack: Optional[np.ndarray] = None   # one row per criterion, by number
+        self.chop_from: Optional[int] = None
+        self.chop_to: Optional[int] = None
+        self.notice: Optional[str] = None               # says why a click did nothing
+        self.show_mirrors = False
         self.follow = set(DEPENDENCIES)
         self.show_lint = True
         self.finding: Optional[int] = None       # index into graph.diagnostics
         self.marked = np.zeros(self.graph.n, dtype=bool)
         self.marked_qubits: set = set()
         self.hovered: Optional[int] = None
+        self._pointer: Optional[tuple] = None    # the last pointer position over the graph
         self.window: Optional[tuple] = None      # (x0, x1, k) currently drawn
         self.view = {"cx": 0.0, "cy": 0.0, "k": 1.0}
         self._press = None
@@ -259,16 +283,28 @@ class QDGVisualizer:
                                     linestyles=(0, (2, 3)), zorder=1.2)
         self.spans = LineCollection([], zorder=2)
         self.boxes = PolyCollection([], zorder=3, joinstyle="round")
+        self.arcs = LineCollection([], zorder=2.5, capstyle="round")
+        self.stripes = PolyCollection([], zorder=3.2, linewidths=0)
+        self.pills = PolyCollection([], zorder=4.2, joinstyle="round")
         for artist in (self.lanes, self.cwires, self.marked_lanes, self.edges, self.arrows,
-                       self.ticks, self.spans, self.boxes):
+                       self.ticks, self.spans, self.boxes, self.arcs, self.stripes, self.pills):
             ax.add_collection(artist, autolim=False)
         self.dots = self.badges = self.tick_dots = None   # EllipseCollections, rebuilt
         self.glyphs = _Glyphs()
         self.text = PathCollection([], linewidths=0, edgecolors="none", zorder=3.5)
         self.badge_text = PathCollection([], linewidths=0, edgecolors="none", zorder=4.5)
+        self.pill_text = PathCollection([], linewidths=0, edgecolors="none", zorder=4.3)
         ax.add_collection(self.text, autolim=False)
         ax.add_collection(self.badge_text, autolim=False)
+        ax.add_collection(self.pill_text, autolim=False)
         self.drawn_nodes = self.drawn_edges = self.drawn_labels = 0
+        self.drawn_arcs = self.drawn_marks = self.drawn_stripes = 0
+        # The criteria of several slices, kept at the top right of the view.
+        self.legend_boxes = PolyCollection([], linewidths=0, zorder=6.5)
+        self.legend_text = PathCollection([], linewidths=0, edgecolors="none", zorder=6.6)
+        ax.add_collection(self.legend_boxes, autolim=False)
+        ax.add_collection(self.legend_text, autolim=False)
+        self._lane_hits: List[tuple] = []     # (x0, x1, y0, y1, qubit) of each wire name
         # Wire names, kept at the left edge of the view however far it pans.
         self.lane_names: List[tuple] = []
         self.lane_boxes = PolyCollection([], facecolors=to_rgba(BG, 0.85), linewidths=0,
@@ -317,6 +353,9 @@ class QDGVisualizer:
         self.criterion = None
         self.slice_mask = None
         self.slice_size = 0
+        self.criteria, self.criteria_masks, self.slice_stack = {}, {}, None
+        self.chop_from = self.chop_to = None
+        self.notice = None
         self.finding = None
         self.marked = np.zeros(g.n, dtype=bool)
         self.marked_qubits = set()
@@ -333,16 +372,21 @@ class QDGVisualizer:
         self.lane_names = [(f"q{q}", g.lane_y(q), q) for q in range(g.num_qubits)]
         self.lane_names += [(f"c{c}", g.clbit_y(c), None) for c in range(g.num_clbits)]
         # A chip per dependency type this graph has, packed left to right.
+        # Narrower, with smaller text, when they would run off the right edge.
         counts = g.dependency_counts()
+        labels = [f"{i + 1} {dep.name} {_count(counts[dep])}" for i, dep in enumerate(DEPENDENCIES)]
+        total = sum(0.016 + 0.0056 * len(label)
+                    for label, dep in zip(labels, DEPENDENCIES) if counts[dep])
+        shrink = min(1.0, (0.995 - 0.565) / total) if total else 1.0
         x = 0.565
-        for i, (dep, b) in enumerate(zip(DEPENDENCIES, self.dep_buttons)):
+        for label, dep, b in zip(labels, DEPENDENCIES, self.dep_buttons):
             b.ax.set_visible(counts[dep] > 0)
-            label = f"{i + 1} {dep.name} {_count(counts[dep])}"
             b.label.set_text(label)
+            b.label.set_fontsize(7.5 * shrink)
             if counts[dep]:
-                width = 0.012 + 0.0056 * len(label)
+                width = (0.012 + 0.0056 * len(label)) * shrink
                 b.ax.set_position([x, 0.035, width, 0.05])
-                x += width + 0.004
+                x += width + 0.004 * shrink
         many = self.document is not None and len(self.document.circuits) > 1
         self.btn_circ_prev.ax.set_visible(many)
         self.btn_circ_next.ax.set_visible(many)
@@ -409,24 +453,90 @@ class QDGVisualizer:
 
     def _place_lane_labels(self) -> None:
         """Wire names at the view's left edge, never under 9 screen pixels; a
-        wire a lint finding is about (QD07, an idle qubit) in red."""
+        wire a lint finding is about (QD07, an idle qubit) in red. While a
+        single criterion is a measurement that may be tied to others, the wires
+        it may be correlated with, and the unmeasured ones it may still be
+        entangled with, get a soft tint each. A qubit's name is clickable."""
         g, k = self.graph, self.view["k"]
         left = self.ax.get_xlim()[0] + 5 / k
         pad = 3 / k
-        paths, colors, boxes = [], [], []
+        correlated, entangled = self._correlated_wires()
+        paths, colors, boxes, faces = [], [], [], []
+        self._lane_hits = []
         for label, y, q in self.lane_names:
             size = max(10.0, 9.0 / k) * (1.0 if q is not None else 0.9)
             width = len(label) * self.glyphs.advance * size
             paths.append(self.glyphs.path(label, left + width / 2, y + 0.36 * size, size))
             flagged = q is not None and ((self.show_lint and g.lint_state == "done"
                                           and q in g.lint_by_qubit) or q in self.marked_qubits)
-            colors.append(SEVERITY_COLORS["error"] if flagged else TEXT_FAINT)
+            face = to_rgba(BG, 0.85)
+            color = TEXT_FAINT
+            if q in correlated:
+                color, face = CORRELATED, to_rgba(CORRELATED, 0.18)
+            elif q in entangled:
+                color, face = ENTANGLED, to_rgba(ENTANGLED, 0.14)
+            colors.append(SEVERITY_COLORS["error"] if flagged else color)
+            faces.append(face)
             top, bottom = y - 0.62 * size, y + 0.62 * size
             boxes.append([(left - pad, top), (left + width + pad, top),
                           (left + width + pad, bottom), (left - pad, bottom)])
+            if q is not None:
+                self._lane_hits.append((left - pad, left + width + pad, top, bottom, q))
         self.lane_text.set_paths(paths)
         self.lane_text.set_facecolor(colors or "none")
         self.lane_boxes.set_verts(boxes)
+        self.lane_boxes.set_facecolor(faces or "none")
+
+    def _correlated_wires(self):
+        """(qubits whose measurements may be correlated with the single
+        criterion, unmeasured qubits it may still be entangled with)."""
+        if self.criterion is None or self.criteria or self.direction == "chop":
+            return set(), set()
+        found = self.graph.correlation(self.criterion) or {}
+        return set(found.get("qubits") or ()), set(found.get("unmeasured") or ())
+
+    def lane_at(self, x: float, y: float) -> Optional[int]:
+        """The qubit whose wire name is under the point, if any."""
+        for x0, x1, y0, y1, q in self._lane_hits:
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                return q
+        return None
+
+    def _place_slice_legend(self) -> None:
+        """The criteria of several slices, one row each (number, colour, label,
+        size), kept at the top right of the view like the wire names."""
+        rows = self._ordered_criteria()
+        if not rows:
+            self.legend_boxes.set_verts([])
+            self.legend_text.set_paths([])
+            return
+        g, k = self.graph, self.view["k"]
+        (_, x1), (_, y0) = self.ax.get_xlim(), self.ax.get_ylim()
+        size = max(10.0, 9.0 / k)
+        line, pad, swatch = 1.45 * size, 6 / k, 0.8 * size
+        texts = [f"{number:>2}  #{idx} {g.short[idx]}  {int(self.criteria_masks[idx].sum()):,}"
+                 for number, idx in rows]
+        width = max(len(t) for t in texts) * self.glyphs.advance * size
+        right, top = x1 - 8 / k, y0 + 8 / k
+        left = right - width - swatch - 3 * pad
+        bottom = top + len(rows) * line + pad
+        boxes = [[(left, top), (right, top), (right, bottom), (left, bottom)]]
+        faces = [to_rgba(SURFACE, 0.92)]
+        paths = []
+        for row, ((number, _), text) in enumerate(zip(rows, texts)):
+            mid = top + pad / 2 + (row + 0.5) * line
+            sx = left + pad
+            boxes.append([(sx, mid - swatch / 2), (sx + swatch, mid - swatch / 2),
+                          (sx + swatch, mid + swatch / 2), (sx, mid + swatch / 2)])
+            faces.append(_PALETTE_RGBA[(number - 1) % len(SLICE_PALETTE)])
+            tx = sx + swatch + pad
+            paths.append(self.glyphs.path(text, tx + len(text) * self.glyphs.advance * size / 2,
+                                          mid + 0.36 * size, size))
+        self.legend_boxes.set_verts(boxes)
+        self.legend_boxes.set_facecolor(faces)
+        paths = [p for p in paths if p is not None]
+        self.legend_text.set_paths(paths)
+        self.legend_text.set_facecolor(TEXT if paths else "none")
 
     def _refresh_lint_lanes(self) -> None:
         g = self.graph
@@ -438,23 +548,121 @@ class QDGVisualizer:
     # =============================================================== actions ==
 
     def set_criterion(self, idx: Optional[int], reveal: bool = False) -> None:
-        """Slice from instruction ``idx`` (None clears the slice)."""
-        g = self.graph
-        self.criterion = idx
-        if idx is None:
-            self.slice_mask = None
-            self.slice_size = 0
+        """Slice from instruction ``idx`` (None clears the slice). In the chop
+        direction ``idx`` is the next end to pick instead: the operation first,
+        then the measurement to stop at."""
+        self.criteria, self.slice_stack = {}, None
+        self.notice = None
+        if self.direction == "chop":
+            if idx is None:
+                self.chop_from = self.chop_to = None
+            elif self.chop_from is None:
+                self.chop_from = idx
+            elif self.chop_to is None:
+                self.chop_to = idx
+            else:
+                self.chop_from, self.chop_to = idx, None
+            self.criterion = None
         else:
-            start = time.perf_counter()
-            follow = None if len(self.follow) == len(DEPENDENCIES) else self.follow
-            ids = g.slice(idx, self.direction, follow)
-            mask = np.zeros(g.n, dtype=bool)
-            mask[list(ids)] = True
-            self.slice_mask = mask
-            self.slice_size = len(ids)
-            self.timings["slice"] = time.perf_counter() - start
-            if reveal:
-                self.reveal([idx])
+            self.chop_from = self.chop_to = None
+            self.criterion = idx
+        self._recompute()
+        if reveal and idx is not None:
+            self.reveal([idx])
+        self._changed()
+
+    def toggle_criterion(self, idx: int, reveal: bool = False) -> None:
+        """One more backward slice, from ``idx``, or one less if it is one
+        already (ctrl- or shift-click). The single slice there was, if it was
+        a backward one, becomes the first of them."""
+        self.notice = None
+        if not self.criteria:
+            seed = self.criterion if self.direction == "backward" else None
+            self.criteria = {seed: 1} if seed is not None else {}
+            self.criteria_masks = {}
+        if self.direction != "backward":
+            self._set_direction_label("backward")
+        self.criterion = None
+        self.chop_from = self.chop_to = None
+        if idx in self.criteria:
+            del self.criteria[idx]
+        elif len(self.criteria) >= MAX_SLICES:
+            self.notice = f"At most {MAX_SLICES} slices at once: remove one first."
+        else:
+            used = set(self.criteria.values())
+            self.criteria[idx] = next(n for n in range(1, MAX_SLICES + 1) if n not in used)
+        self._recompute()
+        if reveal:
+            self.reveal([idx])
+        self._changed()
+
+    def slice_qubit(self, qubit: int, add: bool = False) -> None:
+        """Slice on a qubit: backward from its last measurement. ``add`` makes
+        it one more of several slices; in the chop direction it is the end."""
+        idx = self.graph.qubit_criterion(qubit)
+        if idx is None:
+            self.notice = f"q{qubit} is never measured, so there is no measurement to slice from."
+            self._update_text()
+            self._redraw()
+            return
+        if add:
+            self.toggle_criterion(idx, reveal=True)
+        elif self.direction == "chop":
+            self.criteria, self.slice_stack, self.notice = {}, None, None
+            self.chop_to = idx
+            self._recompute()
+            self.reveal([idx])
+            self._changed()
+        else:
+            if self.direction != "backward":
+                self._set_direction_label("backward")
+            self.set_criterion(idx, reveal=True)
+
+    def _follow(self):
+        return None if len(self.follow) == len(DEPENDENCIES) else self.follow
+
+    def _ordered_criteria(self) -> List[tuple]:
+        """(number, instruction) of each of several slices, by number."""
+        return sorted((number, idx) for idx, number in self.criteria.items())
+
+    def _recompute(self) -> None:
+        """The slice mask for what is selected: one slice, several, or a chop."""
+        g = self.graph
+        start = time.perf_counter()
+        follow = self._follow()
+        self.slice_stack = None
+        if self.criteria:
+            missing = [idx for idx in self.criteria if idx not in self.criteria_masks]
+            for idx, ids in g.slices(missing, follow).items():
+                mask = np.zeros(g.n, dtype=bool)
+                mask[list(ids)] = True
+                self.criteria_masks[idx] = mask
+            for idx in list(self.criteria_masks):
+                if idx not in self.criteria:
+                    del self.criteria_masks[idx]
+            self.slice_stack = np.stack([self.criteria_masks[idx]
+                                         for _, idx in self._ordered_criteria()])
+            self.slice_mask = self.slice_stack.any(axis=0)
+        elif self.direction == "chop" and self.chop_from is not None \
+                and self.chop_to is not None:
+            ids = g.chop(self.chop_from, self.chop_to, follow)
+            self.slice_mask = np.zeros(g.n, dtype=bool)
+            self.slice_mask[list(ids)] = True
+        elif self.criterion is not None:
+            ids = g.slice(self.criterion, self.direction, follow)
+            self.slice_mask = np.zeros(g.n, dtype=bool)
+            self.slice_mask[list(ids)] = True
+        else:
+            self.slice_mask = None
+        self.slice_size = int(self.slice_mask.sum()) if self.slice_mask is not None else 0
+        self.timings["slice"] = time.perf_counter() - start
+
+    def _changed(self) -> None:
+        """What was selected changed: text, wire names, overview, the view."""
+        self._place_lane_labels()
+        self._place_slice_legend()
+        if self.hovered is not None:
+            self.hover.set_text(self._card(self.hovered))
         self._overview_dirty = True
         self._update_text()
         self._rebuild()
@@ -462,20 +670,42 @@ class QDGVisualizer:
 
     def step(self, delta: int) -> None:
         n = self.graph.n
-        if self.criterion is None:
-            idx = 0 if delta > 0 else n - 1
-        else:
-            idx = (self.criterion + delta) % n
+        current = self.criterion
+        if current is None and self.criteria:
+            current = self._ordered_criteria()[-1][1]
+        if current is None and self.direction == "chop":
+            current = self.chop_to if self.chop_to is not None else self.chop_from
+            self.chop_from = self.chop_to = None     # step the operation, a new chop
+        idx = (0 if delta > 0 else n - 1) if current is None else (current + delta) % n
         self.set_criterion(idx, reveal=True)
 
     def toggle_direction(self) -> None:
-        self.set_direction("forward" if self.direction == "backward" else "backward")
+        self.set_direction(DIRECTIONS[(DIRECTIONS.index(self.direction) + 1) % len(DIRECTIONS)])
 
-    def set_direction(self, direction: str) -> None:
+    def _set_direction_label(self, direction: str) -> None:
         self.direction = direction
         self.btn_dir.label.set_text(direction.capitalize())
         self._chrome_changed = True
-        self.set_criterion(self.criterion)
+
+    def set_direction(self, direction: str) -> None:
+        """Backward, forward or chop. What was selected carries over: the
+        criterion becomes the chop's operation, and a chop's end the criterion."""
+        if direction == self.direction:
+            return
+        current = self.criterion
+        if self.criteria:
+            current = self._ordered_criteria()[-1][1]
+        if self.direction == "chop":
+            current = self.chop_to if self.chop_to is not None else self.chop_from
+        self._set_direction_label(direction)
+        self.criteria, self.slice_stack, self.notice = {}, None, None
+        self.chop_from = self.chop_to = None
+        if direction == "chop":
+            self.criterion, self.chop_from = None, current
+        else:
+            self.criterion = current
+        self._recompute()
+        self._changed()
 
     def toggle_dependency(self, dep) -> None:
         if dep in self.follow:
@@ -484,7 +714,16 @@ class QDGVisualizer:
         else:
             self.follow.add(dep)
         self._refresh_chips()
-        self.set_criterion(self.criterion)
+        self.criteria_masks = {}
+        self._recompute()
+        self._changed()
+
+    def toggle_mirrors(self) -> None:
+        """Every mirror arc with an end in view, or (the default) only those of
+        the hovered instruction and of the criteria."""
+        self.show_mirrors = not self.show_mirrors
+        self._rebuild()
+        self._redraw()
 
     def _refresh_chips(self) -> None:
         self._chrome_changed = True
@@ -550,6 +789,8 @@ class QDGVisualizer:
         self.finding = None
         self.marked = np.zeros(self.graph.n, dtype=bool)
         self.marked_qubits = set()
+        self.criteria, self.criteria_masks = {}, {}
+        self.chop_from = self.chop_to = None
         self._refresh_lint_lanes()
         self.set_criterion(None)
 
@@ -641,6 +882,7 @@ class QDGVisualizer:
         finally:
             self._syncing = False
         self._place_lane_labels()
+        self._place_slice_legend()
         x0, x1 = v["cx"] - half_w, v["cx"] + half_w
         win = self.window
         if force or win is None or win[2] != v["k"] or x0 < win[0] or x1 > win[1]:
@@ -764,11 +1006,36 @@ class QDGVisualizer:
         edge = np.tile(to_rgba(INK), (len(ids), 1))
         lw = np.full(len(ids), 1.5)
         dashed = np.zeros(len(ids), bool)
-        if self.slice_mask is not None:
+        stack = self.slice_stack[:, ids] if self.slice_stack is not None else None
+        several = np.zeros(len(ids), bool)
+        if stack is not None:
+            # One slice: its colour. Several: a neutral face and a stripe each.
+            count = stack.sum(axis=0)
+            numbers = np.array([number for number, _ in self._ordered_criteria()])
+            one = count == 1
+            if one.any():
+                row = np.argmax(stack[:, one], axis=0)
+                face[one] = _PALETTE_RGBA[(numbers[row] - 1) % len(SLICE_PALETTE)]
+            several = count >= 2
+            face[several] = to_rgba(SHARED_SLICE)
+            edge[in_slice] = to_rgba(TEXT)
+        elif self.slice_mask is not None:
             face[in_slice] = to_rgba(IN_SLICE)
             edge[in_slice] = to_rgba(TEXT)
         crit = ids == self.criterion if self.criterion is not None else np.zeros(len(ids), bool)
         face[crit] = to_rgba(CRITERION)
+        if self.criteria:
+            crit = np.isin(ids, list(self.criteria))
+        # A chop's two ends stay marked, and undimmed, even when it is empty.
+        ends = {}
+        if self.direction == "chop":
+            ends = {i: name for i, name in ((self.chop_from, "from"), (self.chop_to, "to"))
+                    if i is not None}
+            for i, color in ((self.chop_to, CHOP_TO), (self.chop_from, CHOP_FROM)):
+                if i is not None and span.start <= i < span.stop:
+                    face[i - span.start] = to_rgba(color)
+            crit = np.isin(ids, list(ends))
+            dimmed &= ~crit
         edge[crit] = (1, 1, 1, 1)
         lw[crit] = 2.5
         hov = ids == self.hovered if self.hovered is not None else np.zeros(len(ids), bool)
@@ -875,6 +1142,85 @@ class QDGVisualizer:
         self.badge_text.set_paths(marks)
         self.badge_text.set_facecolor([to_rgba(INK, float(alpha[j])) for j in badge_j][:len(marks)]
                                       or "none")
+
+        # ---- several slices: a stripe per slice along the top of the box -
+        stripe_boxes, stripe_rgba = [], []
+        pill_boxes, pill_face, pill_edge, pill_paths, pill_colors = [], [], [], [], []
+        if stack is not None:
+            numbers = [number for number, _ in self._ordered_criteria()]
+            for j in np.flatnonzero(several):
+                rows = np.flatnonzero(stack[:, j])
+                extra = len(rows) - MAX_STRIPES
+                rows = rows[:MAX_STRIPES]
+                x0 = g.left[ids[j]] + 5
+                x1 = g.right[ids[j]] - 5 - (14 if extra > 0 else 0)
+                top = ys[j] - NODE_H / 2 + 2.5
+                step = (x1 - x0) / len(rows)
+                for m, row in enumerate(rows):
+                    sx = x0 + m * step
+                    stripe_boxes.append([(sx, top), (sx + step - 1, top),
+                                         (sx + step - 1, top + 4.5), (sx, top + 4.5)])
+                    rgba = list(_PALETTE_RGBA[(numbers[row] - 1) % len(SLICE_PALETTE)])
+                    rgba[3] *= alpha[j]
+                    stripe_rgba.append(rgba)
+                if extra > 0 and k >= LOD_TEXT:
+                    pill_paths.append(self.glyphs.path(f"+{extra}", x1 + 7, top + 6, 8))
+                    pill_colors.append(to_rgba(INK, float(alpha[j])))
+        self.stripes.set_verts(stripe_boxes)
+        self.stripes.set_facecolor(stripe_rgba or "none")
+        self.drawn_stripes = len(stripe_boxes)
+
+        # ---- small marks: which slice or chop end a node is, on its top
+        # left corner; what the insight passes found, on its bottom left ----
+        def pill(j, text, y, face_rgba, edge_rgba, text_rgba, x):
+            width = len(text) * self.glyphs.advance * 8 + 5
+            pill_boxes.append([(x, y - 5), (x + width, y - 5), (x + width, y + 5), (x, y + 5)])
+            a = float(alpha[j])
+            pill_face.append(to_rgba(face_rgba, to_rgba(face_rgba)[3] * a))
+            pill_edge.append(to_rgba(edge_rgba, a))
+            pill_paths.append(self.glyphs.path(text, x + width / 2, y + 2.9, 8))
+            pill_colors.append(to_rgba(text_rgba, a))
+            return x + width + 2
+
+        if k >= LOD_TEXT:
+            tags = {idx: (str(number), SLICE_PALETTE[(number - 1) % len(SLICE_PALETTE)])
+                    for idx, number in self.criteria.items()}
+            tags.update({idx: (name, CHOP_FROM if name == "from" else CHOP_TO)
+                         for idx, name in ends.items()})
+            for idx, (text, color) in tags.items():
+                if span.start <= idx < span.stop:
+                    j = idx - span.start
+                    pill(j, text, ys[j] - NODE_H / 2, color, INK, INK, g.left[idx] + 3)
+        marks_on = k >= LOD_LABELS
+        if marks_on:
+            for j, idx in enumerate(ids):
+                x = g.left[idx] + 3
+                for text, kind in g.marks(int(idx)):
+                    x = pill(j, text, ys[j] + NODE_H / 2, BG_SUNKEN, MARK_COLORS[kind],
+                             MARK_COLORS[kind], x)
+        self.pills.set_verts(pill_boxes)
+        self.pills.set_facecolor(pill_face or "none")
+        self.pills.set_edgecolor(pill_edge or "none")
+        self.pills.set_linewidth(_pt(1, k, dpi))
+        keep = [i for i, p in enumerate(pill_paths) if p is not None]
+        self.pill_text.set_paths([pill_paths[i] for i in keep])
+        self.pill_text.set_facecolor([pill_colors[i] for i in keep] or "none")
+        self.drawn_marks = len(pill_boxes)
+
+        # ---- mirror arcs: the hovered node's and the criteria's pairs, and
+        # with the toggle on, every pair with an end in the drawn window ----
+        focus = [i for i in (self.hovered, self.criterion, self.chop_from, self.chop_to)
+                 if i is not None] + list(self.criteria)
+        near = g.mirrors_of(focus)
+        pairs = list(dict.fromkeys(near + (g.mirrors_in(span).tolist() if self.show_mirrors
+                                           else [])))
+        self.arcs.set_segments(list(g.mirror_arcs(pairs)))
+        lit = len(near)
+        arc_rgba = [to_rgba(ACCENT, 0.95)] * lit + [to_rgba(MIRROR, 0.45)] * (len(pairs) - lit)
+        self.arcs.set_color(arc_rgba or "none")
+        self.arcs.set_linewidth([_pt(1.8, k, dpi)] * lit + [_pt(1.1, k, dpi)] * (len(pairs) - lit)
+                                or _pt(1.1, k, dpi))
+        self.drawn_arcs = len(pairs)
         self.drawn_nodes = len(ids)
         self.timings["rebuild"] = time.perf_counter() - start
 
@@ -985,12 +1331,22 @@ class QDGVisualizer:
                 inside = self.slice_mask[owner]
                 color[inside] = to_rgba(IN_SLICE)
                 priority[inside] = 1
+                if self.slice_stack is not None:
+                    # Several slices: each mark in the colour of the first that holds it.
+                    held = self.slice_stack[:, owner]
+                    numbers = np.array([number for number, _ in self._ordered_criteria()])
+                    first = numbers[np.argmax(held, axis=0)]
+                    color[inside] = _PALETTE_RGBA[(first[inside] - 1) % len(SLICE_PALETTE)]
             marked = self.marked[owner]
             color[marked] = to_rgba(ACCENT)
             priority[marked] = 2
-            if self.criterion is not None:
-                crit = owner == self.criterion
-                color[crit] = to_rgba(CRITERION)
+            ends = [(i, CRITERION) for i in (self.criterion, self.chop_from) if i is not None]
+            ends += [(self.chop_to, CHOP_TO)] if self.chop_to is not None else []
+            ends += [(i, SLICE_PALETTE[(n - 1) % len(SLICE_PALETTE)])
+                     for i, n in self.criteria.items()]
+            for i, end_color in ends:
+                crit = owner == i
+                color[crit] = to_rgba(end_color)
                 priority[crit] = 3
             order = np.argsort(priority, kind="stable")
             image[r[order], c[order]] = color[order]
@@ -1042,7 +1398,7 @@ class QDGVisualizer:
             self._jump(event.xdata)
         elif event.inaxes is self.ax:
             self._press = {"x": event.x, "y": event.y, "cx": self.view["cx"],
-                           "cy": self.view["cy"], "moved": False}
+                           "cy": self.view["cy"], "moved": False, "key": event.key or ""}
 
     def _on_motion(self, event) -> None:
         press = self._press
@@ -1060,9 +1416,11 @@ class QDGVisualizer:
                 self._apply_view()
             return
         if event.inaxes is not self.ax or event.xdata is None:
+            self._pointer = None
             if self.hovered is not None:
                 self._set_hover(None)
             return
+        self._pointer = (event.xdata, event.ydata)
         self._set_hover(self.graph.node_at(event.xdata, event.ydata))
 
     def _on_release(self, event) -> None:
@@ -1070,9 +1428,18 @@ class QDGVisualizer:
         if press is None or press.get("overview") or press["moved"]:
             return
         if event.inaxes is self.ax and event.xdata is not None:
+            key = (press.get("key") or "") + " " + (event.key or "")
+            add = any(m in key for m in ("control", "ctrl", "shift"))
+            qubit = self.lane_at(event.xdata, event.ydata)
+            if qubit is not None:
+                self.slice_qubit(qubit, add=add)
+                return
             idx = self.graph.node_at(event.xdata, event.ydata)
             if idx is not None:
-                self.set_criterion(idx)
+                if add:
+                    self.toggle_criterion(idx)
+                else:
+                    self.set_criterion(idx)
 
     def _on_scroll(self, event) -> None:
         if event.inaxes not in (self.ax, self.ax_over):
@@ -1089,6 +1456,13 @@ class QDGVisualizer:
             self.pan(0, -step * height / k * 0.15)
         else:
             self.pan(-step * width / k * 0.2)
+
+    def _slice_pointer_wire(self, add: bool) -> None:
+        """Slice on the qubit whose wire is under the pointer."""
+        pointer = getattr(self, "_pointer", None)
+        qubit = self.graph.qubit_at(pointer[1]) if pointer is not None else None
+        if qubit is not None:
+            self.slice_qubit(qubit, add=add)
 
     def _jump(self, x: float) -> None:
         self.view["cx"] = x
@@ -1128,10 +1502,28 @@ class QDGVisualizer:
         where = g.where(idx)
         if where:
             lines.append(where)
-        if self.slice_mask is not None:
+        state = None
+        if self.criteria:
+            held = zip(self._ordered_criteria(), self.slice_stack[:, idx])
+            numbers = [str(number) for (number, _), row in held if row]
+            state = f"criterion of slice {self.criteria[idx]}" if idx in self.criteria else ""
+            inside = (f"in slice{'s' if len(numbers) > 1 else ''} {', '.join(numbers)}"
+                      if numbers else "outside every slice")
+            state = f"{state}, {inside}" if state else inside
+        elif self.direction == "chop" and (self.chop_from is not None or self.chop_to is not None):
+            if idx == self.chop_from:
+                state = "chop: from"
+            elif idx == self.chop_to:
+                state = "chop: to"
+            elif self.slice_mask is not None:
+                state = "on the chop" if self.slice_mask[idx] else "outside the chop"
+        elif self.slice_mask is not None:
             state = ("criterion" if idx == self.criterion else
                      "in the slice" if self.slice_mask[idx] else "outside the slice")
+        if state:
             lines.append(state)
+        for note in g.notes(idx):
+            lines.extend(textwrap.wrap(note, 84))
         findings = g.lint_by_node.get(idx, []) if self.show_lint else []
         for finding in findings[:4]:
             message = finding["message"]
@@ -1149,7 +1541,11 @@ class QDGVisualizer:
             "right": lambda: self.step(1), "left": lambda: self.step(-1),
             "b": lambda: self.set_direction("backward"),
             "f": lambda: self.set_direction("forward"),
+            "c": lambda: self.set_direction("chop"),
             "d": self.toggle_direction, "l": self.toggle_lint,
+            "m": self.toggle_mirrors,
+            "w": lambda: self._slice_pointer_wire(False),
+            "W": lambda: self._slice_pointer_wire(True),
             "]": lambda: self.step_finding(1), "[": lambda: self.step_finding(-1),
             ".": lambda: self.step_circuit(1), ",": lambda: self.step_circuit(-1),
             "+": lambda: self.zoom(1.25), "=": lambda: self.zoom(1.25),
@@ -1183,15 +1579,43 @@ class QDGVisualizer:
         counts = f"{g.n:,} instructions, {len(g.edge_source):,} edges, {g.num_qubits} qubits"
         if g.num_clbits:
             counts += f", {g.num_clbits} clbits"
-        if self.criterion is None:
+        follow = "" if len(self.follow) == len(DEPENDENCIES) else \
+            "  following " + " ".join(d.name for d in DEPENDENCIES if d in self.follow)
+
+        def node(i):
+            return f"#{i} {g.short[i]}"
+        if self.criteria:
+            rows = self._ordered_criteria()
+            shared = int((self.slice_stack.sum(axis=0) >= 2).sum())
+            status = (f"{len(rows)} backward slice{'s' if len(rows) > 1 else ''}: "
+                      f"{self.slice_size:,} of {g.n:,} instructions in at least one, "
+                      f"{shared:,} in several{follow}   (ctrl+click adds or removes one)")
+        elif self.direction == "chop":
+            if self.chop_from is not None and self.chop_to is not None:
+                head = f"Chop from {node(self.chop_from)} to {node(self.chop_to)}: "
+                status = head + ("This operation cannot affect that measurement."
+                                 if not self.slice_size else
+                                 f"{self.slice_size:,} of {g.n:,} instructions on a path "
+                                 f"between them{follow}")
+            elif self.chop_from is not None:
+                status = (f"Chop from {node(self.chop_from)}: now click the measurement to "
+                          f"stop at, or a wire name")
+            elif self.chop_to is not None:
+                status = f"Chop to {node(self.chop_to)}: now click the operation to start from"
+            else:
+                status = (f"{counts}.  Chop: click the operation to start from, then the "
+                          f"measurement to stop at")
+        elif self.criterion is None:
             status = f"{counts}.  Click an instruction to slice from it  (? for keys)"
         else:
             where = f", line {g.lines[self.criterion]}" if g.lines[self.criterion] else ""
-            follow = "" if len(self.follow) == len(DEPENDENCIES) else \
-                "  following " + " ".join(d.name for d in DEPENDENCIES if d in self.follow)
-            status = (f"{self.direction.capitalize()} slice from #{self.criterion} "
-                      f"{g.short[self.criterion]}{where}: {self.slice_size:,} of {g.n:,} "
-                      f"instructions{follow}")
+            status = (f"{self.direction.capitalize()} slice from {node(self.criterion)}"
+                      f"{where}: {self.slice_size:,} of {g.n:,} instructions{follow}")
+            notes = g.correlation_notes(self.criterion)
+            if notes:
+                status += "   " + " ".join(notes)
+        if self.notice:
+            status = self.notice
         self.status_text.set_text(status)
 
         if g.lint_state == "off":

@@ -11,6 +11,7 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.backend_bases import KeyEvent, MouseEvent  # noqa: E402
+from matplotlib.colors import to_rgba  # noqa: E402
 
 import qslicer  # noqa: E402
 from qslicer.cli import main as cli_main  # noqa: E402
@@ -210,6 +211,23 @@ def test_shor_draws_only_what_is_in_view(shor):
     assert view.drawn_nodes and max(view.graph.nodes_in(*view.window[:2])) == g.n - 1
 
 
+def test_shor_with_every_mirror_arc_still_draws_only_what_is_in_view(shor):
+    """The mirror toggle on: arcs only for pairs with an end in the drawn window."""
+    view = _view(shor)
+    g = view.graph
+    assert len(g.mirror_first) > 1000                 # thousands of pairs in the circuit
+    view.toggle_mirrors()
+    window = g.nodes_in(*view.window[:2])
+    assert view.drawn_arcs == len(g.mirrors_in(window)) and 0 < view.drawn_arcs < 300
+    assert 0 < view.drawn_nodes < 300 and view.drawn_edges < 1000 and view.drawn_marks < 300
+    view.zoom(0.01)
+    assert view.drawn_nodes < 400 and view.drawn_arcs < 600 and view.drawn_marks == 0
+    for idx in (g.n - 1, g.n // 2, 100):
+        view.toggle_criterion(idx)
+    assert view.drawn_stripes < 2000
+    assert len(view.ax.get_children()) < 40           # the collections are reused, not added
+
+
 def test_shor_circuit_picker_and_lint(shor):
     view = _view(shor)
     assert len(shor.circuits) == 11
@@ -232,6 +250,205 @@ def test_blitting_redraws_over_the_saved_background(shor, tmp_path):
     out = tmp_path / "shor.png"
     view.fig.savefig(out)                      # draws the animated parts too
     assert out.stat().st_size > 50_000 and view.ax.get_animated()
+
+
+# ------------------------------------------------- slices and insights --
+
+KICKBACK = os.path.join(EXAMPLES, "phase_kickback.py")
+UNMEASURED = """from qiskit import QuantumCircuit
+qc = QuantumCircuit(3, 1)
+qc.h(0)
+qc.cx(0, 1)
+qc.t(2)
+qc.cz(0, 2)
+qc.measure(0, 0)
+"""
+
+
+def _click(view, x, y, key=None):
+    canvas = view.fig.canvas
+    x, y = view.ax.transData.transform((x, y))
+    for name in ("button_press_event", "button_release_event"):
+        canvas.callbacks.process(name, MouseEvent(name, canvas, x, y, button=1, key=key))
+
+
+def test_slice_on_a_measured_qubit_by_its_wire_name():
+    view = _view(model.Document(TELEPORT, lint=False))
+    g = view.graph
+    hit = next(h for h in view._lane_hits if h[4] == 2)
+    _click(view, (hit[0] + hit[1]) / 2, (hit[2] + hit[3]) / 2)
+    assert view.criterion == 12 and g.names[12] == "measure"      # q2's last measurement
+    assert view.slice_size == len(qslicer.backward_slice(view.document._first, 12))
+    # It may be correlated with q0's and q1's measurements: said, and the wires tinted.
+    assert "May be correlated with the measurements of q0, q1." in view.status_text.get_text()
+    assert view._correlated_wires() == ({0, 1}, set())
+    labels = view.lane_text.get_facecolor()
+    assert np.allclose(labels[0], to_rgba(model.CORRELATED))
+    assert np.allclose(labels[1], to_rgba(model.CORRELATED))
+    assert not np.allclose(labels[2], to_rgba(model.CORRELATED))
+
+
+def test_slice_on_an_unmeasured_qubit_says_so_and_changes_nothing(tmp_path):
+    path = tmp_path / "unmeasured.py"
+    path.write_text(UNMEASURED, encoding="utf-8")
+    view = _view(model.Document(str(path), lint=False))
+    view.set_criterion(1)
+    view.slice_qubit(2)
+    assert view.status_text.get_text() == \
+        "q2 is never measured, so there is no measurement to slice from."
+    assert view.criterion == 1 and not view.criteria
+    view.slice_qubit(0)
+    assert view.criterion == view.graph.n - 1
+    # The measurement of q0 may still be entangled with q1 and q2, never measured.
+    assert view._correlated_wires()[1] and "unmeasured" in view.status_text.get_text()
+
+
+def test_several_slices_with_a_colour_and_a_number_each():
+    view = _view(model.Document(TELEPORT, lint=False))
+    g = view.graph
+    _click(view, g.x[12], g.y[12])                      # a plain click: one slice
+    _click(view, g.x[7], g.y[7], key="control")         # ctrl: one more
+    _click(view, g.x[6], g.y[6], key="shift")           # shift works too
+    assert view.criteria == {12: 1, 7: 2, 6: 3} and view.criterion is None
+    slices = {c: qslicer.backward_slice(view.document._first, c) for c in (12, 7, 6)}
+    for row, c in enumerate((12, 7, 6)):
+        assert set(np.flatnonzero(view.slice_stack[row])) == slices[c]
+    # A node in exactly one slice has that slice's colour; one in several, stripes.
+    only_12 = (slices[12] - slices[7] - slices[6]).pop()
+    rgba = view.boxes.get_facecolor()[only_12 - view.graph.nodes_in(*view.window[:2]).start]
+    assert np.allclose(rgba, to_rgba(model.SLICE_PALETTE[0]))
+    shared = sum(1 for i in range(g.n) if sum(i in s for s in slices.values()) >= 2)
+    stripes = sum(min(model.MAX_STRIPES, sum(i in s for s in slices.values()))
+                  for i in range(g.n) if sum(i in s for s in slices.values()) >= 2)
+    assert view.drawn_stripes == stripes and shared
+    assert view.legend_text.get_paths() and len(view.legend_boxes.get_paths()) == 4
+    assert "in slices" in view._card(4)
+    # Taking one out keeps the others' numbers (and colours); the next gets the free one.
+    _click(view, g.x[7], g.y[7], key="control")
+    assert view.criteria == {12: 1, 6: 3}
+    assert set(np.flatnonzero(view.slice_stack[1])) == slices[6]
+    view.toggle_criterion(9)
+    assert view.criteria[9] == 2
+    # A plain click goes back to one slice.
+    _click(view, g.x[3], g.y[3])
+    assert view.criteria == {} and view.criterion == 3 and view.slice_stack is None
+
+
+def test_at_most_sixteen_slices():
+    view = _view(model.Document(SHOR, lint=False))
+    for idx in range(17):
+        view.toggle_criterion(idx)
+    assert len(view.criteria) == 16 and "At most 16" in view.status_text.get_text()
+    assert sorted(view.criteria.values()) == list(range(1, 17))
+
+
+def test_chop_from_an_operation_to_a_measurement():
+    view = _view(model.Document(TELEPORT, lint=False))
+    g = view.graph
+    canvas = view.fig.canvas
+    canvas.callbacks.process("key_press_event", KeyEvent("key_press_event", canvas, "c"))
+    assert view.direction == "chop" and view.btn_dir.label.get_text() == "Chop"
+    _click(view, g.x[0], g.y[0])
+    assert view.chop_from == 0 and view.chop_to is None and view.slice_mask is None
+    hit = next(h for h in view._lane_hits if h[4] == 2)
+    _click(view, (hit[0] + hit[1]) / 2, (hit[2] + hit[3]) / 2)    # the wire name: q2's measurement
+    assert view.chop_to == 12
+    chop = qslicer.QuantumSlicer.chop(g.qdg, 0, 12)
+    assert chop and set(np.flatnonzero(view.slice_mask)) == chop
+    assert "on a path between them" in view.status_text.get_text()
+    assert "chop: from" in view._card(0) and "chop: to" in view._card(12)
+    texts = sorted(len(p.vertices) for p in view.pill_text.get_paths())
+    assert len(texts) >= 2                                         # "from" and "to" tags
+
+
+def test_an_empty_chop_says_so_and_keeps_both_ends():
+    view = _view(model.Document(TELEPORT, lint=False))
+    g = view.graph
+    view.set_direction("chop")
+    view.set_criterion(12)      # a measurement at the end cannot affect the first gate
+    view.set_criterion(0)
+    assert (view.chop_from, view.chop_to) == (12, 0)
+    assert view.slice_size == 0 and not view.slice_mask.any()
+    assert view.status_text.get_text().endswith("This operation cannot affect that measurement.")
+    faces = view.boxes.get_facecolor()
+    start = g.nodes_in(*view.window[:2]).start
+    assert faces[12 - start][3] == 1 and faces[0 - start][3] == 1     # the ends are not dimmed
+    assert faces[5 - start][3] < 1                                     # the rest is
+
+
+def test_node_marks_and_what_they_say():
+    view = _view(model.Document(KICKBACK, lint=False))
+    g = view.graph
+    marks = {idx: [kind for _, kind in g.marks(idx)] for idx in range(g.n)}
+    assert marks[3] == ["kickback"] and marks[5] == ["always"]
+    assert view.drawn_marks == sum(len(m) for m in marks.values())
+    card = view._card(3).replace("\n", " ")
+    assert ("Phase kickback: the target is left as it is and the phase lands on control q0."
+            in card)
+    assert "This measurement always gives 1: the qubit is provably |1> here." in \
+        view._card(5).replace("\n", " ")
+    view.zoom(0.01)                       # small decorations go at low zoom
+    assert view.drawn_marks == 0
+
+
+def test_phase_only_and_no_effect_notes():
+    g = model.Document(SHOWCASE, lint=False).graph()
+    cz = g.names.index("cz")
+    notes = " ".join(g.notes(cz))
+    assert notes.startswith("Phase only: this gate cannot change a measurement outcome until a "
+                            "non-diagonal gate follows on this wire. It can still entangle.")
+    assert "No effect here: an operand is |0>, so no phase is applied." in notes
+    assert ("phase" in [kind for _, kind in g.marks(cz)])
+    t = model.Document(TELEPORT, lint=False).graph()
+    rz = t.names.index("rz")
+    assert t.notes(rz)[0].endswith("follows on this wire.")            # one qubit: no entangling
+
+
+def test_mirror_arcs_for_the_hovered_node_the_criterion_and_the_toggle():
+    view = _view(model.Document(SHOWCASE, lint=False))
+    g = view.graph
+    assert [g.mirror_first.tolist(), g.mirror_second.tolist()] == [[1], [2]]
+    assert view.drawn_arcs == 0                      # none by default
+    assert "mirrors #2 (x q1)" in view._card(1) and "cancel" not in view._card(1)
+    view._set_hover(2)
+    assert view.drawn_arcs == 1
+    view._set_hover(0)
+    assert view.drawn_arcs == 0
+    view.set_criterion(1)
+    assert view.drawn_arcs == 1
+    view.clear()
+    canvas = view.fig.canvas
+    canvas.callbacks.process("key_press_event", KeyEvent("key_press_event", canvas, "m"))
+    assert view.show_mirrors and view.drawn_arcs == 1
+    arc = view.arcs.get_segments()[0]
+    assert arc[:, 1].min() < g.y[1] - model.NODE_H / 2                # above the boxes
+
+
+def test_control_dependence_of_an_if_test_has_a_chip_and_can_be_ignored():
+    view = _view(model.Document(TELEPORT, lint=False))
+    g = view.graph
+    control = model.DependencyType.CONTROL_CLASSICAL
+    assert g.names[8] == "if_else" and not g.qubits[8]
+    assert g.dependency_counts()[control] == 2
+    chip = view.dep_buttons[model.DEPENDENCIES.index(control)]
+    assert chip.ax.get_visible() and "CONTROL_CLASSICAL" in chip.label.get_text()
+    assert chip.ax.get_position().x1 <= 1.0                            # on screen
+    view.set_criterion(9)                     # the x inside the first if_test
+    assert view.slice_mask[8]
+    view.toggle_dependency(control)
+    assert not view.slice_mask[8]
+
+
+def test_insights_failing_means_nothing_found(monkeypatch):
+    import qslicer.insights.summary as summary
+
+    def boom(_program):
+        raise RuntimeError("no")
+    monkeypatch.setattr(summary, "summarize", boom)
+    g = model.Document(KICKBACK, lint=False).graph()
+    assert g.insights["kickback"] == {} and g.marks(3) == [] and len(g.mirror_first) == 0
+    view = _view(g.qdg)
+    assert view.drawn_nodes == g.n
 
 
 # ------------------------------------------------------------------ CLI --

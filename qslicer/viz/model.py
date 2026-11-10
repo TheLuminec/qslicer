@@ -10,6 +10,11 @@ The layout and the colors are the web page's (``webapp/static/js/graph.js``
 and ``style.css``): instruction index across, qubit wire down, one wire per
 classical bit under the qubits. Coordinates are the page's content pixels,
 with y growing downward.
+
+What ``qslicer.insights`` finds (phase-only gates, kickback, predetermined
+and correlated measurements, mirrored pairs) is worked out once per circuit,
+on first use, and turned into marks, card text and mirror arcs here; the
+wording is the web page's.
 """
 
 import ast
@@ -85,6 +90,34 @@ CLASSICAL_SIDE = {DependencyType.MEASUREMENT: -1, DependencyType.DATA_CLASSICAL:
 
 SEVERITY_RANK = {"info": 1, "warning": 2, "error": 3}
 SEVERITY_NAME = {rank: name for name, rank in SEVERITY_RANK.items()}
+
+# Several backward slices at once: a colour per slice, cycling after eight
+# (the Okabe-Ito set, told apart with most kinds of colour blindness).
+SLICE_PALETTE = ("#56B4E9", "#E69F00", "#009E73", "#F0E442",
+                 "#0072B2", "#D55E00", "#CC79A7", "#E8E8E8")
+MAX_SLICES = 16
+SHARED_SLICE = "#bac2de"   # a node in several slices: this face, and a stripe per slice
+MAX_STRIPES = 4
+CHOP_FROM = CRITERION
+CHOP_TO = "#f5c2e7"
+
+# The small marks under a node, and the wires a measurement may be tied to.
+MARK_COLORS = {"phase": "#94e2d5", "kickback": "#f5c2e7", "always": "#fab387"}
+CORRELATED = ACCENT        # a wire whose measurement may be correlated with the criterion
+ENTANGLED = "#cba6f7"      # an unmeasured wire it may still be entangled with
+MIRROR = TEXT_DIM
+
+# Mirror arcs: height above the box's top edge, growing with the pair's depth.
+ARC_BASE, ARC_STEP, ARC_MAX_DEPTH = 14.0, 9.0, 6
+ARC_POINTS = 24
+
+_EMPTY_INSIGHTS: Dict[str, Any] = {"measurements": {}, "mirrors": [], "kickback": {},
+                                   "no_effect": {}, "predetermined": {}, "correlations": {},
+                                   "guards": {}}
+
+
+def _qubit_list(qubits: Iterable[int]) -> str:
+    return ", ".join(f"q{q}" for q in qubits)
 
 
 def short_label(name: str, qubits: Sequence[int]) -> str:
@@ -199,6 +232,11 @@ class Graph:
         self.content_height = (self.clbit_y(self.num_clbits - 1) + CL_H if self.num_clbits
                                else TOP_PAD + self.num_qubits * LANE_H)
 
+        self.phase_only = np.fromiter((name in gates.PHASE for name in self.names),
+                                      dtype=bool, count=n)
+        self._insights: Optional[Dict[str, Any]] = None
+        self._measurements: Optional[Dict[int, List[int]]] = None
+
         self._prepare_edges()
         self.diagnostics: List[Dict[str, Any]] = []
         self.lint_state = "off"       # "off", "pending" or "done"
@@ -293,6 +331,158 @@ class Graph:
         follow = set(deps) if deps is not None else None
         walk = QuantumSlicer.forward_slice if direction == "forward" else QuantumSlicer.backward_slice
         return walk(self.qdg, SlicingCriterion(criterion, dep_types=follow))
+
+    def slices(self, criteria: Iterable[int],
+               deps: Optional[Iterable[DependencyType]] = None) -> Dict[int, Set[int]]:
+        """One backward slice per criterion."""
+        follow = set(deps) if deps is not None else None
+        return QuantumSlicer.backward_slices(self.qdg, list(criteria), follow)
+
+    def chop(self, source: int, target: int,
+             deps: Optional[Iterable[DependencyType]] = None) -> Set[int]:
+        """What lies on a dependence path from ``source`` to ``target``; empty
+        when ``source`` cannot affect ``target``."""
+        follow = set(deps) if deps is not None else None
+        return QuantumSlicer.chop(self.qdg, source, target, follow)
+
+    @property
+    def measurements(self) -> Dict[int, List[int]]:
+        """qubit -> its measurement nodes, in order (unmeasured qubits left out)."""
+        if self._measurements is None:
+            self._measurements = QuantumSlicer.measurements_of(self.program)
+        return self._measurements
+
+    def qubit_criterion(self, qubit: int) -> Optional[int]:
+        """What "slice on this qubit" slices from: its last measurement, or None."""
+        found = self.measurements.get(qubit)
+        return found[-1] if found else None
+
+    def qubit_at(self, y: float) -> Optional[int]:
+        """The qubit wire nearest ``y``, if it is within half a lane of it."""
+        q = int(round((y - TOP_PAD) / LANE_H))
+        if 0 <= q < self.num_qubits and abs(y - self.lane_y(q)) <= LANE_H / 2:
+            return q
+        return None
+
+    # ------------------------------------------------------------- insights --
+
+    @property
+    def insights(self) -> Dict[str, Any]:
+        """``qslicer.insights.summary.summarize`` for this circuit, worked out on
+        first use (about 90 ms for Shor). If it fails, nothing is found, and the
+        viewer goes on without the marks."""
+        if self._insights is None:
+            try:
+                from ..insights.summary import summarize
+                found = summarize(self.program)
+            except Exception:   # an insight pass must not take the viewer down
+                found = {}
+            self._set_insights(found)
+        return self._insights
+
+    def _set_insights(self, found: Dict[str, Any]) -> None:
+        self._insights = insights = {key: found.get(key) or type(empty)()
+                                     for key, empty in _EMPTY_INSIGHTS.items()}
+        pairs = [p for p in insights["mirrors"]
+                 if len(p) >= 3 and all(0 <= int(i) < self.n for i in p[:2])]
+        self.mirror_first = np.asarray([int(p[0]) for p in pairs], dtype=np.int64)
+        self.mirror_second = np.asarray([int(p[1]) for p in pairs], dtype=np.int64)
+        self.mirror_depth = np.asarray([int(p[2]) for p in pairs], dtype=np.int64)
+        self.mirror_pairs: Dict[int, List[int]] = {}
+        for i, (a, b) in enumerate(zip(self.mirror_first, self.mirror_second)):
+            self.mirror_pairs.setdefault(int(a), []).append(i)
+            self.mirror_pairs.setdefault(int(b), []).append(i)
+
+    def mirrors_of(self, nodes: Iterable[int]) -> List[int]:
+        """The mirror pairs (indices into ``mirror_first``) with an end in ``nodes``."""
+        self.insights   # noqa: B018 -- builds the mirror arrays
+        found: Dict[int, None] = {}
+        for idx in nodes:
+            for i in self.mirror_pairs.get(idx, ()):
+                found[i] = None
+        return list(found)
+
+    def mirrors_in(self, nodes: range) -> np.ndarray:
+        """The mirror pairs with an end in the run of node ids ``nodes``."""
+        self.insights   # noqa: B018 -- builds the mirror arrays
+        lo, hi = nodes.start, nodes.stop
+        first, second = self.mirror_first, self.mirror_second
+        return np.flatnonzero(((first >= lo) & (first < hi)) | ((second >= lo) & (second < hi)))
+
+    def mirror_partner(self, pair: int, idx: int) -> int:
+        a, b = int(self.mirror_first[pair]), int(self.mirror_second[pair])
+        return b if idx == a else a
+
+    def mirror_arcs(self, pairs: Sequence[int]) -> np.ndarray:
+        """An arc above the boxes from one gate of each pair to the other,
+        ``(len(pairs), ARC_POINTS, 2)``; deeper (outer) pairs arc higher, so
+        nested pairs on a wire never cross. An arc leaves the top edge near the
+        corner facing the other gate, clear of the index label."""
+        pairs = np.asarray(pairs, dtype=np.int64)
+        if not len(pairs):
+            return np.zeros((0, ARC_POINTS, 2))
+        a, b = self.mirror_first[pairs], self.mirror_second[pairs]
+        top = np.minimum(self.y[a], self.y[b]) - NODE_H / 2
+        height = ARC_BASE + ARC_STEP * np.minimum(self.mirror_depth[pairs], ARC_MAX_DEPTH)
+        t = np.linspace(0.0, 1.0, ARC_POINTS)[None, :]
+        x0, x1 = self.right[a] - 6, self.left[b] + 6
+        xs = x0[:, None] * (1 - t) + x1[:, None] * t
+        ys = top[:, None] - height[:, None] * np.sin(np.pi * t)
+        return np.stack([xs, ys], axis=-1)
+
+    def marks(self, idx: int) -> List[Tuple[str, str]]:
+        """The small marks under a node: (text, kind), kind a key of MARK_COLORS."""
+        insights = self.insights
+        found = []
+        if self.phase_only[idx]:
+            found.append(("φ", "phase"))
+        if idx in insights["kickback"]:
+            found.append(("kb", "kickback"))
+        if idx in insights["predetermined"]:
+            found.append((f"={insights['predetermined'][idx]}", "always"))
+        return found
+
+    def correlation(self, idx: int) -> Optional[Dict[str, Any]]:
+        return self.insights["correlations"].get(idx)
+
+    def correlation_notes(self, idx: int) -> List[str]:
+        found = self.correlation(idx)
+        if not found:
+            return []
+        notes = []
+        if found.get("qubits"):
+            qubits = _qubit_list(found["qubits"])
+            notes.append(f"May be correlated with the measurements of {qubits}.")
+        if found.get("unmeasured"):
+            qubits = _qubit_list(found["unmeasured"])
+            notes.append(f"May still be entangled with unmeasured {qubits}.")
+        return notes
+
+    def notes(self, idx: int) -> List[str]:
+        """What the insight passes say about a node, as the hover card shows it.
+        The wording is the web page's."""
+        insights = self.insights
+        notes = []
+        if self.phase_only[idx]:
+            text = ("Phase only: this gate cannot change a measurement outcome until a "
+                    "non-diagonal gate follows on this wire.")
+            if len(self.qubits[idx]) > 1:
+                text += " It can still entangle."
+            notes.append(text)
+        if idx in insights["kickback"]:
+            notes.append("Phase kickback: the target is left as it is and the phase lands on "
+                         f"control {_qubit_list(insights['kickback'][idx])}.")
+        if idx in insights["predetermined"]:
+            bit = insights["predetermined"][idx]
+            notes.append(f"This measurement always gives {bit}: "
+                         f"the qubit is provably |{bit}> here.")
+        if idx in insights["no_effect"]:
+            notes.append(f"No effect here: {insights['no_effect'][idx]}.")
+        notes += self.correlation_notes(idx)
+        for pair in self.mirrors_of([idx]):
+            other = self.mirror_partner(pair, idx)
+            notes.append(f"mirrors #{other} ({self.short[other]})")
+        return notes
 
     # ----------------------------------------------------------------- lint --
 
