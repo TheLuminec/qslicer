@@ -502,3 +502,43 @@ def test_slice_errors_name_their_stage():
     result = analysis.slice_program("0" * 32, 0)
     assert isinstance(result["error"], dict)
     assert result["error"].get("kind")
+
+
+def test_insights_ride_along_with_the_graph():
+    """Kickback, a mirrored pair and a predetermined outcome, with JSON's string keys."""
+    source = (
+        "from qiskit import QuantumCircuit\n"
+        "qc = QuantumCircuit(2, 1)\n"
+        "qc.x(1)\n"           # 0
+        "qc.h(1)\n"           # 1  q1 = |->
+        "qc.h(0)\n"           # 2
+        "qc.cx(0, 1)\n"       # 3  kickback onto q0
+        "qc.h(0)\n"           # 4  mirrors 2
+        "qc.measure(0, 0)\n"  # 5  always 1
+    )
+    result = analysis.analyze_source(source, "kick.py", language="qiskit-static")
+    assert result["ok"]
+    assert result["insights"] == {
+        "measurements": {"0": [5]},
+        "mirrors": [[2, 4, 0]],
+        "kickback": {"3": [0]},
+        "no_effect": {},
+        "predetermined": {"5": 1},
+        "correlations": {},
+        "guards": {},
+    }
+
+
+def test_insights_name_the_if_test_a_gate_sits_in_and_what_may_correlate():
+    source = (
+        "from qiskit import QuantumCircuit\n"
+        "qc = QuantumCircuit(2, 2)\n"
+        "qc.h(0)\n"                               # 0
+        "qc.measure(0, 0)\n"                      # 1
+        "with qc.if_test((qc.clbits[0], 1)):\n"   # 2
+        "    qc.x(1)\n"                           # 3
+        "qc.measure(1, 1)\n"                      # 4
+    )
+    insights = analysis.analyze_source(source, "ff.py", language="qiskit-static")["insights"]
+    assert insights["guards"] == {"3": 2}
+    assert insights["correlations"]["4"] == {"measurements": [1], "qubits": [0], "unmeasured": []}

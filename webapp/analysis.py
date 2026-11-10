@@ -252,7 +252,7 @@ def dependency_types() -> List[Dict[str, str]]:
         "DATA_QUBIT": "A gate writes a wire that a later gate reads (def-use).",
         "MEASUREMENT": "A later operation is classically conditioned on this measurement.",
         "DATA_CLASSICAL": "Reaching definition on a classical bit.",
-        "CONTROL_CLASSICAL": "Control dependence. Rule is a placeholder today.",
+        "CONTROL_CLASSICAL": "An if_test decides whether the gates in its block run.",
         "ENTANGLEMENT": "Entangling gate to later operations on the entangled qubits.",
         "PHASE": "Phase-changing gate to later operations that can observe the phase.",
     }
@@ -566,8 +566,25 @@ def analyze_source(
     # The Follow chips are built from this, so a rule set that never emits
     # phase edges never offers to follow them.
     result["dependency_types"] = _offered_dependencies(rules, result["edges"])
+    result["insights"] = _describe_insights(program)
     attach_lint_nodes(result["diagnostics"], result["nodes"])
     return result
+
+
+def _describe_insights(program: Any) -> Dict[str, Any]:
+    """What the insight passes found (``qslicer.insights.summary.summarize``), with
+    string keys as JSON has them: each qubit's measurements, mirrored gates,
+    kickback, gates with no effect, predetermined and possibly correlated
+    measurements, and which if_test each guarded node sits in. One of these
+    failing must not cost the user the graph, so it degrades to nothing found."""
+    try:
+        from qslicer.insights.summary import summarize
+        found = summarize(program)
+    except Exception:       # noqa: BLE001 - labels are extras; the graph still stands
+        return {"measurements": {}, "mirrors": [], "kickback": {}, "no_effect": {},
+                "predetermined": {}, "correlations": {}, "guards": {}}
+    return {key: ({str(k): v for k, v in value.items()} if isinstance(value, dict) else value)
+            for key, value in found.items()}
 
 
 def attach_lint_nodes(diagnostics: List[Dict[str, Any]], nodes: List[Dict[str, Any]]) -> None:
