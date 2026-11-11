@@ -23,6 +23,7 @@ relying on it finds out.
 
 import ast
 import functools
+import gc
 import io
 import json
 import math
@@ -31,7 +32,7 @@ import shutil
 import tempfile
 import threading
 from collections import OrderedDict
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from hashlib import sha256
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -70,7 +71,7 @@ def backend_error() -> Optional[str]:
 # Analysis cache
 #
 # Slicing re-uses the QDG that the analyze call already built, so picking a new
-# criterion never re-executes the submitted program.
+# criterion never parses the submitted program again.
 # --------------------------------------------------------------------------
 
 _CACHE: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
@@ -172,6 +173,41 @@ def store_response(key: str, token: str, body: bytes,
 
 def _record_size(record: Dict[str, Any]) -> int:
     return len(record["body"]) + len(record.get("gzip") or b"")
+
+
+# No full garbage collection while a request builds its analysis. The work
+# allocates hundreds of thousands of objects that stay alive (instructions,
+# graph edges, node dicts), so Python's default thresholds start a full
+# collection every few hundred thousand allocations, and each one walks every
+# cached parse and QDG as well: for Shor that was about a third of a warm
+# analysis (0.22 s) and of a cold one (0.8 s). The young generations are still
+# collected, so the static interpreter's short-lived cycles (350,000 objects
+# for a cold Shor parse) are freed as before. Requests overlap on threads, so
+# the thresholds are put back when the last of them is done.
+_GC_LOCK = threading.Lock()
+_GC_PAUSES = 0
+_GC_SAVED: Tuple[int, ...] = ()
+# Collections of the middle generation between two full ones, during a request
+# (Python's default is 10).
+_GC_FULL_EVERY = 1000
+
+
+@contextmanager
+def no_full_gc():
+    global _GC_PAUSES, _GC_SAVED
+    with _GC_LOCK:
+        if _GC_PAUSES == 0:
+            _GC_SAVED = gc.get_threshold()
+            if len(_GC_SAVED) >= 3:
+                gc.set_threshold(_GC_SAVED[0], _GC_SAVED[1], max(_GC_SAVED[2], _GC_FULL_EVERY))
+        _GC_PAUSES += 1
+    try:
+        yield
+    finally:
+        with _GC_LOCK:
+            _GC_PAUSES -= 1
+            if _GC_PAUSES == 0:
+                gc.set_threshold(*_GC_SAVED)
 
 
 # --------------------------------------------------------------------------
@@ -379,11 +415,11 @@ def analyze_source(
 ) -> Dict[str, Any]:
     """Lint, parse, build the QDG, and describe everything as JSON-safe data.
 
-    ``language`` names the front end: ``"qiskit"``, ``"qiskit-static"``, ``"qasm"``
-    or ``"qasm-static"`` (see INTERPRETERS). The page
+    ``language`` names the front end: ``"qiskit-static"``, ``"qasm-static"`` or
+    ``"qasm"`` (see INTERPRETERS and _ALIASES; ``"qiskit"`` is refused). The page
     always passes one; without it the filename extension decides.
-    ``lint_rules`` are the rule ids to lint with (see ``linters.py``); None
-    means the default selection.
+    ``lint_rules`` are the rule ids to lint with (see ``qslicer.lint.registry``);
+    None means the default selection.
 
     ``bindings`` are values the user picked for things only a run could
     decide, as ``{"name", "line", "value"}`` with ``value`` a Python literal
@@ -542,7 +578,7 @@ def analyze_source(
 
     qdg = qdg_once()
 
-    # The front end is part of the key: the two Python routes must not share an entry.
+    # The front end is part of the key: the two OpenQASM routes must not share an entry.
     token = sha256(f"{filename}\x00{profile}\x00{kind}\x00{result['circuit']}\x00"
                    f"{sorted(parsed_bindings.items())!r}\x00{source}".encode("utf-8")).hexdigest()[:32]
     _cache_put(token, {"qdg": qdg, "program": program})
@@ -998,8 +1034,8 @@ def _describe_gates(nodes: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
 def _describe_location(location: Any) -> Dict[str, Any]:
     """Where a node came from in the source (FR-07): ``line`` plus the full span.
 
-    Both are None when the front end could not tell, as for the executing
-    Python route and the qiskit.qasm3 one.
+    Both are None when the front end could not tell, as for the qiskit.qasm3
+    route.
     """
     if location is None:
         return {"line": None, "source": None}
@@ -1007,15 +1043,27 @@ def _describe_location(location: Any) -> Dict[str, Any]:
 
 
 def _describe_edges(qdg: Any) -> List[Dict[str, Any]]:
+    # In the order graph.edges(keys=True) gives, read straight from the
+    # adjacency (networkx's _adj, when there is one) and with each dependency's
+    # name worked out once: a third less time for Shor's 24,000 edges.
+    names: Dict[Any, str] = {}
+    adjacency = getattr(qdg.graph, "_adj", None) or qdg.graph.adj
     edges = []
-    for source, target, key, data in qdg.graph.edges(keys=True, data=True):
-        edges.append({
-            "source": source,
-            "target": target,
-            "key": key,
-            "dependency": _dependency_name(data.get("dependency")),
-            "rule": data.get("rule", ""),
-        })
+    for source, targets in adjacency.items():
+        for target, keyed in targets.items():
+            for key, data in keyed.items():
+                dependency = data.get("dependency")
+                try:
+                    name = names[dependency]
+                except KeyError:
+                    name = names[dependency] = _dependency_name(dependency)
+                edges.append({
+                    "source": source,
+                    "target": target,
+                    "key": key,
+                    "dependency": name,
+                    "rule": data.get("rule", ""),
+                })
     return edges
 
 
