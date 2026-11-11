@@ -1,8 +1,8 @@
-"""Flask mock-up for the quantum program slicer.
+"""Flask site for the quantum program slicer.
 
 Run it from the repository root:
 
-    python webapp/app.py
+    python webapp/app.py [--benchmark]
 
 then open http://127.0.0.1:5000/.
 
@@ -10,8 +10,9 @@ Pages
     /          landing
     /slicer    upload or paste a circuit, then explore its graph
     /quantum   background on quantum programs and on how the slicer works
-    /benchmark grade the selected lint rules on a benchmark's bugs (?dataset=<id>)
+    /lint      every lint rule explained, and which ones run
     /team      who built it
+    /benchmark grade the selected lint rules on a benchmark's bugs (?dataset=<id>)
 
 JSON API
     GET  /api/examples          list the bundled example circuits
@@ -24,6 +25,10 @@ JSON API
     GET  /api/benchmark         a dataset (?dataset=<id>, default Bugs4Q): summary and bug list
     GET  /api/benchmark/bugs/<key>  one bug with both programs' sources (?dataset=<id>)
     POST /api/benchmark         {lint_rules, profile, dataset} -> graded report
+
+The Benchmark page and its /api/benchmark routes are off unless the app is
+started with --benchmark or with QSLICER_BENCHMARK=1 in the environment (the
+way to turn them on under a WSGI server); without it they answer 404.
 
 JSON responses of GZIP_MIN_BYTES or more are gzipped for a client that accepts
 it, and a repeated /api/analyze request is answered from the analysis cache.
@@ -68,20 +73,35 @@ GZIP_LEVEL = 5
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
+# The Benchmark page is for people working on the lint rules, so it is opt-in.
+app.config["BENCHMARK"] = os.environ.get("QSLICER_BENCHMARK", "").lower() in ("1", "true", "yes", "on")
+
+
+def _benchmark_enabled() -> bool:
+    return bool(app.config.get("BENCHMARK"))
+
+
+def _require_benchmark():
+    if not _benchmark_enabled():
+        abort(404, description="The benchmark is not enabled on this server.")
 
 
 @app.context_processor
 def inject_globals():
     """Values every template needs for the nav bar and the backend banner."""
+    nav_items = [
+        ("index", "Home"),
+        ("slicer", "Slicer"),
+        ("lint", "Lint"),
+        ("benchmark", "Benchmark"),
+        ("quantum", "Quantum Info"),
+        ("team", "Team"),
+    ]
+    if not _benchmark_enabled():
+        nav_items.remove(("benchmark", "Benchmark"))
     return {
-        "nav_items": [
-            ("index", "Home"),
-            ("slicer", "Slicer"),
-            ("lint", "Lint"),
-            ("benchmark", "Benchmark"),
-            ("quantum", "Quantum Info"),
-            ("team", "Team"),
-        ],
+        "nav_items": nav_items,
+        "benchmark_enabled": _benchmark_enabled(),
         "backend_ok": analysis.backend_available(),
         "backend_error": analysis.backend_error(),
     }
@@ -102,7 +122,6 @@ def slicer():
         "slicer.html",
         page="slicer",
         example_groups=examples.grouped(),
-        profiles=analysis.rule_profiles(),
         interpreters=analysis.interpreters(),
     )
 
@@ -111,12 +130,13 @@ def slicer():
 # shadow the lint module the linters use.
 @app.route("/lint", endpoint="lint")
 def lint_page():
-    return render_template("lint.html", page="lint", profiles=analysis.rule_profiles())
+    return render_template("lint.html", page="lint")
 
 
 # Likewise for the benchmark module.
 @app.route("/benchmark", endpoint="benchmark")
 def benchmark_page():
+    _require_benchmark()
     dataset = _benchmark_dataset(request.args.get("dataset"))
     if dataset is None:
         abort(404, description=f"No benchmark named {request.args.get('dataset')!r}.")
@@ -125,7 +145,6 @@ def benchmark_page():
         page="benchmark",
         dataset=benchmark.summary(dataset),
         datasets=[benchmark.summary(name) for name in benchmark.dataset_ids()],
-        profiles=analysis.rule_profiles(),
     )
 
 
@@ -264,8 +283,9 @@ def api_analyze():
     record = analysis.cached_response(key)
     if record is not None:
         return _json_bytes_response(record["body"], record["gzip"], cache="hit")
-    result = analysis.analyze_source(source, **request_args)
-    body = _json_bytes(result)
+    with analysis.no_full_gc():
+        result = analysis.analyze_source(source, **request_args)
+        body = _json_bytes(result)
     # Compressed now for a response that is kept (browsers ask for gzip), so a
     # hit never compresses; a failure only for a client that wants it.
     gzipped = None
@@ -409,6 +429,7 @@ def api_linter_rule(rule_id):
 
 @app.get("/api/benchmark")
 def api_benchmark_dataset():
+    _require_benchmark()
     dataset = _benchmark_dataset(request.args.get("dataset"))
     if dataset is None:
         abort(404, description=f"No benchmark named {request.args.get('dataset')!r}.")
@@ -421,6 +442,7 @@ def api_benchmark_dataset():
 
 @app.get("/api/benchmark/bugs/<key>")
 def api_benchmark_bug(key):
+    _require_benchmark()
     dataset = _benchmark_dataset(request.args.get("dataset"))
     bug = dataset.get_bug(key) if dataset is not None else None
     if bug is None:
@@ -430,6 +452,7 @@ def api_benchmark_bug(key):
 
 @app.post("/api/benchmark")
 def api_benchmark_run():
+    _require_benchmark()
     payload = request.get_json(silent=True)
     if payload is None:
         payload = {}
@@ -473,6 +496,14 @@ def too_large(error):
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run the quantum program slicer site locally.")
+    parser.add_argument("--benchmark", action="store_true",
+                        help="also serve the Benchmark page, which grades lint rules on "
+                             "datasets of real bugs (same as QSLICER_BENCHMARK=1)")
+    if parser.parse_args().benchmark:
+        app.config["BENCHMARK"] = True
     if not analysis.backend_available():
         print("WARNING: the analysis backend failed to import:", analysis.backend_error())
         print("         The site will run, but analysis requests will return an error.")

@@ -61,7 +61,8 @@ def test_analyze_honours_lint_rules(client):
     assert body["ok"], body
     assert body["lint_rules"] == ["dependence/QD01", "dependence/QD02", "dependence/QD03",
                                   "dependence/QD05", "dependence/QD06", "dependence/QD07",
-                                  "dependence/QD08", "dependence/QD09", "dependence/QD10"]
+                                  "dependence/QD08", "dependence/QD09", "dependence/QD10",
+                                  "dependence/QD11", "dependence/QD12"]
     # No quick checks were selected, so there is nothing to say about skipping them.
     assert all(d["code"] != "QS100" for d in body["diagnostics"])
 
@@ -96,9 +97,12 @@ def test_benchmark_page_links_the_picker_and_dataset(client):
     assert "Z-928/Bugs4Q-NA" in body
 
 
-def test_lint_page_has_the_rules_and_a_program_to_lint(client):
+def test_lint_page_has_the_rules(client):
     body = client.get("/lint").get_data(as_text=True)
-    assert 'id="lint-picker"' in body and 'id="lint-source"' in body and 'id="btn-lint"' in body
+    assert 'id="lint-picker"' in body
+    # Programs are linted on the Slicer page; neither page offers a rule profile.
+    assert 'id="lint-source"' not in body and 'id="profile-select"' not in body
+    assert 'id="profile-select"' not in client.get("/slicer").get_data(as_text=True)
     assert "lintrules.js" in body and "lint.js" in body
 
 
@@ -121,3 +125,34 @@ def test_benchmark_endpoints_take_a_dataset_name(client):
     body = client.get("/api/benchmark?dataset=bugs4q").get_json()
     assert body["dataset"]["id"] == "bugs4q" and len(body["bugs"]) == 62
     assert client.get("/api/benchmark/bugs/github-12?dataset=bugs4q").status_code == 200
+
+
+def test_benchmark_is_off_unless_enabled(client, monkeypatch):
+    monkeypatch.setitem(client.application.config, "BENCHMARK", False)
+    assert client.get("/benchmark").status_code == 404
+    assert client.get("/api/benchmark").status_code == 404
+    assert client.get("/api/benchmark/bugs/github-12").status_code == 404
+    assert client.post("/api/benchmark", json={"lint_rules": ["quick/QS009"]}).status_code == 404
+    # Nothing on the other pages points at it.
+    for path in ("/", "/slicer", "/lint", "/quantum", "/team"):
+        body = client.get(path).get_data(as_text=True)
+        assert "/benchmark" not in body and "Benchmark" not in body, path
+
+
+def test_benchmark_is_linked_when_enabled(client):
+    for path in ("/slicer", "/lint"):
+        assert 'href="/benchmark"' in client.get(path).get_data(as_text=True), path
+
+
+def test_benchmark_flag_comes_from_the_environment():
+    import os
+    import subprocess
+    import sys
+
+    webapp = os.path.dirname(os.path.abspath(sys.modules["app"].__file__))
+    code = "import app; print(app.app.config['BENCHMARK'])"
+    for value, expected in (("1", "True"), ("", "False"), ("0", "False")):
+        env = dict(os.environ, QSLICER_BENCHMARK=value)
+        out = subprocess.run([sys.executable, "-c", code], cwd=webapp, env=env,
+                             capture_output=True, text=True, check=True).stdout
+        assert out.strip() == expected, value

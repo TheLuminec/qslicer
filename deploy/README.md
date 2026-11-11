@@ -74,6 +74,15 @@ curl -sS -o /dev/null -w '%{http_code}\n' http://quantum-slicing.capstone.csi.mi
 curl -sS http://quantum-slicing.capstone.csi.miamioh.edu/api/examples | head -c 200
 ```
 
+## The Benchmark page
+
+The Benchmark page and its `/api/benchmark` routes are **off by default**: with
+them off they answer 404 and the page is not in the navigation. To serve them,
+uncomment `Environment=QSLICER_BENCHMARK=1` in the service file (or add it),
+then `sudo systemctl daemon-reload && sudo systemctl restart quantum-slicer`.
+Locally, `python webapp/app.py --benchmark` does the same. A benchmark run
+grades every bug of a dataset, so it costs far more CPU than an analysis.
+
 ## One worker, several threads
 
 `--workers 1 --threads 4` in the service file is deliberate, not a default left

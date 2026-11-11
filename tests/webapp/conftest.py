@@ -36,6 +36,8 @@ def _roomy_cache():
 @pytest.fixture(scope="session")
 def flask_app():
     app_module.app.config["TESTING"] = True
+    # Off unless asked for (--benchmark); on here so its pages and API are tested.
+    app_module.app.config["BENCHMARK"] = True
     return app_module.app
 
 
