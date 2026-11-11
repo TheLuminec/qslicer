@@ -3,7 +3,7 @@
 ``QiskitParser.parse_file`` executes the submitted file with ``runpy`` and then
 looks for the QuantumCircuit it left behind. That handles anything Qiskit can
 build, but the file runs with the parser's privileges -- which is why the web
-app has to push it into a separate, time-limited process.
+app and the ``qslicer`` command never use it on a submitted file.
 
 ``StaticQiskitParser`` never executes the file. It parses it with ``ast`` and
 walks the tree with a small interpreter of its own that understands just enough
@@ -20,7 +20,9 @@ Python, and just enough of Qiskit, to rebuild the circuit:
   command-line arguments would; a required argument is unknown;
 * ``functools.lru_cache``/``cache`` on a function in the file, which then
   returns the same object for the same arguments, as it would at run time;
-* the Qiskit circuit API: ``QuantumCircuit`` and registers, every standard gate
+* the Qiskit circuit API: ``QuantumCircuit``, registers and bits that belong to
+  no register (``Qubit()``, ``Clbit()``, ``AncillaQubit()``, a
+  ``QuantumCircuit`` built from a list of bits, ``add_bits``), every standard gate
   method with Qiskit's argument broadcasting, ``measure``/``measure_all``,
   ``barrier``, ``reset``, ``append``, ``compose``, ``to_gate``, ``inverse``,
   ``decompose``, ``if_test`` (with ``else``), ``Parameter``,
@@ -687,11 +689,21 @@ class StaticCircuit:
     # -- bits ---------------------------------------------------------------
 
     def add_bits(self, bits):
+        # Qiskit's order of checks: bits the circuit already has first, then
+        # each bit in turn, so a non-bit or a bit listed twice fails part way.
+        bits = list(bits)
+        present = [b for b in bits if isinstance(b, StaticBit) and self.has(b)]
+        if present:
+            raise CircuitError("Attempted to add bits found already in circuit: "
+                               f"{{{', '.join(map(repr, present))}}}")
         for bit in bits:
+            if not isinstance(bit, StaticBit):
+                raise CircuitError("Expected an instance of Qubit, Clbit, or AncillaQubit, "
+                                   f"but was passed {bit!r}")
             index, bits_list = ((self._qindex, self.qubits) if bit.kind == "qubit"
                                 else (self._cindex, self.clbits))
             if bit in index:
-                raise CircuitError(f"bit {bit!r} is already in the circuit")
+                raise ValueError(f"cannot add {bit!r} as it is already in the circuit")
             index[bit] = len(bits_list)
             bits_list.append(bit)
 
@@ -934,6 +946,10 @@ def broadcast(gate, bit_lists):
 
 _STATIC_TYPES = (StaticCircuit, StaticGate, StaticRegister, StaticInstruction, _InstructionSet,
                  _IfContext, _ElseContext)
+# Exact types binop can apply directly (no subclasses: those may be anything).
+_PLAIN_NUMBERS = frozenset({int, float})
+# The operators _guard_binop limits when both sides are numbers.
+_GUARDED_NUMBER_OPS = frozenset({ast.Pow, ast.LShift})
 
 # QuantumCircuit attributes and methods that read a circuit without changing it.
 _READ_ONLY_ATTRS = {
@@ -1058,6 +1074,12 @@ def _is_generator(function_node):
 
 class _Interpreter:
     """Walks a module's AST, building circuits instead of running code."""
+
+    # AST node type -> the _exec_/_eval_ method that handles it (None: not
+    # supported), filled on first use. Looking the handler up by name on every
+    # statement and expression was half a million getattr calls for Shor.
+    _EXEC_HANDLERS = {}
+    _EVAL_HANDLERS = {}
 
     def __init__(self, filename="<source>", run_name="__main__", time_limit=None,
                  bindings=None):
@@ -1194,11 +1216,15 @@ class _Interpreter:
 
     def exec_stmt(self, node, frame):
         self._tick(node)
-        handler = getattr(self, "_exec_" + type(node).__name__, None)
+        try:
+            handler = self._EXEC_HANDLERS[type(node)]
+        except KeyError:
+            handler = self._EXEC_HANDLERS[type(node)] = getattr(
+                _Interpreter, "_exec_" + type(node).__name__, None)
         if handler is None:
             raise self.error(f"`{type(node).__name__}` statements are not supported", node.lineno)
         try:
-            handler(node, frame)
+            handler(self, node, frame)
         except _NeedsUnknown as exc:
             self.skip(node, frame, f"statement that depends on unknown `{exc}`", cause=exc)
         except _PASSTHROUGH:
@@ -1742,12 +1768,15 @@ class _Interpreter:
     # -- expressions --------------------------------------------------------
 
     def eval(self, node, frame):
-        handler = getattr(self, "_eval_" + type(node).__name__, None)
+        handler = self._EVAL_HANDLERS.get(type(node), _MISSING)
+        if handler is _MISSING:
+            handler = self._EVAL_HANDLERS[type(node)] = getattr(
+                _Interpreter, "_eval_" + type(node).__name__, None)
         if handler is None:
             raise self.error(f"`{type(node).__name__}` expressions are not supported",
                              getattr(node, "lineno", None))
         try:
-            return handler(node, frame)
+            return handler(self, node, frame)
         except _NeedsUnknown as exc:
             return _derived(_text(node), exc)
 
@@ -2003,6 +2032,13 @@ class _Interpreter:
     # -- operators ----------------------------------------------------------
 
     def binop(self, op, left, right):
+        if type(left) in _PLAIN_NUMBERS and type(right) in _PLAIN_NUMBERS:
+            # Most operators in a circuit-building loop are on plain numbers,
+            # which none of the checks below are about but the size guard on
+            # ** and <<.
+            if type(op) in _GUARDED_NUMBER_OPS:
+                self._guard_binop(op, left, right)
+            return _BINARY_OPS[type(op)](left, right)
         for side in (left, right):
             if isinstance(side, Unknown):
                 raise _NeedsUnknown(side)
@@ -2812,10 +2848,31 @@ class _Interpreter:
         for register in args:
             if isinstance(register, StaticRegister):
                 circuit.add_register(register)
-            elif isinstance(register, (list, tuple)):
-                circuit.add_bits(register)
+            elif isinstance(register, list):
+                # Qiskit takes a list of bits here too, but not a tuple.
+                circuit.add_bits(self._bit_list(register))
+            elif isinstance(register, tuple):
+                raise CircuitError("expected a register")
             else:
                 raise self.error("add_register() needs registers the static parser can see")
+
+    def _qc_add_bits(self, circuit, args, kwargs):
+        bound, _ = self.bind("add_bits", ["bits"], args, kwargs)
+        circuit.add_bits(self._bit_list(bound["bits"]))
+
+    def _bit_list(self, bits):
+        """The bits of an add_bits()/QuantumCircuit() argument, every one of them known."""
+        if isinstance(bits, Unknown):
+            raise self.error(f"the bits `{bits.text}` cannot be determined without running "
+                             "the program", cause=bits)
+        if isinstance(bits, StaticBit):
+            raise TypeError(f"'{_qiskit_type_name(bits)}' object is not iterable")
+        bits = self.iterable(bits)
+        for bit in bits:
+            if isinstance(bit, Unknown):
+                raise self.error(f"the bit `{bit.text}` cannot be determined without running "
+                                 "the program", cause=bit)
+        return list(bits)
 
     def _qc_size(self, circuit, args, kwargs):
         return len(circuit.data)
@@ -2912,6 +2969,8 @@ class _Interpreter:
         """The modelled value of ``path.name``, or None if the parser does not model it."""
         root = path.split(".")[0]
         if root == "qiskit":
+            if name in _QISKIT_BIT_CLASSES:
+                return _QISKIT_BIT_CLASSES[name] if path in _QISKIT_BIT_MODULES else None
             return _QISKIT_MODEL.get(name)
         if root == "numpy":
             if path == "numpy" and name == "random":
@@ -3021,13 +3080,17 @@ class _Interpreter:
             if sizes[1]:
                 circuit.add_register(StaticRegister("clbit", "c", sizes[1]))
             return circuit
+        # Otherwise every argument is a register or a list of bits (Qiskit
+        # refuses tuples here, and integers mixed with anything else).
+        if not all(isinstance(a, (StaticRegister, list)) for a in args):
+            kinds = ", ".join(f"'{_qiskit_type_name(a)}'" for a in args)
+            raise CircuitError(f"Circuit args must be Registers or integers. ([{kinds}] "
+                               f"'{tuple(args)!r}' was provided)")
         for arg in args:
             if isinstance(arg, StaticRegister):
                 circuit.add_register(arg)
-            elif isinstance(arg, (list, tuple)) and all(isinstance(b, StaticBit) for b in arg):
-                circuit.add_bits(arg)
             else:
-                raise CircuitError(f"invalid QuantumCircuit argument: {arg!r}")
+                circuit.add_bits(self._bit_list(arg))
         return circuit
 
     def new_register(self, kind, prefix, args, kwargs):
@@ -3390,6 +3453,52 @@ def _q_parameter_vector(interp, args, kwargs):
     return [Symbol.leaf(f"{name}[{i}]", name, i) for i in range(int(length))]
 
 
+def _qiskit_type_name(value):
+    """The Qiskit class name of a modelled value, for error messages."""
+    if isinstance(value, StaticBit):
+        return "Qubit" if value.kind == "qubit" else "Clbit"
+    if isinstance(value, StaticRegister):
+        return "QuantumRegister" if value.kind == "qubit" else "ClassicalRegister"
+    return type(value).__name__
+
+
+def _bit_class(class_name, kind):
+    """Qubit(), Clbit() and AncillaQubit(): a new bit that belongs to no register.
+
+    The old ``Qubit(register, index)`` form names a bit of that register, which
+    Qiskit treats as equal to ``register[index]``, so that bit is returned.
+    """
+    def make(interp, args, kwargs):
+        bound, _ = interp.bind(class_name, ["register", "index"], args, kwargs,
+                               {"register": None, "index": None})
+        register, index = bound["register"], bound["index"]
+        if register is None and index is None:
+            return StaticBit(kind)
+        for value in (register, index):
+            if isinstance(value, Unknown):
+                raise interp.error(f"the bit `{interp.call_text()}` cannot be determined "
+                                   "without running the program", cause=value)
+        wanted = "QuantumRegister" if kind == "qubit" else "ClassicalRegister"
+        if not isinstance(register, StaticRegister) or register.kind != kind:
+            raise TypeError(f"'{_qiskit_type_name(register)}' object is not an instance "
+                            f"of '{wanted}'")
+        if not isinstance(index, numbers.Integral):
+            raise TypeError(f"bit index must be an integer, not {type(index).__name__}")
+        if not 0 <= int(index) < register.size:
+            raise IndexError(f"index {int(index)} out of range for size {register.size}")
+        return register.bits[int(index)]
+    return _Native(class_name, make, qiskit=True)
+
+
+# Bits are only exported from qiskit.circuit, not from the qiskit package itself.
+_QISKIT_BIT_CLASSES = {
+    "Qubit": _bit_class("Qubit", "qubit"),
+    "AncillaQubit": _bit_class("AncillaQubit", "qubit"),
+    "Clbit": _bit_class("Clbit", "clbit"),
+}
+_QISKIT_BIT_MODULES = {"qiskit.circuit", "qiskit.circuit.quantumcircuit"}
+
+
 def _q_parameter(interp, args, kwargs):
     bound, _ = interp.bind("Parameter", ["name"], args, kwargs)
     name = bound["name"]
@@ -3654,15 +3763,25 @@ class StaticQiskitParser(AbstractParser):
             raise ValueError("No QuantumCircuit assignment found in script")
 
         ordered = [main] + module_level + standalone + made
-        seen_ids, seen_shapes, out = set(), set(), []
+        # A repeat has the same name and sizes as a circuit already kept, so the
+        # full shape (every gate, about 0.1 s over Shor's 82 circuits) is only
+        # worked out for circuits that share those with one.
+        seen_ids, kept, shapes, out = set(), {}, {}, []
+
+        def shape_of(c):
+            if id(c) not in shapes:
+                shapes[id(c)] = _circuit_shape(c)
+            return shapes[id(c)]
+
         for circuit in ordered:
             if id(circuit) in seen_ids or (circuit is not main and not circuit.data):
                 continue
             seen_ids.add(id(circuit))
-            shape = _circuit_shape(circuit)
-            if shape in seen_shapes:
+            alike = kept.setdefault(
+                (circuit.name, circuit.num_qubits, circuit.num_clbits, len(circuit.data)), [])
+            if any(shape_of(other) == shape_of(circuit) for other in alike):
                 continue
-            seen_shapes.add(shape)
+            alike.append(circuit)
             out.append((circuit, self._describe(circuit, interpreter, len(out), names)))
             if len(out) > self.MAX_CIRCUITS:
                 break
@@ -3690,10 +3809,21 @@ class StaticQiskitParser(AbstractParser):
 
 def _circuit_shape(circuit):
     """What tells two circuits apart for the list of circuits: their name and gates."""
-    return (circuit.name, circuit.num_qubits, circuit.num_clbits, tuple(
-        (i.operation.name, tuple(circuit.find(q) for q in i.qubits),
-         tuple(circuit.find(c) for c in i.clbits), tuple(map(repr, i.operation.params)))
-        for i in circuit.data))
+    # The bit indices are read from the circuit's own tables rather than through
+    # find(), a third of the time over Shor's 82 circuits; find() is the
+    # fallback for a bit the circuit does not have, so the error is the same.
+    qindex, cindex = circuit._qindex, circuit._cindex
+    try:
+        gates = tuple([
+            (i.operation.name, tuple([qindex[q] for q in i.qubits]),
+             tuple([cindex[c] for c in i.clbits]), tuple(map(repr, i.operation.params)))
+            for i in circuit.data])
+    except KeyError:
+        gates = tuple(
+            (i.operation.name, tuple(circuit.find(q) for q in i.qubits),
+             tuple(circuit.find(c) for c in i.clbits), tuple(map(repr, i.operation.params)))
+            for i in circuit.data)
+    return (circuit.name, circuit.num_qubits, circuit.num_clbits, gates)
 
 
 # Control-flow blocks whose branches become instructions of their own.

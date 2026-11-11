@@ -554,3 +554,72 @@ def test_an_if_else_spans_its_else_block():
     predicate = program[1]
     assert predicate.name == "if_else"
     assert (predicate.location.line, predicate.location.end_line) == (4, 8)
+
+
+STANDALONE_BITS = """
+from qiskit import QuantumRegister
+from qiskit.circuit import QuantumCircuit, Qubit, Clbit, AncillaQubit
+bits = [Qubit(), Qubit(), Qubit(), Clbit(), Clbit()]
+qc = QuantumCircuit(bits)
+qc.h(0)
+qc.cx(0, 1)
+qc.measure(0, 0)
+qc.measure(bits[2], bits[4])
+qc.h(bits[0])
+qc.x(qc.qubits[1:])
+qc.add_bits((AncillaQubit(), Clbit()))
+q = QuantumRegister(2, "q")
+qc.add_register(q, [Qubit()])
+qc.cx(3, q[1])
+qc.measure(q, [bits[3], qc.clbits[2]])
+qc.h(Qubit(q, 0))                   # the old form names q[0]
+qc.cx(4, -1)
+mixed = QuantumCircuit(QuantumRegister(1, "r"), [Clbit(), Clbit()])
+mixed.measure(0, 1)
+"""
+
+
+def test_bits_without_a_register_match_the_executing_parser(tmp_path):
+    path = tmp_path / "standalone_bits.py"
+    path.write_text(STANDALONE_BITS)
+    static = StaticQiskitParser().parse_file(str(path))
+    with redirect_stdout(io.StringIO()):
+        executed = QiskitParser().parse_file(str(path))
+    assert (static.num_qubits, static.num_clbits) == (executed.num_qubits, executed.num_clbits) == (7, 3)
+    assert shape(static) == shape(executed)
+    assert shape(static)[:4] == [("h", [0], []), ("cx", [0, 1], []), ("measure", [0], [0]),
+                                 ("measure", [2], [1])]
+
+
+@pytest.mark.parametrize("body, message", [
+    # Each mirrors the error Qiskit itself raises.
+    ("qc = QuantumCircuit([b], [b])", "CircuitError: Attempted to add bits found already"),
+    ("qc = QuantumCircuit([b])\nqc.add_bits([b])", "CircuitError: Attempted to add bits found already"),
+    ("qc = QuantumCircuit([b, b])", "ValueError"),
+    ("qc = QuantumCircuit((b,))", "Circuit args must be Registers or integers"),
+    ("qc = QuantumCircuit(2, [Clbit()])", "Circuit args must be Registers or integers"),
+    ("qc = QuantumCircuit([b, 3])", "Expected an instance of Qubit, Clbit, or AncillaQubit"),
+    ("qc = QuantumCircuit([b])\nqc.add_bits(Qubit())", "object is not iterable"),
+    ("qc = QuantumCircuit([b])\nqc.add_register((Qubit(),))", "expected a register"),
+    ("qc = QuantumCircuit([b])\nqc.h(Qubit())", "is not a qubit of circuit"),
+    ("qc = QuantumCircuit([b])\nqc.h(1)", "out of range"),
+    ("qc = QuantumCircuit(q)\nqc.h(Qubit(q, 5))", "IndexError"),
+    ("qc = QuantumCircuit(q)\nqc.measure(0, Clbit(q, 0))", "not an instance of 'ClassicalRegister'"),
+    ("qc = QuantumCircuit([some_unknown_call()])", "cannot be determined"),
+])
+def test_standalone_bits_are_refused_where_qiskit_refuses_them(body, message):
+    source = ("from qiskit.circuit import QuantumCircuit, QuantumRegister, Qubit, Clbit\n"
+              "from lib import some_unknown_call\nb = Qubit()\nq = QuantumRegister(2)\n" + body + "\n")
+    with pytest.raises(StaticParseError, match=message) as info:
+        parse(source)
+    assert info.value.lineno is not None
+
+
+def test_bits_come_only_from_where_qiskit_exports_them():
+    # qiskit.circuit has Qubit; the qiskit package does not, so a real run fails to import it.
+    program = parse("import qiskit.circuit as qcm\n"
+                    "qc = qcm.QuantumCircuit([qcm.Qubit(), qcm.Clbit()])\n"
+                    "qc.measure(0, 0)\n").program
+    assert shape(program) == [("measure", [0], [0])]
+    with pytest.raises(StaticParseError, match="cannot be determined"):
+        parse("from qiskit import QuantumCircuit, Qubit\nqc = QuantumCircuit([Qubit()])\n")
