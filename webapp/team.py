@@ -2,7 +2,6 @@
 
 Names, roles and the project framing come from the project wiki
 (``wiki/Project-Documentation/Working-Agreement.md`` and ``Charter.md``).
-Anything still marked TODO is a genuine gap rather than a guess.
 """
 
 COURSE = {

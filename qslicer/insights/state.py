@@ -28,7 +28,7 @@ wires) are what keep a qubit in a known basis state out of a group it cannot
 really join. Everything else groups all the qubits it touches.
 """
 
-from typing import Any, Dict, List, NamedTuple, Optional, Set
+from typing import Dict, List, NamedTuple, Optional, Set
 
 from ..ir.qprogram import QuantumProgram
 

@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from enum import Enum, auto
-from typing import Any, Dict, Hashable, Iterable, FrozenSet, List, Tuple
+from typing import Any, Dict, Hashable, Iterable, List, Tuple
 import networkx as nx
 
 from ..ir.qprogram import QuantumProgram

@@ -205,7 +205,6 @@ class _CFGBuilder:
         self.a = analysis
         self.scope = scope
         self.loops: List[Tuple[int, List[int]]] = []   # (continue target, break sources)
-        self.exits: List[int] = []
         self.constants = _single_constant_bindings(scope.node)
 
     def truth(self, test):
@@ -662,9 +661,6 @@ class LintQAnalysis:
         unique = tuple(dict.fromkeys(result))
         self._sources[expr] = unique
         return unique
-
-    def flows_to(self, source, expr):
-        return source in self.sources(expr)
 
     def reaching(self, expr, depth=0) -> Tuple[Any, ...]:
         """API::Node.getAValueReachingSink: like ``sources``, but type tracking also
