@@ -103,9 +103,16 @@ API but is not on the page.
 |---|---|
 | `/` | Landing page |
 | `/slicer` | The application: source on the left, graph and analysis on the right |
-| `/lint` | Pick the lint rules, read what each catches with an example and its fix, and lint a pasted program |
-| `/benchmark` | Grade the selected lint rules on a benchmark's bugs (Bugs4Q by default) |
+| `/lint` | Pick the lint rules and read what each catches, with an example and its fix |
 | `/quantum` | Background on quantum programs, the QDG and the tools used |
+| `/team` | Who built it |
+| `/benchmark` | Grade the selected lint rules on a benchmark's bugs (Bugs4Q by default); off unless enabled, see below |
+
+The Benchmark page and its `/api/benchmark` routes are **off by default**: they
+are served only when the app is started with `python webapp/app.py --benchmark`,
+or, under gunicorn or another WSGI server, with `QSLICER_BENCHMARK=1` in the
+environment. Otherwise they answer 404 and the page is left out of the
+navigation. `benchmarks/run_benchmark.py` works either way.
 
 On the slicer page:
 
@@ -120,8 +127,8 @@ On the slicer page:
   line. A slice highlights every source line it covers and scrolls to the
   criterion. Click a gutter line number to see which nodes that line produced.
 - **Lint** picks the linters and individual rules that run on Analyze. The
-  choice is remembered in the browser and shared with the Lint and Benchmark
-  pages. The **?** next to a rule explains it with a worked example, and a
+  choice is remembered in the browser and shared with the Lint page (and the
+  Benchmark page, when it is enabled). The **?** next to a rule explains it with a worked example, and a
   finding's code links to its rule on the Lint page.
 - **Clear a slice** by clicking its criterion again, the **Clear** button next
   to Backward/Forward, or Esc.
@@ -146,21 +153,23 @@ The JSON API behind it:
 | `/api/examples` | GET | none |
 | `/api/examples/<key>` | GET | none |
 | `/api/analyze` | POST | `{source, filename, profile, language, lint_rules}` |
-| `/api/slice` | POST | `{token, node_idx, direction, dep_types}` |
+| `/api/slice` | POST | `{token, node_idx, direction, dep_types}`, plus `target_idx` for a chop or `node_indices` for several slices |
 | `/api/linters` | GET | none |
 | `/api/linters/rules/<id>` | GET | none (one rule explained: what it checks, its limits, an example and its fix, with what the rule reports on each) |
-| `/api/benchmark` | GET | `?dataset=<id>` (optional; the dataset's bug list) |
-| `/api/benchmark/bugs/<key>` | GET | `?dataset=<id>` (optional) |
-| `/api/benchmark` | POST | `{lint_rules, profile, dataset}` |
+| `/api/benchmark` | GET | `?dataset=<id>` (optional; the dataset's bug list); only with the benchmark enabled |
+| `/api/benchmark/bugs/<key>` | GET | `?dataset=<id>` (optional); only with the benchmark enabled |
+| `/api/benchmark` | POST | `{lint_rules, profile, dataset}`; only with the benchmark enabled |
 
 `language` is `qiskit-static` or `qasm-static` (or, off the page, `qasm`;
 `qiskit` is refused); without it the file extension picks a static one.
+`profile` names the dependency rule profile; `baseline`, the default, is the
+only one.
 `/api/analyze` returns nodes (each with `line` and `source`), edges,
 diagnostics and a `token` naming the cached QDG, so
 slicing never re-parses. The cache holds the 24 most recent analyses in memory.
 
-The full front-end reference (editor, graph view, math notation, the mocked and
-partial features) is in [webapp/README.md](webapp/README.md).
+The full front-end reference (editor, graph view, math notation, what is
+partial by design) is in [webapp/README.md](webapp/README.md).
 
 ## Linters and benchmarks
 
@@ -170,8 +179,8 @@ all of its rules); `lint_rules` omitted means the default selection.
 
 | Linter | Id | Reads | Default |
 |---|---|---|---|
-| Quick checks | `quick` | errors Python or Qiskit would raise (`qslicer/lint/quick_checks.py`): syntax, a missing circuit, indices outside the registers, removed or unknown Qiskit APIs, and operations Qiskit rejects while the static parser rebuilds the circuit (QS014) | on |
-| Dependence checks | `dependence` | quantum mistakes in the rebuilt circuit and its QDG: dead gates, overwritten and constant measurements, controls never set, missing measurements, idle qubits, cancelling pairs, conditions never set and gates with no effect (QD01-QD03, QD05-QD10; QD04 became QS014) | on |
+| Quick checks | `quick` | errors Python or Qiskit would raise (`qslicer/lint/quick_checks.py`): syntax, a missing circuit, indices outside the registers, removed or unknown Qiskit APIs, operations Qiskit rejects while the static parser rebuilds the circuit (QS014), and a circuit changed after it was run (QS017) | on |
+| Dependence checks | `dependence` | quantum mistakes in the rebuilt circuit and its QDG: dead gates, overwritten and constant measurements, controls never set, missing measurements, idle qubits, cancelling pairs, conditions never set, gates with no effect, a state read from a circuit that measures and classical bits never written (QD01-QD03, QD05-QD12; QD04 became QS014) | on |
 | LintQ | `lintq` | LintQ's ten queries, reimplemented on the syntax tree (`qslicer/lint/lintq/port.py`) | off |
 | LintQ (original, CodeQL) | `lintq-codeql` | LintQ's own CodeQL queries, where `QSLICER_CODEQL` and `QSLICER_LINTQ` are set | off |
 
@@ -192,7 +201,8 @@ which the **?** next to the rule in the Lint menu shows with the rule's real
 findings on both; `tests/webapp/test_webapp_rule_docs.py` fails until it is
 there, and whenever an example stops firing.
 
-The **Benchmark** page grades the current selection on a dataset of buggy and
+The **Benchmark** page (off by default; start the app with `--benchmark` or
+set `QSLICER_BENCHMARK=1`) grades the current selection on a dataset of buggy and
 fixed programs: any folder under `benchmarks/` with a `manifest.json`. The
 first is the 62 Qiskit bugs of [Bugs4Q](https://github.com/Z-928/Bugs4Q-NA),
 vendored under `benchmarks/bugs4q/`. A rule *detects* a bug when it warns on a
@@ -295,7 +305,7 @@ quickly as a small circuit.
    operands, parameters, and a `SourceLocation`.
 2. **Build the QDG.** Each instruction becomes a node. Dependency rules scan the
    program in order and add edges labelled with their dependency type.
-3. **Slice.** Breadth-first traversal along incoming (backward) or outgoing
+3. **Slice.** Graph reachability along incoming (backward) or outgoing
    (forward) edges, optionally filtered by dependency type. A slice always
    contains its criterion.
 
@@ -309,7 +319,7 @@ dependency type needs only a new rule class, with no change to the slicer.
 | **DataQubit** | A gate writes a qubit; later gates on it depend on the writer | on |
 | **Measurement** | An operation conditioned on a measurement depends on it | on |
 | **DataClassical** | Reaching definitions on classical bits | on |
-| **ControlClassical** | Control dependence; a placeholder emitting no edges yet | off |
+| **ControlClassical** | An instruction inside an `if_test` or `switch` branch depends on the predicate it sits under | on |
 | **Entanglement** | Links an entangling gate to later operations on entangled qubits | off |
 | **Phase** | Dependencies through phase-changing gates | off |
 
@@ -514,9 +524,9 @@ caps, a read-only filesystem), `waitress` on Windows, and logs. The service runs
 **one worker with several threads on purpose**: the QDG cache is in process
 memory, so a second worker would not recognise another's slice tokens.
 
-For a public host, the safest configuration is to use only the static
-interpreters, since they execute nothing. Restricting access in nginx
-(`allow`/`deny`) is what decides who can reach the executing route.
+Both front ends the site offers are static, so nothing a visitor submits is
+executed. The Benchmark page stays off unless `QSLICER_BENCHMARK=1` is set in
+the service's environment.
 
 ## Documentation
 
@@ -537,18 +547,20 @@ It is a proposal, not yet implemented.
 
 ## Status and limitations
 
-This is a research prototype. It analyses statically only, and conservative
+qslicer is research software. It analyses statically only, and conservative
 approximations are accepted. Specifically:
 
-- **Entanglement, phase and control-classical rules ship disabled.** Only the
-  `baseline` profile exists, so there is no per-analysis toggle yet.
-- **Classical control dependence** (`ControlClassical`) is a placeholder, and
-  slices do not yet exclude an entangling gate that is uncomputed before the
-  criterion.
-- **Qubit-wise (horizontal) slices** are computed in the browser;
+- **Entanglement and phase rules ship disabled.** Only the `baseline` profile
+  exists, so there is no per-analysis toggle yet.
+- **Uncomputation** is not used by the slicer: slices do not yet exclude an
+  entangling gate that is uncomputed before the criterion.
+- **Run-time loops** (an OpenQASM `while`, or a `for` a measured value can end
+  early) stay one node each, without loop-carried dependences.
+- **Qubit-wise slices** start from the qubit's last measurement (`qslicer slice
+  --qubit`, a wire's "slice" in the web app, a wire name in `qslicer viz`);
   `SlicingCriterion.qubits` is not consumed by the slicer yet.
-- **Quick checks** (`QS000`–`QS016`) read only Python source and are not
-  LintQ; OpenQASM input gets none. The dependence checks (`QD01`–`QD03`, `QD05`–`QD10`)
+- **Quick checks** (`QS000`–`QS017`) read only Python source and are not
+  LintQ; OpenQASM input gets none. The dependence checks (`QD01`–`QD03`, `QD05`–`QD12`)
   need a circuit the static parser can rebuild, so a program it cannot read
   gets none of them.
 - **Large circuits** (several hundred instructions and up) draw slowly, since

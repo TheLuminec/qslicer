@@ -11,7 +11,9 @@ it; the fix is the ground truth for where the fault was.
 | `external/` | Recorded results of other tools, compared on every run (see below) |
 | `sync_upstream.py` | Rebuilds `manifest.json` and `programs/` from a Bugs4Q checkout |
 
-Bugs4Q is the default dataset (see [../README.md](../README.md) for the others and the\nmanifest format). Run it from the web app's **Benchmark** page, or:
+Bugs4Q is the default dataset (see [../README.md](../README.md) for the others and the
+manifest format). Run it from the web app's **Benchmark** page (off unless the
+app is started with `--benchmark` or `QSLICER_BENCHMARK=1`), or:
 
 ```bash
 python benchmarks/run_benchmark.py                           # the default rules

@@ -216,22 +216,22 @@ def system(Fig):
     y = 188
     for name, state, dep, k in (("DataQubitRule", "last_def[q]", "DATA_QUBIT", "k-dq"),
                                 ("MeasurementRule", "last_measured[c]", "MEASUREMENT", "k-me"),
-                                ("DataClassicalRule", "last_write[c]", "DATA_CLASSICAL", "k-dc")):
+                                ("DataClassicalRule", "last_write[c]", "DATA_CLASSICAL", "k-dc"),
+                                ("ControlClassicalRule", "guards[-1]", "CONTROL_CLASSICAL", "k-off")):
         f.rect(qx + 10, y, qw - 20, 40, "box", 5)
         f.add(f'<rect class="{k}" x="{qx+10}" y="{y}" width="5" height="40" rx="2"/>')
         f.text(qx + 22, y + 16, name, "t b")
         f.text(qx + 22, y + 32, state, "m")
         f.text(qx + qw - 18, y + 16, dep, "kl " + k + "t", "end")
         y += 46
-    # the rules that emit nothing, grouped
+    # the rules the profile leaves out, grouped
     gy = y + 6
-    f.rect(qx + 10, gy, qw - 20, 166, "box box-off", 6)
-    f.text(qx + 20, gy + 18, "No edges in the baseline profile", "t b")
-    f.text(qx + 20, gy + 33, "one placeholder, two switched off", "sub")
+    f.rect(qx + 10, gy, qw - 20, 126, "box box-off", 6)
+    f.text(qx + 20, gy + 18, "Not in the baseline profile", "t b")
+    f.text(qx + 20, gy + 33, "two rules switched off", "sub")
     y = gy + 42
-    for name, note in (("ControlClassicalRule", "in profile, empty"),
-                       ("EntanglementRule", "commented out"),
-                       ("PhaseRule", "commented out")):
+    for name, note in (("EntanglementRule", "not in profile"),
+                       ("PhaseRule", "not in profile")):
         f.rect(qx + 18, y, qw - 36, 34, "box", 4)
         f.add(f'<rect class="k-off" x="{qx+18}" y="{y}" width="4" height="34" rx="2"/>')
         f.text(qx + 28, y + 21, name, "t")
@@ -295,7 +295,7 @@ def system(Fig):
         "with it; tags tool, rule",
         "a crash → one error",
         "sorts by line",
-    ], "box box-key", sub="linters.py · selection")
+    ], "box box-key", sub="registry.py · selection")
     f.badge(fx + lrw - 14, 698, 1)
     f.arrow([(wx + ww, 620), (272, 620), (272, 736), (fx, 736)], "ar")
     cx, cw = fx + lrw + 16, fw - lrw - 16
@@ -315,13 +315,13 @@ def system(Fig):
     gx, gw = MOD[0], SL[0] + SL[1] - MOD[0]
     f.rect(gx, 680, gw, 252, "box box-group box-lint", 8)
     f.text(gx + 12, 698, "Linters", "bh")
-    f.text(gx + 70, 698, "quick is built into linters.py; the other three are plugins the registry loads from "
+    f.text(gx + 70, 698, "quick is built into registry.py; the other three are plugins the registry loads from "
            "qslicer/lint/plugins/. Each gets the same context.", "sub")
     LW = (gw - 24 - 3 * 12) / 4
     lx = [gx + 12 + k * (LW + 12) for k in range(4)]
     ly, lh = 710, 210
     linters = [
-        ("quick · QS000–QS016", "on · Python only", [
+        ("quick · QS000–QS017", "on · Python only", [
             "lint.check_source: one",
             "ast.NodeVisitor pass; literal",
             "indices against literal sizes",
@@ -339,9 +339,9 @@ def system(Fig):
             "same warnings as the original",
             "on a 239-program corpus",
         ]),
-        ("dependence · QD01–QD10", "on · Python and OpenQASM", [
+        ("dependence · QD01–QD12", "on · Python and OpenQASM", [
             "reads the rebuilt program;",
-            "builds its own QDG",
+            "reuses the request's QDG",
             "QD01: gates outside the",
             "backward slice of every write",
             "QD05: qubits still |0⟩",

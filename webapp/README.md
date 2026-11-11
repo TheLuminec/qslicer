@@ -1,9 +1,8 @@
-# Web front end (mock-up)
+# Web front end
 
-A Flask front end over the `qslicer` package. It is a working
-mock-up: the pages, the interactions and the API are real, and the graph it
-draws comes from the actual parser, QDG and slicer rather than from canned
-data. What is *mocked* is called out under [Mocked or partial](#mocked-or-partial)
+A Flask front end over the `qslicer` package. The graph it draws comes from the
+package's parser, QDG and slicer. Where the site stops short of the package, or
+the package of the research, is listed under [Partial by design](#partial-by-design)
 below.
 
 ## Running it
@@ -21,13 +20,19 @@ Without the install, `app.py` falls back to the `qslicer/` directory next to
 
 Then open <http://127.0.0.1:5000/>.
 
+The Benchmark page is off by default. Start the app with
+`python webapp/app.py --benchmark`, or set `QSLICER_BENCHMARK=1` in the
+environment (the way to turn it on behind a WSGI server), to serve it; without
+either, `/benchmark` and the `/api/benchmark` routes answer 404 and the page is
+left out of the navigation and the other pages' text.
+
 ## How submitted circuits are handled
 
 The page offers two front ends, one per language, and neither executes what
 you submit: both read the file and interpret it themselves.
 
 Which front end runs is an explicit choice, not a guess. The page has an
-**Interpreter** dropdown next to Example and Rules, and sends it as `language`
+**Interpreter** dropdown next to Example, and sends it as `language`
 on every request. Loading an example or uploading a file sets the dropdown from
 the file's extension; nothing else moves it.
 
@@ -98,14 +103,14 @@ from the API. It parses text and runs nothing, but it is not on the page.
 
 ## Pages
 
-| Route      | What it is                                                              |
-|------------|-------------------------------------------------------------------------|
-| `/`        | Landing page: what the tool does, quantum programming in brief           |
-| `/slicer`  | The application: source on the left, graph and analysis on the right     |
-| `/quantum` | Background on quantum programs, on the QDG, and on the tools we use     |
-| `/lint`      | The lint rules: pick them, read each one with an example, lint a program |
-| `/benchmark` | Grades the selected lint rules on the Bugs4Q bugs                     |
-| `/team`    | Team, course, vision and mission                                         |
+| Route        | What it is                                                              |
+|--------------|-------------------------------------------------------------------------|
+| `/`          | Landing page: what the tool does, quantum programming in brief           |
+| `/slicer`    | The application: source on the left, graph and analysis on the right     |
+| `/quantum`   | Background on quantum programs, on the QDG, and on the tools we use     |
+| `/lint`      | The lint rules: pick them and read each one with an example             |
+| `/benchmark` | Grades the selected lint rules on a dataset's bugs (`?dataset=<id>`, default Bugs4Q). Off unless started with `--benchmark` or `QSLICER_BENCHMARK=1` |
+| `/team`      | Team, course, vision and mission                                         |
 
 ## JSON API
 
@@ -114,11 +119,22 @@ from the API. It parses text and runs nothing, but it is not on the page.
 | `/api/examples`               | GET    | —                                                    |
 | `/api/examples/<key>`         | GET    | —                                                    |
 | `/api/analyze`                | POST   | `{source, filename, profile, language, lint_rules, bindings, circuit}` |
-| `/api/slice`                  | POST   | `{token, node_idx, direction, dep_types}`            |
+| `/api/slice`                  | POST   | `{token, node_idx, direction, dep_types, target_idx, node_indices}` |
 | `/api/linters`                | GET    | —                                                    |
-| `/api/benchmark`              | GET    | —                                                    |
-| `/api/benchmark/bugs/<key>`   | GET    | —                                                    |
-| `/api/benchmark`              | POST   | `{lint_rules, profile}`                              |
+| `/api/linters/rules/<id>`     | GET    | —                                                    |
+| `/api/benchmark`              | GET    | `?dataset=<id>`                                      |
+| `/api/benchmark/bugs/<key>`   | GET    | `?dataset=<id>`                                      |
+| `/api/benchmark`              | POST   | `{lint_rules, profile, dataset}`                     |
+
+The three `/api/benchmark` routes, like the page, answer 404 unless the
+benchmark is turned on (`--benchmark` or `QSLICER_BENCHMARK=1`). `dataset` is
+a folder name under `benchmarks/`; leave it out for Bugs4Q.
+
+`/api/slice` takes `direction` `"backward"` (the default), `"forward"` or
+`"chop"`; a chop also needs `target_idx`, the node to stop at. `node_indices`
+(1 to 16 of them, backward only) slices from several nodes at once in place
+of `node_idx`. `/api/linters/rules/<id>` gives one rule's explanation and
+what it reports on its example and on the fixed version.
 
 `language` is `"qiskit-static"` or `"qasm-static"` (and, off the page,
 `"qasm"`; `"qiskit"` is refused). It is optional for API callers -- without it the
@@ -164,9 +180,9 @@ webapp/
 ├── app.py          Flask routes and the JSON API
 ├── wsgi.py         entry point for running behind gunicorn
 ├── analysis.py     bridge to qslicer -- route, parse, build QDG, slice, serialize
-├── benchmark.py    grades the selected rules on the Bugs4Q bugs
+├── benchmark.py    grades the selected rules on the datasets in benchmarks/
 ├── examples.py     reads the example catalog in qslicer/examples/
-├── rule_docs.py    what each lint rule checks, for the Lint menu's ? cards
+├── rule_docs.py    what each lint rule checks, for the rule pickers' ? explanations
 ├── team.py         team page content
 ├── tools_make_hero_figure.py   regenerates the landing page's graph figure
 ├── templates/      Jinja templates, one per page plus a base layout
@@ -175,10 +191,12 @@ webapp/
     └── js/
         ├── swatches.js  shared dependency colors
         ├── highlight.js the editor's syntax highlighter (Python and OpenQASM)
+        ├── editkeys.js  the editor's Tab, Shift+Tab and bracket-wrapping edits
         ├── mathfmt.js   renders the gate math markup
         ├── graph.js     the SVG graph: pan, zoom, drag, hover, PNG export
-        ├── lintrules.js the Lint rule picker shared by Slicer and Benchmark
-        ├── slicer.js    page controller
+        ├── lintrules.js the lint rule picker shared by Slicer, Lint and Benchmark
+        ├── slicer.js    Slicer page controller
+        ├── lint.js      Lint page controller
         └── benchmark.js Benchmark page controller
 ```
 
@@ -260,10 +278,18 @@ line, so the numbers stay aligned when a line wraps. Heights are measured as
 fractions, not `offsetHeight`: rounding each line drifts the gutter by several
 pixels by the bottom of a file.
 
-Two guards keep typing responsive, since each render is one DOM element per line:
-files over 20 KB re-color on a pause in typing rather than on every keystroke
-(about 2 ms a keystroke in a 2000-line file, against 400 ms without it), and
-files over 120 KB are not colored at all.
+Three things keep typing responsive, since each render is one DOM element per
+line: only the run of lines that changed is replaced (a keystroke lays out one
+line, not the file: about 9 ms in a 360-line file against 25 ms), files over
+20 KB re-color on a pause in typing rather than on every keystroke, and files
+over 120 KB are not colored at all.
+
+**Editing keys** (`static/js/editkeys.js`, applied by `applyEdit` in
+`slicer.js`): Tab indents every line of a selection that reaches a second line
+and Shift+Tab outdents them; with a caret, Tab pads to the next multiple of
+four columns. Typing `(`, `[`, `{`, `"` or `'` over a selection wraps it and
+keeps it selected. The edits go in as browser insertions, so Ctrl+Z undoes
+them like typing.
 
 ## Math notation
 
@@ -294,24 +320,29 @@ visible instead of silent.
 
 ## The graph view
 
+* **Controls and targets.** On a multi-qubit gate each wire it touches carries
+  a mark, as in a circuit diagram: a solid dot on a control, a ring on a target
+  (a circled plus for an X target, a cross on each swapped wire), a small dot
+  on a gate with no controls. The gate's card in `gates` says how many leading
+  qubits are controls (`controls`, -1 for all but the last) and what the rest
+  get (`target`), from `qslicer.gates.controlled`; the hover card lists them.
 * **Hover** a node for the gate's name, what it does, its matrix, parameters and
   flags (entangling / phase / self-inverse).
-* **Click** a node to slice from it. Backward and forward are a toggle in the
-  toolbar.
+* **Click** a node to slice from it. Backward, Forward and Chop are a toggle in
+  the toolbar; Ctrl- or Shift-click adds a node to several backward slices at
+  once, and Chop takes two clicks, the operation and then the measurement.
 * **Click a wire label** (`q0`, `q1`, …) or a chip on the Instructions tab to
   highlight everything touching that qubit.
 * **Follow** chips choose which dependency kinds the traversal may use. They are
   passed to `SlicingCriterion.dep_types`, so this is the real filter, not a
   display effect. The bar is empty until you analyze something, and is then
-  built from the rules that actually ran: the `baseline` profile offers three
-  chips, not six, because it never runs the entanglement, phase or
-  control-classical rules. Each chip carries the number of edges its rule
+  built from the rules that actually ran: the `baseline` profile offers four
+  chips, not six, because it never runs the entanglement or phase rules. Each
+  chip carries the number of edges its rule
   contributed, and a rule that ran and produced nothing shows a dashed chip
   with a zero rather than being hidden.
 
-  The bar is rebuilt per analysis, not when the Rules dropdown changes: the
-  dropdown says what the next run will use, the chips say what the last run
-  produced.
+  The bar is rebuilt per analysis: the chips say what the last run produced.
 * **Range** narrows the drawing to a window of instruction indices, which is how
   you make a large circuit readable.
 * **Drag** a node to pull it out of a pile; **Relayout** puts everything back.
@@ -357,31 +388,30 @@ The page stays responsive on circuits of tens of thousands of instructions
   meanwhile forgotten that analysis (a restart, or its 24-entry cache moved
   on), the next slice notices, analyzes again and then slices.
 
-## Mocked or partial
+## Partial by design
 
-Everything here is deliberate, and each item is a place the mock-up stops short
-of the real thing:
+Each item is a deliberate limit of the site or of what is behind it:
 
 * **Horizontal (qubit) slices.** Computed in the browser from the instruction
   list. `SlicingCriterion` has a `qubits` field, but `QuantumSlicer` does not
   consume it yet, so there is nothing server-side to call. Also waiting on the
   research; when the slicer grows real vertical and horizontal criteria, the UI
   hooks are already here.
-* **Quick checks** (`QS000`–`QS016`, `qslicer/lint/quick_checks.py`): errors Python or Qiskit would
+* **Quick checks** (`QS000`–`QS017`, `qslicer/lint/quick_checks.py`): errors Python or Qiskit would
   raise. Most read the Python AST, so they see only literal arguments; QS012
   and QS013 look names and keyword arguments up in the installed Qiskit
   (importing the library's modules, never the checked file), and QS014 reports
   what Qiskit rejects while the static parser rebuilds the circuit.
-* **Dependence checks** (`QD01`–`QD03`, `QD05`–`QD10`, `qslicer/lint/plugins/dependence_checks.py`):
+* **Dependence checks** (`QD01`–`QD03`, `QD05`–`QD12`, `qslicer/lint/plugins/dependence_checks.py`):
   quantum mistakes in the rebuilt circuit (loops unrolled, helpers followed)
   and its dependence graph. Quick and dependence checks are on by default;
   LintQ (the port, and the original through CodeQL where it is installed) is
   an add-on picked from the **Lint** menu.
-* **Rule profiles.** The dropdown lists whatever `qdg.list_rule_profiles()`
-  returns, which today is just `baseline`. Entanglement, phase and
-  control-classical rules exist in `qslicer/dependencies/rules.py` but ship
-  disabled, so a profile that enables
-  them is the thing that makes their Follow chips appear.
+* **Rule profiles.** The page always analyzes with `baseline`, the only profile
+  `qdg.list_rule_profiles()` returns today (the API still takes `profile`).
+  The entanglement and phase rules exist in `qslicer/dependencies/rules.py`
+  but ship disabled, so a profile that enables them is the thing that makes
+  their Follow chips appear.
 
   Which dependency type a rule emits is not something the rules declare -- it is
   baked into each `build()` -- so `analysis._RULE_DEPENDENCIES` maps it by rule
@@ -402,7 +432,8 @@ of the real thing:
 * A parse stops after `QSLICER_PARSE_TIMEOUT` seconds (default 20). Loops are
   unrolled, so a program whose unrolled size grows exponentially (deeply nested
   loops, say) reaches that before anything else.
-* Very large circuits (several hundred instructions) draw slowly, because every
-  node and edge is a live DOM element. The Range control is the workaround.
+* Very large circuits draw only what is in view (see [Large circuits](#large-circuits)),
+  but the analysis response is still megabytes (Shor's is about 5.8 MB before
+  gzip); the Range control narrows the drawing to a window.
 * Library circuits the Python interpreter models (`QFT`, `decompose()`) arrive
   as Qiskit builds them, so gate names may not match the source.

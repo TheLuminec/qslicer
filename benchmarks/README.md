@@ -3,6 +3,9 @@
 Datasets of buggy programs and the programs that fixed them, used to grade the
 linters. Each folder here with a `manifest.json` is a dataset; the web app's
 **Benchmark** page lists them all, and `run_benchmark.py` runs any of them.
+The web page is off by default: start the app with `python webapp/app.py
+--benchmark`, or set `QSLICER_BENCHMARK=1` for gunicorn or another WSGI server.
+`run_benchmark.py` needs neither.
 
 | Dataset | Bugs | What |
 |---|---|---|

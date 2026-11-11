@@ -117,7 +117,7 @@ def system():
 
 def sequence():
     f = Fig("f4")
-    lanes = ["Browser", "app.py", "analysis.py", "linters.py", "static parser", "QDG · slicer", "LRU cache"]
+    lanes = ["Browser", "app.py", "analysis.py", "registry.py", "static parser", "QDG · slicer", "LRU cache"]
     subs = ["slicer.js", "routes", "analyze_source", "LintContext", "Qiskit / OpenQASM", "qdg.py · slicer.py", "_CACHE (24)"]
     X0, DX = 90, 186
     W = X0 + DX * (len(lanes) - 1) + 100

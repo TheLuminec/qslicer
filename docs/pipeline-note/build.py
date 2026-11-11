@@ -45,7 +45,7 @@ def git(*args):
 # What each rule reads to decide (D) or only to excuse or locate a finding (L).
 # Keep in step with the rules: a new rule without an entry here fails the build.
 COLS = ["ast", "flow", "qiskit", "fail", "ir", "qdg"]
-READS = {f"QS{n:03d}": {"ast": "D"} for n in range(17)}
+READS = {f"QS{n:03d}": {"ast": "D"} for n in range(18)}
 for code in ("QS005", "QS012", "QS013"):
     READS[code] = {"ast": "D", "qiskit": "D"}
 READS["QS014"] = {"fail": "D"}
@@ -59,6 +59,8 @@ READS.update({
     "QD08": {"ir": "D", "ast": "L"},
     "QD09": {"ir": "D"},
     "QD10": {"ir": "D"},
+    "QD11": {"ir": "D", "ast": "D"},
+    "QD12": {"ir": "D", "ast": "L"},
 })
 for n in range(1, 11):
     READS[f"LQ{n:02d}"] = {"ast": "D", "flow": "D"}

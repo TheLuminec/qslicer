@@ -52,8 +52,8 @@ extension. `python -m qslicer` works too.
 `viz` opens an interactive window: click an instruction to slice from it
 (ctrl- or shift-click for several slices at once), click a wire name to slice
 on that qubit, `c` to chop from an operation to a measurement, hover an
-instruction for its gate, source line, lint findings and what the insight
-passes found, `m` for every mirror arc in view, `[` and `]` step through the
+instruction for its gate, its controls and targets, source line, lint findings
+and what the insight passes found, `m` for every mirror arc in view, `[` and `]` step through the
 findings, and `?` lists the keys. It runs the linters unless
 `--no-lint` is given, and `--save` writes an image instead of opening a window.
 
@@ -91,7 +91,7 @@ finds the bundled example circuits.
    led there).
 2. **Build the QDG.** Each instruction becomes a node; dependency rules add
    edges labelled with their dependency type.
-3. **Slice.** Breadth-first traversal along incoming (backward) or outgoing
+3. **Slice.** Graph reachability along incoming (backward) or outgoing
    (forward) edges, optionally restricted to some dependency types. A slice
    always contains its criterion.
 
@@ -100,7 +100,7 @@ finds the bundled example circuits.
 | `DATA_QUBIT` | A gate writes a qubit; later gates on it depend on the writer | on |
 | `MEASUREMENT` | An operation conditioned on a measurement depends on it | on |
 | `DATA_CLASSICAL` | Reaching definitions on classical bits | on |
-| `CONTROL_CLASSICAL` | Control dependence; a placeholder emitting no edges yet | off |
+| `CONTROL_CLASSICAL` | An instruction inside an `if_test` or `switch` branch depends on the predicate it sits under | on |
 | `ENTANGLEMENT` | Links an entangling gate to later operations on entangled qubits | off |
 | `PHASE` | Dependencies through phase-changing gates | off |
 
@@ -131,8 +131,8 @@ physical qubits, and `if`/`while`/`switch` on measured values.
 
 | Linter | Id | What it reports | Default |
 |---|---|---|---|
-| Quick checks | `quick` | `QS000`-`QS016`: errors Python or Qiskit would raise, such as syntax errors, a missing circuit, indices outside the registers, removed or unknown Qiskit APIs, and operations Qiskit rejects | on |
-| Dependence checks | `dependence` | `QD01`-`QD10` (no `QD04`): quantum mistakes in the rebuilt circuit and its QDG, such as dead gates, overwritten or constant measurements, controls never set, missing measurements, idle qubits and cancelling pairs | on |
+| Quick checks | `quick` | `QS000`-`QS017`: errors Python or Qiskit would raise, such as syntax errors, a missing circuit, indices outside the registers, removed or unknown Qiskit APIs, and operations Qiskit rejects; and a circuit changed after it was run | on |
+| Dependence checks | `dependence` | `QD01`-`QD12` (no `QD04`): quantum mistakes in the rebuilt circuit and its QDG, such as dead gates, overwritten or constant measurements, controls never set, missing measurements, idle qubits, cancelling pairs, a state read from a circuit that measures, and classical bits never written | on |
 | LintQ | `lintq` | `LQ01`-`LQ10`: the ten queries of LintQ, reimplemented on the syntax tree | off |
 | LintQ (original) | `lintq-codeql` | LintQ's own CodeQL queries, when `QSLICER_CODEQL` and `QSLICER_LINTQ` are set | off |
 
@@ -152,10 +152,10 @@ A new linter can come from an installed package that declares it under the
 
 ## Status and limitations
 
-qslicer is a research prototype, and it accepts conservative approximations.
+qslicer is research software, and it accepts conservative approximations.
 
-- The entanglement, phase and control-classical rules ship disabled, and only
-  the `baseline` rule profile exists.
+- The entanglement and phase rules ship disabled, and only the `baseline` rule
+  profile exists.
 - Slices do not yet drop an entangling gate that is uncomputed before the
   criterion.
 - Code the interpreter does not model (user-defined classes, `transpile` and

@@ -238,7 +238,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <p class="lede">The tool reads a Qiskit or OpenQASM program without running it, rebuilds its circuit as a flat list of instructions that each know their source line, connects them in a Quantum Dependence Graph, and answers slicing questions as graph reachability. The same static reading feeds pluggable linters, whose findings are drawn back onto the graph. This note follows each stage as the code implements it, and every number in the worked example and the benchmark comes from running the code at this commit.</p>
   <dl class="facts">
     <div><dt>Front ends</dt><dd><b>2</b> static interpreters: Python <code>ast</code>, OpenQASM 2/3</dd></div>
-    <div><dt>Dependency rules</dt><dd><b>4</b> in the baseline profile, <b>3</b> emit edges; 2 more ship off</dd></div>
+    <div><dt>Dependency rules</dt><dd><b>4</b> in the baseline profile, all emitting edges; 2 more ship off</dd></div>
     <div><dt>Linters</dt><dd><b>{{LINTERS}}</b> registered, <b>{{LINTERS_ON}}</b> on by default; <b>{{RULE_CODES}}</b> rule codes</dd></div>
     <div><dt>Bugs4Q</dt><dd><b>{{B_DETECTED}}</b> of {{B_BUGS}} bugs detected with quick + dependence + LintQ; <b>{{B_DETECTED_NR}}</b> of {{B_NR}} without rewrites</dd></div>
   </dl>
@@ -312,7 +312,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <section>
 <h2><span class="sn">4</span>Building the Quantum Dependence Graph</h2>
 <div class="prose">
-<p><code>QDG(program, rules)</code> adds one node per instruction, keyed by its index, then lets each rule make one pass over the program in order. Every rule that emits edges keeps a single "last writer" map from a wire to the index of the instruction that last touched it. Writing <var>Q</var>(<var>i</var>) for the qubits of instruction <var>i</var>, <var>C</var>(<var>i</var>) for its clbits and <var>R</var>(<var>i</var>) for its condition clbits, the three active rules produce:</p>
+<p><code>QDG(program, rules)</code> adds one node per instruction, keyed by its index, then lets each rule make one pass over the program in order. Every rule that emits edges keeps a single "last writer" map from a wire to the index of the instruction that last touched it. Writing <var>Q</var>(<var>i</var>) for the qubits of instruction <var>i</var>, <var>C</var>(<var>i</var>) for its clbits and <var>R</var>(<var>i</var>) for its condition clbits, the three data rules produce (outside conditional blocks; inside one, each branch keeps its own map and the maps merge after it):</p>
 </div>
 <div class="math">
   <div><span class="lbl">DATA_QUBIT</span><var>u</var> → <var>v</var> &nbsp;iff&nbsp; ∃ <var>q</var> ∈ <var>Q</var>(<var>v</var>) : <var>u</var> = max { <var>w</var> &lt; <var>v</var> : <var>q</var> ∈ <var>Q</var>(<var>w</var>) }</div>
@@ -320,14 +320,14 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <div><span class="lbl">DATA_CLASSICAL</span><var>u</var> → <var>v</var> &nbsp;iff&nbsp; ∃ <var>c</var> ∈ <var>R</var>(<var>v</var>) : <var>u</var> = max { <var>w</var> &lt; <var>v</var> : <var>c</var> ∈ <var>C</var>(<var>w</var>) }</div>
 </div>
 
-<p class="tcap"><span class="cap-n">Table 1.</span>Dependency rules (<code>qslicer/dependencies/rules.py</code>). The baseline profile is the only profile; the last two rules exist but are commented out of it.</p>
+<p class="tcap"><span class="cap-n">Table 1.</span>Dependency rules (<code>qslicer/dependencies/rules.py</code>). The baseline profile is the only profile; the last two rules exist but are left out of it.</p>
 <div class="tbl"><table>
 <thead><tr><th>Rule</th><th>State kept</th><th>On instruction <var>i</var></th><th>Edge type</th><th>Baseline</th></tr></thead>
 <tbody>
 <tr><td><code>DataQubitRule</code></td><td><code>last_def[q]</code></td><td>edge from <code>last_def[q]</code> for every <var>q</var> ∈ <var>Q</var>(<var>i</var>), then <code>last_def[q] = i</code></td><td><span class="k dq"></span>DATA_QUBIT</td><td>on</td></tr>
 <tr><td><code>MeasurementRule</code></td><td><code>last_measured[c]</code></td><td>a <code>measure</code> sets it for its clbits; every <var>c</var> ∈ <var>R</var>(<var>i</var>) draws an edge from it</td><td><span class="k me"></span>MEASUREMENT</td><td>on</td></tr>
 <tr><td><code>DataClassicalRule</code></td><td><code>last_write[c]</code></td><td>every <var>c</var> ∈ <var>R</var>(<var>i</var>) draws an edge from it, then any instruction with clbits sets it</td><td><span class="k dc"></span>DATA_CLASSICAL</td><td>on</td></tr>
-<tr><td><code>ControlClassicalRule</code></td><td>none</td><td>returns without emitting anything</td><td><span class="k off"></span>CONTROL_CLASSICAL</td><td>on, empty</td></tr>
+<tr><td><code>ControlClassicalRule</code></td><td><code>guards</code> metadata</td><td>an edge from the innermost <code>if_else</code> or <code>switch_case</code> predicate the instruction sits under</td><td><span class="k off"></span>CONTROL_CLASSICAL</td><td>on</td></tr>
 <tr><td><code>EntanglementRule</code></td><td><code>entangle_source[q]</code></td><td>links an entangling gate to later operations on its qubits; a measurement clears the qubit</td><td><span class="k off"></span>ENTANGLEMENT</td><td>off</td></tr>
 <tr><td><code>PhaseRule</code></td><td><code>phase_source[q]</code></td><td>links a phase-changing gate to later operations on its qubits</td><td><span class="k off"></span>PHASE</td><td>off</td></tr>
 </tbody></table></div>
@@ -463,7 +463,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <div class="prose">
 <h3>10.1 Limitations of the current pipeline</h3>
 <ul>
-<li><strong>Classical control dependence is a placeholder.</strong> <code>ControlClassicalRule</code> emits nothing, and an <code>if_else</code> is one node whose bodies the rules do not enter.</li>
+<li><strong>Classical control dependence follows the blocks.</strong> <code>ControlClassicalRule</code> links each instruction of a branch to the innermost predicate it sits under; an <code>if_else</code> or <code>switch_case</code> is a predicate node on no qubit, followed by its branches' instructions.</li>
 <li><strong>Entanglement and phase rules ship disabled</strong>, and only the baseline profile exists, so there is no per-analysis toggle. Slices do not yet exclude an entangling gate that is uncomputed before the criterion; the entanglement analyzer's groups are shown in a side panel but do not feed the slicer.</li>
 <li><strong>Static reading has edges.</strong> Classes defined in the file, <code>transpile</code> and pass managers are not followed, and control flow that depends on an unknown value and touches a circuit is refused with its line rather than guessed.</li>
 <li><strong>Scale.</strong> Unrolling makes the IR large (the static parsing notes estimate about 156,000 nodes for a 4,000-layer, 20-qubit ansatz). Because every rule keeps one last-writer state per wire, the notes propose chunking along source structure, summarising each chunk at its qubit and clbit boundary; this would be exact for the current rules but is not implemented.</li>
@@ -473,7 +473,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 <h3>10.2 Documentation</h3>
 <p>While this note was written, the README and the project wiki had drifted from the code in four places. They were brought in line on 3 Nov 2026:</p>
 <ul>
-<li>Both READMEs now list the dependence checks as QD01–QD03 and QD05–QD10. QD04 became QS014 in the 2026-10-29 reorganisation.</li>
+<li>Both READMEs now list the dependence checks as QD01–QD03 and QD05–QD12. QD04 became QS014 in the 2026-10-29 reorganisation.</li>
 <li><code>wiki/Research/Linting.md</code> now describes the current design. The dependence checks are a plugin in <code>qslicer/lint/plugins/</code>, the LintQ port works on the syntax tree and keeps the original's limits, and the rule tables match the registry.</li>
 <li><code>wiki/Research/Static-Parsing.md</code> now lists the OpenQASM features the interpreter supports (run-time <code>while</code>, <code>switch</code>, <code>box</code>, physical qubits, <code>extern</code>) and what it still refuses.</li>
 <li><code>wiki/Research/Bugs4Q-Benchmark.md</code> now reports the current run: {{B_DETECTED}} of {{B_BUGS}} bugs detected, {{B_READ}} of {{B_PROGRAMS}} programs read.</li>
