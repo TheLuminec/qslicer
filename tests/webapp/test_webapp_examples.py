@@ -49,9 +49,9 @@ def test_manifest_entry_loads_with_matching_language(entry):
     assert loaded["title"] == entry["title"]
     with open(os.path.join(EXAMPLES_DIR, entry["file"]), encoding="utf-8") as handle:
         assert loaded["source"] == handle.read()
-    expected = "qasm" if entry["file"].endswith(".qasm") else "qiskit"
+    expected = "qasm-static" if entry["file"].endswith(".qasm") else "qiskit-static"
     assert loaded["interpreter"] == expected
-    if expected == "qasm":
+    if expected == "qasm-static":
         assert loaded["source"].lstrip().startswith("//") or "OPENQASM" in loaded["source"]
         assert entry["category"] == "openqasm"
 
@@ -63,7 +63,8 @@ def test_every_file_on_disk_is_in_the_manifest():
 
 
 @pytest.mark.parametrize("filename, expected", [
-    ("a.py", "qiskit"), ("a.qasm", "qasm"), ("a.QASM3", "qasm"), ("a.txt", "qiskit"), ("", "qiskit"),
+    ("a.py", "qiskit-static"), ("a.qasm", "qasm-static"), ("a.QASM3", "qasm-static"),
+    ("a.txt", "qiskit-static"), ("", "qiskit-static"),
 ])
 def test_interpreter_for(filename, expected):
     assert examples.interpreter_for(filename) == expected
@@ -129,7 +130,7 @@ def test_corrupt_manifest_still_lists_files(tmp_path, monkeypatch):
     monkeypatch.setattr(examples, "EXAMPLE_DIR", str(tmp_path))
     monkeypatch.setattr(examples, "MANIFEST_PATH", str(tmp_path / "manifest.json"))
     catalog = examples.catalog()
-    assert [(e["key"], e["interpreter"]) for e in catalog] == [("x", "qasm")]
+    assert [(e["key"], e["interpreter"]) for e in catalog] == [("x", "qasm-static")]
 
 
 # ------------------------------------------------- every example (slow) --
@@ -143,10 +144,16 @@ def test_example_analyzes_successfully(example_results, key):
     status, body, entry = example_results[key]
     assert status == 200
     assert body["ok"] is True, body.get("error")
-    assert body["language"] == ("qasm" if entry["interpreter"] == "qasm" else "python")
+    assert body["language"] == ("qasm-static" if entry["interpreter"] == "qasm-static"
+                                else "python-static")
     assert body["filename"] == entry["filename"]
     assert body["program"]["num_instructions"] == len(body["nodes"]) > 0
     assert not any(d["code"] == "QS000" for d in body["diagnostics"])
+
+
+# Past this many nodes, slice from an even spread of them instead of every one:
+# the Shor example has 12,821, and two slices from each would take minutes.
+SLICE_EVERY_NODE_UP_TO = 400
 
 
 @pytest.mark.slow
@@ -156,10 +163,12 @@ def test_example_slices_contain_criterion_and_respect_edges(client, example_resu
     import networkx as nx
 
     _, body, _ = example_results[key]
+    count = len(body["nodes"])
     graph = nx.MultiDiGraph()
-    graph.add_nodes_from(range(len(body["nodes"])))
+    graph.add_nodes_from(range(count))
     graph.add_edges_from((e["source"], e["target"]) for e in body["edges"])
-    for idx in range(len(body["nodes"])):
+    step = max(1, count // SLICE_EVERY_NODE_UP_TO)
+    for idx in sorted(set(range(0, count, step)) | {count - 1}):
         for direction, reach in (("backward", nx.ancestors), ("forward", nx.descendants)):
             response, result = post_slice(client, token=body["token"], node_idx=idx,
                                           direction=direction)
@@ -211,6 +220,24 @@ def test_claim_stress_test_dimensions(example_results):
 
 
 @pytest.mark.slow
+def test_claim_shors_algorithm_dimensions_and_circuits(example_results):
+    body = _ok(example_results, "shors_algorithm")
+    assert body["program"] == {"num_qubits": 13, "num_clbits": 10, "num_instructions": 12821}
+    # 45 if_test blocks of one gate each: 45 more nodes than when an if_else
+    # was one node, and 210 more edges (a predicate->body CONTROL_CLASSICAL
+    # edge each, and after m blocks in a row on a wire the next gate there
+    # depends on all m bodies and the gate before them).
+    assert len(body["edges"]) == 24154
+    circuits = body["circuits"]
+    assert len(circuits) == 11 and circuits[0]["variable"] == "qc"
+    assert circuits[0]["name"] == "order_finding(a=2, N=21)" and not circuits[0]["used_inside"]
+    assert all(c["used_inside"] for c in circuits[1:])
+    assert "c-U(4)" in {c["name"] for c in circuits}
+    # Doubly controlled phase rotations are what the adders are made of.
+    assert sum(n["label"].startswith("mcphase") for n in body["nodes"]) > 1000
+
+
+@pytest.mark.slow
 def test_claim_ghz_qasm_graph_matches_python(example_results):
     python = _ok(example_results, "ghz_state")
     qasm = _ok(example_results, "ghz_openqasm")
@@ -225,21 +252,13 @@ def test_claim_qasm_examples_skip_static_checks(example_results):
     for key in ("ghz_openqasm", "grover_openqasm"):
         body = _ok(example_results, key)
         assert [d["code"] for d in body["diagnostics"]] == ["QS100"]
-        assert body["route"] == "OpenQASM, parsed without executing"
-
-
-@pytest.mark.slow
-def test_claim_uncomputation_instruction_3_is_uncomputed(example_results):
-    body = _ok(example_results, "uncomputation")
-    groups = body["entanglement"]["groups"]
-    assert any(3 in g["uncomputed"] for g in groups)
-    assert not any(3 in g["computed"] for g in groups)
+        assert body["route"] == "OpenQASM, interpreted statically with source locations"
 
 
 @pytest.mark.slow
 def test_claim_linter_showcase_diagnostics(example_results):
     body = _ok(example_results, "linter_showcase")
-    assert {"QS005", "QS006", "QS010"} <= {d["code"] for d in body["diagnostics"]}
+    assert {"QD06", "QD07", "QD08"} <= {d["code"] for d in body["diagnostics"]}
 
 
 @pytest.mark.slow
@@ -251,8 +270,8 @@ def test_claim_teleportation_has_measurement_dependencies(example_results):
 @pytest.mark.slow
 def test_claim_qaoa_rzz_is_entangling_and_phase(example_results):
     body = _ok(example_results, "qaoa_maxcut")
-    rzz = [n for n in body["nodes"] if n["name"] == "rzz"]
-    assert rzz and all(n["gate"]["entangling"] and n["gate"]["phase"] for n in rzz)
+    assert any(n["name"] == "rzz" for n in body["nodes"])
+    assert body["gates"]["rzz"]["entangling"] and body["gates"]["rzz"]["phase"]
 
 
 @pytest.mark.slow

@@ -1,6 +1,6 @@
 /* ==========================================================================
-   Quantum Program Slicer -- mock-up styles
-   Palette follows the desktop matplotlib visualizers so the two feel related.
+   Quantum Program Slicer -- site styles
+   The desktop viewer (qslicer viz, qslicer/viz/model.py) uses the same palette.
    ========================================================================== */
 
 :root {
@@ -22,13 +22,27 @@
   --err:         #f38ba8;
   --info:        #89dceb;
 
-  /* Dependency edge colors, matching scripts/visualizer.py */
+  /* Dependency edge colors, matching swatches.js and qslicer/viz/model.py */
   --dep-data-qubit:        #2196f3;
   --dep-entanglement:      #e91e63;
   --dep-measurement:       #4caf50;
   --dep-data-classical:    #ff9800;
   --dep-control-classical: #795548;
   --dep-phase:             #8d1eac;
+
+  /* Several slices at once, matching SLICE_COLORS in graph.js */
+  --slice-0: #4e9fe6;
+  --slice-1: #f28e2b;
+  --slice-2: #59c26b;
+  --slice-3: #e15759;
+  --slice-4: #b07aa1;
+  --slice-5: #edc948;
+  --slice-6: #76b7b2;
+  --slice-7: #ff9da7;
+  /* Node marks from the insight passes, and mirror links */
+  --mark-phase:    #cba6f7;
+  --mark-kickback: #f5c2e7;
+  --mirror:        #94e2d5;
 
   --radius: 10px;
   --radius-sm: 6px;
@@ -136,7 +150,6 @@ h3 { font-size: 1.05rem; }
   text-align: center;
 }
 .site-footer p { margin: 0.3rem 0; }
-.footnote { font-size: 0.78rem; }
 
 /* --------------------------------------------------------------- shared -- */
 
@@ -244,7 +257,9 @@ input:focus-visible, select:focus-visible, button:focus-visible, textarea:focus-
   fill: var(--text-faint); font-size: 10.5px; font-family: var(--mono); text-anchor: middle;
 }
 .hero-node .hero-span { stroke: #c6a0f6; stroke-width: 2; opacity: 0.55; }
-.hero-node .hero-tick { fill: #c6a0f6; opacity: 0.8; }
+.hero-node .hero-tick { fill: #c6a0f6; }
+.hero-node .hero-target circle { fill: var(--bg-sunken); stroke: #c6a0f6; stroke-width: 1.8; }
+.hero-node .hero-target path { stroke: #c6a0f6; stroke-width: 1.6; }
 
 /* Category fills, for the instructions the slice did not reach. */
 .hero-node.cat-single .hero-shape { fill: #9aa6cf; }
@@ -327,13 +342,6 @@ input:focus-visible, select:focus-visible, button:focus-visible, textarea:focus-
   .explainer-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
-.strip { background: var(--bg-sunken); border-block: 1px solid var(--line); }
-.strip-inner {
-  max-width: 1120px; margin: 0 auto; padding: 3rem 1.5rem;
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 2.5rem;
-}
-.strip p { color: var(--text-dim); }
-
 .cards { max-width: 1120px; margin: 0 auto; padding: 3.5rem 1.5rem; }
 .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; }
 .card {
@@ -412,6 +420,47 @@ body.page-slicer main { overflow: hidden; }
   flex: none;
 }
 .example-blurb .highlight { color: var(--accent-2); }
+
+/* Values the user picked for what only a run could decide. */
+.bindings {
+  display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center;
+  padding: 0.45rem 0.9rem; border-bottom: 1px solid var(--line);
+  font-size: 0.78rem; color: var(--text-faint); flex: none;
+}
+.bindings .chip { cursor: default; font-family: var(--mono); color: var(--text); }
+.bindings .chip button {
+  border: 0; background: none; color: var(--text-faint); cursor: pointer;
+  font: inherit; padding: 0 0 0 0.15rem; line-height: 1;
+}
+.bindings .chip button:hover { color: var(--err); }
+
+/* The "pick a value" form inside a needs_value error. */
+.pick-value { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-top: 0.45rem; }
+.pick-value label { font-family: var(--mono); font-size: 0.85rem; color: var(--text); }
+.pick-value input {
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--surface-3); border-radius: var(--radius-sm);
+  padding: 0.3rem 0.5rem; font-family: var(--mono); font-size: 0.85rem;
+  width: 9rem; min-width: 0;
+}
+
+/* Which of a file's circuits the output shows. */
+.circuit-bar {
+  display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;
+  padding: 0.45rem 0.9rem; border-bottom: 1px solid var(--line);
+  background: var(--bg-sunken); flex: none;
+}
+.circuit-field { display: flex; gap: 0.5rem; align-items: center; min-width: 0; flex: 1 1 16rem; }
+.circuit-field span {
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint);
+}
+.circuit-field select {
+  flex: 1 1 auto; min-width: 0; max-width: 34rem;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--surface-3); border-radius: var(--radius-sm);
+  padding: 0.35rem 0.5rem; font: inherit; font-size: 0.84rem;
+}
+.circuit-count { font-size: 0.75rem; color: var(--text-faint); white-space: nowrap; }
 
 /* editor */
 
@@ -530,8 +579,32 @@ body.page-slicer main { overflow: hidden; }
 .diagnostics {
   flex: none; max-height: 36%;
   display: flex; flex-direction: column;
-  border-top: 1px solid var(--line); background: var(--bg);
+  background: var(--bg);
 }
+/* Once dragged, the height is the user's: slicer.js sets it inline. */
+.diagnostics.sized { max-height: none; }
+
+/* The divider above the diagnostics: the row-wise twin of .splitter. */
+.row-splitter {
+  position: relative; flex: none; height: 7px;
+  background: var(--line);
+  cursor: row-resize;
+  touch-action: none;
+}
+.row-splitter::before {
+  content: ""; position: absolute; inset: -4px 0;
+}
+.row-splitter::after {
+  content: ""; position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 28px; height: 3px; border-radius: 2px;
+  background: var(--surface-3);
+  transition: background 0.12s ease;
+}
+.row-splitter:hover::after, .row-splitter:focus-visible::after { background: var(--accent); }
+.row-splitter:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+body.splitting-rows { cursor: row-resize; user-select: none; }
+body.splitting-rows .row-splitter::after { background: var(--accent); }
 .diagnostics-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 0.45rem 0.9rem; border-bottom: 1px solid var(--line); flex: none;
@@ -542,7 +615,7 @@ body.page-slicer main { overflow: hidden; }
 .diagnostics-summary.has-warnings { color: var(--warn); }
 .diagnostics-summary.clean { color: var(--ok); }
 
-.diagnostics-list { list-style: none; margin: 0; padding: 0.4rem 0.6rem 0.8rem; overflow-y: auto; }
+.diagnostics-list { list-style: none; margin: 0; padding: 0.4rem 0.6rem 0.8rem; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
 .diagnostics-list li { padding: 0.45rem 0.55rem; border-radius: var(--radius-sm); font-size: 0.85rem; }
 .diagnostics-list li.placeholder { font-size: 0.8rem; }
 .diagnostics-list li.diag { border-left: 3px solid var(--surface-3); background: var(--surface); margin-bottom: 0.4rem; cursor: pointer; }
@@ -552,6 +625,12 @@ body.page-slicer main { overflow: hidden; }
 .diagnostics-list li.sev-info { border-left-color: var(--info); }
 .diag-head { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; }
 .diag-code { font-family: var(--mono); font-size: 0.74rem; color: var(--text-faint); }
+a.diag-code { text-decoration: underline dotted; }
+a.diag-code:hover { color: var(--accent); }
+.diag-tool {
+  font-size: 0.68rem; padding: 0 0.4rem; border-radius: 999px;
+  border: 1px solid var(--surface-3); color: var(--text-dim); white-space: nowrap;
+}
 .diag-loc { font-family: var(--mono); font-size: 0.74rem; color: var(--accent); }
 .diag-message { font-weight: 500; }
 .diag-hint { display: block; margin-top: 0.2rem; font-size: 0.8rem; color: var(--text-dim); }
@@ -633,6 +712,17 @@ body.page-slicer main { overflow: hidden; }
   pointer-events: none;
 }
 
+/* The whole circuit, under the graph, when it is wider than the view: drawn
+   by graph.js on a canvas, with the part on screen outlined. */
+.graph-overview {
+  position: absolute; left: 0.6rem; bottom: 0.6rem; z-index: 5;
+  display: block; width: calc(100% - 1.2rem); height: 38px;
+  border: 1px solid var(--surface-3); border-radius: var(--radius-sm);
+  cursor: pointer; touch-action: none;
+}
+.graph-overview[hidden] { display: none; }
+.graph-stage.has-overview .graph-hint { bottom: calc(0.6rem + 44px); }
+
 .tooltip {
   position: absolute; z-index: 20; max-width: 22rem;
   background: var(--surface); border: 1px solid var(--surface-3);
@@ -647,7 +737,7 @@ body.page-slicer main { overflow: hidden; }
 .tooltip dt { color: var(--text-faint); }
 .tooltip dd { margin: 0; font-family: var(--mono); }
 .tooltip .tip-flags { display: flex; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.5rem; }
-.tooltip .tip-basis { margin-top: 0.5rem; padding-top: 0.45rem; border-top: 1px solid var(--surface-3); font-size: 0.78rem; color: var(--warn); }
+.tooltip .tip-note { margin-top: 0.5rem; padding-top: 0.45rem; border-top: 1px solid var(--surface-3); font-size: 0.78rem; color: var(--warn); }
 
 .flag {
   font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em;
@@ -665,10 +755,26 @@ body.page-slicer main { overflow: hidden; }
 #graph .lane-label.selected { fill: var(--criterion); font-weight: 700; }
 #graph .lane-hit { fill: transparent; cursor: pointer; }
 #graph .lane-hit.selected { fill: rgba(255, 107, 53, 0.07); }
+/* Wires a lint finding is about (QD07, an idle qubit): red label while lint
+   markers are on, a red band while the finding is clicked. */
+#graph .lane-label.lint-flagged,
+#graph .lane-label.lint-marked { fill: var(--err); font-weight: 700; }
+#graph .lane-hit.lint-marked { fill: rgba(243, 139, 168, 0.16); }
+#graph .lane-line.lint-marked { stroke: var(--err); stroke-width: 1.5; }
 
 #graph .edge { fill: none; stroke-width: 1.4; opacity: 0.55; }
 #graph .edge.dimmed { opacity: 0.08; }
 #graph .edge.in-slice { opacity: 1; stroke-width: 2.4; }
+/* Classical bits: a double wire per clbit under the qubits. MEASUREMENT and
+   DATA_CLASSICAL edges are routed along the bit they carry (DATA_CLASSICAL
+   dashed); a dot is a write and a ring a read that no drawn edge accounts for. */
+#graph .edge.dep-data_classical { stroke-dasharray: 5 3; }
+#graph .cwire-line { stroke: var(--surface-3); stroke-width: 0.9; }
+#graph .cwire-label { fill: var(--text-faint); font-size: 10px; font-family: var(--mono); }
+#graph .clbit-tick line { stroke: var(--text-faint); stroke-width: 1.1; stroke-dasharray: 2 3; }
+#graph .clbit-tick.write circle { fill: var(--text-faint); }
+#graph .clbit-tick.read circle { fill: var(--bg-sunken); stroke: var(--text-faint); stroke-width: 1.3; }
+#graph .clbit-tick.dimmed { opacity: 0.22; }
 
 #graph .node { cursor: pointer; }
 #graph .node .node-shape {
@@ -688,8 +794,145 @@ body.page-slicer main { overflow: hidden; }
 #graph .node.hovered .node-shape { stroke: #fff; stroke-width: 2.5; }
 #graph .node.qubit-selected .node-shape { stroke: var(--criterion); stroke-width: 2.5; }
 #graph .node .node-line { fill: var(--text-faint); font-size: 9px; font-family: var(--mono); text-anchor: middle; pointer-events: none; }
+/* Zoomed out, small labels are unreadable and the costliest thing to paint:
+   graph.js sets lod-mid, then lod-far, on the root as the zoom drops. */
+#graph .lod-mid .node-index, #graph .lod-mid .node-line,
+#graph .lod-far .node-index, #graph .lod-far .node-line,
+#graph .lod-far .node-text, #graph .lod-far .lint-badge text { display: none; }
+/* Lint markers: a dashed outline in the worst severity, and a corner badge. */
+#graph .node.lint-error .node-shape { stroke: var(--err); stroke-width: 2.5; stroke-dasharray: 5 3; }
+#graph .node.lint-warning .node-shape { stroke: var(--warn); stroke-width: 2.5; stroke-dasharray: 5 3; }
+#graph .node.lint-info .node-shape { stroke: var(--info); stroke-width: 2; stroke-dasharray: 5 3; }
+#graph .lint-badge circle { stroke: #11111b; stroke-width: 1.5; }
+#graph .lint-badge.sev-error circle { fill: var(--err); }
+#graph .lint-badge.sev-warning circle { fill: var(--warn); }
+#graph .lint-badge.sev-info circle { fill: var(--info); }
+#graph .lint-badge text {
+  fill: #11111b; font-size: 9px; font-weight: 700; font-family: var(--sans); text-anchor: middle;
+  pointer-events: none;
+}
+.tooltip .tip-lint { margin-top: 0.5rem; padding-top: 0.45rem; border-top: 1px solid var(--surface-3); }
+.tooltip .tip-lint p { margin: 0 0 0.25rem; font-size: 0.8rem; }
+.tooltip .tip-lint .sev-error strong { color: var(--err); }
+.tooltip .tip-lint .sev-warning strong { color: var(--warn); }
+.tooltip .tip-lint .sev-info strong { color: var(--info); }
+.diag-nodes { font-family: var(--mono); font-size: 0.74rem; color: var(--text-faint); }
 #graph .node.marked .node-shape { stroke: var(--accent); stroke-width: 3; }
 #graph .node.marked .node-line { fill: var(--accent); font-weight: 700; }
+
+/* Several backward slices at once: each its own color (SLICE_COLORS in
+   graph.js, same order) and number. A node in one slice takes its color; a
+   node in several is neutral with a thin stripe per slice, "+n" past four. A
+   criterion keeps its slice's color, a white outline and its number. */
+#graph .node.sl-0 .node-shape, #graph .node.criterion.sl-0 .node-shape { fill: var(--slice-0); }
+#graph .node.sl-1 .node-shape, #graph .node.criterion.sl-1 .node-shape { fill: var(--slice-1); }
+#graph .node.sl-2 .node-shape, #graph .node.criterion.sl-2 .node-shape { fill: var(--slice-2); }
+#graph .node.sl-3 .node-shape, #graph .node.criterion.sl-3 .node-shape { fill: var(--slice-3); }
+#graph .node.sl-4 .node-shape, #graph .node.criterion.sl-4 .node-shape { fill: var(--slice-4); }
+#graph .node.sl-5 .node-shape, #graph .node.criterion.sl-5 .node-shape { fill: var(--slice-5); }
+#graph .node.sl-6 .node-shape, #graph .node.criterion.sl-6 .node-shape { fill: var(--slice-6); }
+#graph .node.sl-7 .node-shape, #graph .node.criterion.sl-7 .node-shape { fill: var(--slice-7); }
+#graph .node.sl-many .node-shape, #graph .node.criterion.sl-many .node-shape { fill: var(--text); }
+.sl-0 { --slice: var(--slice-0); } .sl-1 { --slice: var(--slice-1); }
+.sl-2 { --slice: var(--slice-2); } .sl-3 { --slice: var(--slice-3); }
+.sl-4 { --slice: var(--slice-4); } .sl-5 { --slice: var(--slice-5); }
+.sl-6 { --slice: var(--slice-6); } .sl-7 { --slice: var(--slice-7); }
+#graph .slice-stripe { fill: var(--slice); pointer-events: none; }
+#graph .node.striped .node-text { transform: translateY(-4px); }
+#graph .slice-more { fill: var(--text); font-size: 8px; font-family: var(--mono); text-anchor: end; pointer-events: none; }
+#graph .slice-num circle { fill: var(--slice); stroke: #fff; stroke-width: 1.5; }
+#graph .slice-num text, #graph .chop-tag text {
+  fill: #11111b; font-size: 9px; font-weight: 700; font-family: var(--sans); text-anchor: middle;
+  pointer-events: none;
+}
+
+/* Chop: the operation (from) and the measurement it stops at (to), each with
+   a tag as well as its own outline. */
+#graph .node.chop-from .node-shape { fill: var(--criterion); stroke: #fff; stroke-width: 2.5; }
+#graph .node.chop-to .node-shape { stroke: #fff; stroke-width: 2.5; stroke-dasharray: 4 2; }
+#graph .chop-tag rect { fill: #11111b; stroke-width: 1.3; }
+#graph .chop-tag.chop-from rect { stroke: var(--criterion); }
+#graph .chop-tag.chop-to rect { stroke: var(--accent-2); }
+#graph .chop-tag text { fill: var(--text); font-size: 8px; }
+
+/* What the insight passes found: square tags on the bottom-right corner,
+   dark with a colored outline, unlike the round, filled lint badge. */
+#graph .insight-mark rect { fill: #11111b; stroke-width: 1.2; }
+#graph .insight-mark text {
+  font-size: 8.5px; font-weight: 700; font-family: var(--sans); text-anchor: middle; pointer-events: none;
+}
+#graph .insight-mark.mark-phase rect { stroke: var(--mark-phase); }
+#graph .insight-mark.mark-phase text { fill: var(--mark-phase); }
+#graph .insight-mark.mark-kickback rect { stroke: var(--mark-kickback); }
+#graph .insight-mark.mark-kickback text { fill: var(--mark-kickback); }
+#graph .insight-mark.mark-always rect { stroke: var(--ok); }
+#graph .insight-mark.mark-always text { fill: var(--ok); }
+#graph .lod-far .insight-mark, #graph .lod-far .slice-more,
+#graph .lod-far .chop-tag text, #graph .lod-far .slice-num text { display: none; }
+
+/* Mirror links: a dotted arc between a gate and its later inverse on the same
+   qubits, above the nodes on the top half of the wires and below them on the
+   bottom half. Drawn for the hovered node and the criteria, or for everything in
+   view with the Mirrors chip on. A visual aid, not a proof. */
+#graph .mirror-arc {
+  fill: none; stroke: var(--mirror); stroke-width: 1.3; stroke-dasharray: 2 3; opacity: 0.7;
+  pointer-events: stroke;
+}
+#graph .mirror-arc.focus, #graph .mirror-arc.hot { stroke-width: 2; opacity: 1; }
+#graph .mirror-arc.hot { stroke-dasharray: none; }
+#graph .node.mirror-partner .node-shape { stroke: var(--mirror); stroke-width: 3; stroke-dasharray: none; }
+
+/* "slice" under each wire name: a backward slice from its last measurement. */
+#graph .lane-slice { cursor: pointer; }
+#graph .lane-slice rect { fill: var(--surface-2); stroke: var(--surface-3); }
+#graph .lane-slice text { fill: var(--text-dim); font-size: 8px; font-family: var(--sans); text-anchor: middle; pointer-events: none; }
+#graph .lane-slice:hover rect { stroke: var(--accent); }
+#graph .lane-slice:hover text { fill: var(--accent); }
+#graph .lane-slice.unmeasured { opacity: 0.45; }
+/* Wires the single criterion may be correlated with: a glyph and a color. */
+#graph .lane-label.corr-measured { fill: var(--accent-2); font-weight: 700; }
+#graph .lane-label.corr-unmeasured { fill: var(--mark-kickback); font-style: italic; }
+#graph .lane-glyph { font-size: 11px; }
+
+.tooltip .tip-insight { margin-top: 0.5rem; padding-top: 0.45rem; border-top: 1px solid var(--surface-3); }
+.tooltip .tip-insight p { margin: 0 0 0.25rem; font-size: 0.8rem; }
+.tip-mark {
+  display: inline-block; min-width: 1.3em; padding: 0 0.25em; margin-right: 0.2em;
+  border: 1px solid currentColor; border-radius: 3px; background: #11111b;
+  font-size: 0.7rem; font-weight: 700; text-align: center; line-height: 1.35;
+}
+.tip-mark.mark-phase { color: var(--mark-phase); }
+.tip-mark.mark-kickback { color: var(--mark-kickback); }
+.tip-mark.mark-always { color: var(--ok); }
+.tip-mark.mark-mirror { color: var(--mirror); }
+.tip-slice, .slice-swatch {
+  display: inline-grid; place-items: center; min-width: 1.35em; height: 1.35em; padding: 0 0.2em;
+  border-radius: 999px; background: var(--slice); color: #11111b;
+  font-size: 0.7rem; font-weight: 700; line-height: 1;
+}
+
+/* The criteria of several slices, under the Follow chips. */
+.slice-legend {
+  display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+  padding: 0.35rem 0.9rem; border-bottom: 1px solid var(--line); flex: none; font-size: 0.78rem;
+}
+.slice-item {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.12rem 0.25rem 0.12rem 0.3rem; border: 1px solid var(--surface-3);
+  border-radius: 999px; background: var(--surface); font-family: var(--mono); color: var(--text);
+}
+.slice-item .slice-go { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.slice-item .slice-go:hover { color: var(--accent); }
+.slice-item .slice-size { color: var(--text-faint); }
+.slice-item .slice-remove {
+  background: none; border: 0; padding: 0 0.2rem; font: inherit; line-height: 1;
+  color: var(--text-faint); cursor: pointer;
+}
+.slice-item .slice-remove:hover { color: var(--err); }
+.slice-qubit {
+  background: var(--surface); color: var(--text); border: 1px solid var(--surface-3);
+  border-radius: var(--radius-sm); padding: 0.18rem 0.3rem; font: inherit; font-size: 0.78rem;
+}
 
 /* status bar */
 
@@ -706,7 +949,15 @@ body.page-slicer main { overflow: hidden; }
 .instr-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
 .instr-table th, .instr-table td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--line); }
 .instr-table th { color: var(--text-faint); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; position: sticky; top: 0; background: var(--bg); }
-.instr-table td { font-family: var(--mono); }
+/* No top padding above the table: the sticky header would stop that far below
+   the top of the scroll area and leave a strip where rows show through. */
+[data-panel="instructions"] .table-scroll { padding-top: 0; }
+.instr-table td { font-family: var(--mono); white-space: nowrap; }
+/* Rows outside the view are not drawn (see drawTableRows in slicer.js): a
+   spacer row stands in for them. */
+.instr-table tr.spacer td { padding: 0; border: 0; }
+.instr-table tbody tr.spacer { cursor: default; }
+.instr-table tbody tr.spacer:hover { background: none; }
 .instr-table tbody tr { cursor: pointer; }
 .instr-table tbody tr:hover { background: var(--surface); }
 .instr-table tr.in-slice td { color: var(--accent); }
@@ -717,25 +968,6 @@ body.page-slicer main { overflow: hidden; }
 .instr-table tr.marked td { background: rgba(137, 180, 250, 0.12); }
 
 .qubit-filter .chip { font-family: var(--mono); }
-
-.group-card {
-  border: 1px solid var(--line); border-radius: var(--radius);
-  background: var(--surface); padding: 0.7rem 0.85rem; margin-bottom: 0.6rem;
-}
-.group-card h4 { margin: 0 0 0.35rem; font-size: 0.9rem; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
-.group-kind {
-  font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.07em;
-  padding: 0.1rem 0.45rem; border-radius: 999px; border: 1px solid currentColor;
-}
-.group-kind.kind-init { color: var(--text-faint); }
-.group-kind.kind-entangled { color: var(--dep-entanglement); }
-.group-kind.kind-measurement { color: var(--ok); }
-.group-kind.kind-classical { color: var(--dep-data-classical); }
-.group-card dl { display: grid; grid-template-columns: auto 1fr; gap: 0.15rem 0.7rem; margin: 0; font-size: 0.8rem; }
-.group-card dt { color: var(--text-faint); }
-.group-card dd { margin: 0; font-family: var(--mono); }
-.group-card .idx-link { color: var(--accent); cursor: pointer; }
-.group-card .idx-link:hover { text-decoration: underline; }
 
 .console-title { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.09em; color: var(--text-faint); margin-top: 1rem; }
 .console-note { font-size: 0.82rem; color: var(--text-dim); }
@@ -940,6 +1172,200 @@ figcaption { font-size: 0.85rem; color: var(--text-faint); margin-top: 0.6rem; m
 }
 .vision-card p { margin: 0; color: var(--text-dim); font-size: 0.95rem; }
 
+/* ---------------------------------------------------------- lint rules -- */
+
+/* The rule picker: a dropdown on the Slicer and Benchmark pages, the rule
+   reference on the Lint page. */
+.lint-field { position: relative; }
+.lint-dropdown > summary {
+  list-style: none; cursor: pointer;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--surface-3); border-radius: var(--radius-sm);
+  padding: 0.4rem 1.6rem 0.4rem 0.5rem; font-size: 0.85rem;
+  max-width: 15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  position: relative;
+}
+.lint-dropdown > summary::-webkit-details-marker { display: none; }
+.lint-dropdown > summary::after {
+  content: "▾"; position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%);
+  color: var(--text-faint);
+}
+.lint-dropdown[open] > summary { border-color: var(--accent); }
+.lint-dropdown .lint-panel {
+  position: absolute; z-index: 30; top: calc(100% + 4px); left: 0;
+  width: min(26rem, 90vw); max-height: 60vh; overflow-y: auto;
+  background: var(--bg-sunken); border: 1px solid var(--surface-3);
+  border-radius: var(--radius-sm); padding: 0.6rem 0.7rem;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  text-transform: none; letter-spacing: normal;
+}
+.lint-panel { color: var(--text); font-size: 0.85rem; }
+/* .field uppercases its label span; the panel's spans are not labels. */
+.lint-field .lint-panel span { text-transform: none; letter-spacing: normal; }
+.lint-linter {
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  margin: 0 0 0.6rem; padding: 0.5rem 0.7rem 0.6rem; min-width: 0;
+}
+.lint-linter.is-disabled { opacity: 0.55; }
+.lint-linter legend {
+  display: flex; gap: 0.5rem; align-items: center; padding: 0 0.3rem; font-weight: 600;
+}
+.lint-linter legend label { display: flex; gap: 0.35rem; align-items: center; cursor: pointer; }
+.lint-count { font-family: var(--mono); font-size: 0.72rem; color: var(--text-faint); font-weight: 400; }
+.lint-desc { margin: 0 0 0.4rem; font-size: 0.78rem; color: var(--text-faint); }
+.lint-rules { list-style: none; margin: 0; padding: 0; }
+.lint-rules label {
+  display: flex; gap: 0.4rem; align-items: baseline; padding: 0.1rem 0; cursor: pointer;
+  color: var(--text-dim);
+}
+.lint-rules label:hover { color: var(--text); }
+.lint-code { font-family: var(--mono); font-size: 0.74rem; color: var(--text-faint); min-width: 3.2rem; }
+.lint-code.sev-error { color: var(--err); }
+.lint-code.sev-warning { color: var(--warn); }
+.lint-code.sev-info { color: var(--info); }
+.lint-actions { display: flex; gap: 0.35rem; grid-column: 1 / -1; }
+
+/* Each rule's "?" opens its explanation, with a worked example: below the tree
+   in a dropdown, right under the rule on the Lint page. */
+.lint-rules li { display: flex; align-items: baseline; gap: 0.3rem; }
+.lint-rules li > label { flex: 1; min-width: 0; }
+.lint-more {
+  flex: none; width: 1.25rem; height: 1.25rem; padding: 0; border-radius: 50%;
+  border: 1px solid var(--surface-3); background: transparent; color: var(--text-faint);
+  font-size: 0.72rem; font-weight: 700; line-height: 1; cursor: pointer;
+}
+.lint-more:hover, .lint-more:focus-visible { color: var(--text); border-color: var(--accent); }
+.lint-more.is-open { background: var(--accent); border-color: var(--accent); color: var(--bg-sunken); }
+.lint-doc {
+  grid-column: 1 / -1; background: var(--surface); border: 1px solid var(--line);
+  border-left: 3px solid var(--accent); border-radius: var(--radius-sm);
+  padding: 0.7rem 0.9rem; margin-top: 0.2rem;
+}
+.lint-doc[hidden] { display: none; }
+.lint-doc p { margin: 0.35rem 0; color: var(--text-dim); font-size: 0.85rem; max-width: 80ch; }
+.lint-doc-head { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+.lint-doc-head strong { color: var(--text); }
+.lint-doc-meta { font-size: 0.75rem; color: var(--text-faint); }
+.lint-doc-close {
+  margin-left: auto; border: 0; background: transparent; color: var(--text-faint);
+  font-size: 1.1rem; line-height: 1; cursor: pointer; padding: 0 0.2rem;
+}
+.lint-doc-close:hover { color: var(--text); }
+.lint-doc .lint-doc-limits { font-size: 0.8rem; }
+.lint-doc-examples {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.8rem;
+  margin-top: 0.5rem;
+}
+.lint-doc-examples h4 { margin: 0 0 0.3rem; color: var(--accent-2); font-size: 0.82rem; }
+.lint-doc-source { max-height: 18rem; }
+.lint-doc .lint-doc-note { font-size: 0.76rem; color: var(--text-faint); }
+
+/* ----------------------------------------------------------- benchmark -- */
+
+.bench { max-width: 1120px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+.bench h2 { margin-top: 2.2rem; }
+.bench-header .lede { max-width: 72ch; }
+.bench-meta { font-size: 0.85rem; color: var(--text-faint); max-width: 80ch; }
+.bench-controls {
+  background: var(--bg-sunken); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 1.1rem 1.2rem; margin-top: 1.5rem;
+}
+.bench-controls-head h2 { margin: 0 0 0.3rem; font-size: 1.1rem; }
+.bench-controls-head p { margin: 0 0 0.9rem; color: var(--text-dim); font-size: 0.88rem; }
+.bench-run { display: flex; gap: 0.8rem; align-items: flex-end; flex-wrap: wrap; margin-top: 1rem; }
+.bench-status { font-size: 0.85rem; color: var(--text-dim); padding-bottom: 0.5rem; }
+.bench-note { color: var(--text-dim); font-size: 0.88rem; max-width: 80ch; }
+
+.stat-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.8rem; margin-top: 1.5rem;
+}
+.stat {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 0.9rem 1rem; display: flex; flex-direction: column; gap: 0.15rem;
+}
+.stat-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); }
+.stat-value { font-size: 1.6rem; font-variant-numeric: tabular-nums; color: var(--text); }
+.stat-sub { font-size: 0.8rem; color: var(--text-dim); }
+
+.bench-table td { color: var(--text-dim); }
+.bench-table .num-cell { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bench-table .nowrap { white-space: nowrap; }
+.bench-table tr.cfg-selection td { color: var(--text); background: var(--surface); }
+.bench-table tr.is-quiet td { color: var(--text-faint); }
+.cell-sub { display: block; font-size: 0.76rem; color: var(--text-faint); }
+.tag {
+  display: inline-block; font-size: 0.7rem; padding: 0.05rem 0.45rem; border-radius: 999px;
+  border: 1px solid var(--surface-3); color: var(--text-dim); white-space: nowrap;
+}
+.tag-rewrite { border-color: var(--warn); color: var(--warn); }
+.tag-omission { border-color: var(--info); color: var(--info); }
+.tag-none { border-style: dashed; }
+.verdict {
+  display: inline-block; font-size: 0.74rem; padding: 0.08rem 0.5rem; border-radius: 999px;
+  white-space: nowrap; background: var(--surface-2); color: var(--text-faint);
+}
+.verdict-detected { background: rgba(166, 227, 161, 0.16); color: var(--ok); }
+.verdict-hit { background: rgba(249, 226, 175, 0.14); color: var(--warn); }
+.verdict-warned { color: var(--text-dim); }
+.verdicts { white-space: nowrap; }
+.bench-filter { display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap; }
+.bench-filter-count { margin-left: auto; font-size: 0.8rem; color: var(--text-faint); }
+
+.row-toggle {
+  background: none; border: 0; padding: 0; font: inherit; font-family: var(--mono);
+  font-size: 0.84rem; color: var(--accent); cursor: pointer; text-align: left;
+  white-space: nowrap;
+}
+.row-toggle::before { content: "▸ "; color: var(--text-faint); }
+.row-toggle[aria-expanded="true"]::before { content: "▾ "; }
+.bug-detail > td { background: var(--bg-sunken); }
+.bug-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; }
+.bug-source h4 { margin: 0 0 0.4rem; color: var(--accent-2); font-size: 0.9rem; }
+.source-view {
+  margin: 0; max-height: 26rem; overflow: auto; background: var(--bg);
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 0.5rem 0; font-size: 0.78rem; line-height: 1.5;
+}
+.src-line { display: block; white-space: pre; padding: 0 0.7rem 0 0; }
+.src-no {
+  display: inline-block; width: 3rem; padding-right: 0.8rem; text-align: right;
+  color: var(--text-faint); user-select: none;
+}
+.src-line.is-fault { background: rgba(243, 139, 168, 0.14); box-shadow: inset 3px 0 0 var(--err); }
+.src-warning {
+  display: block; white-space: pre-wrap; margin: 0.1rem 0.7rem 0.25rem 3.8rem;
+  padding: 0.15rem 0.5rem; border-radius: 4px; font-family: var(--sans); font-size: 0.76rem;
+  background: var(--surface-2); color: var(--warn);
+}
+.src-warning.sev-error { color: var(--err); }
+.src-warning.sev-info { color: var(--info); }
+.unplaced { font-size: 0.8rem; color: var(--text-dim); margin: 0.4rem 0 0; padding-left: 1.1rem; }
+
+.bench-explain { margin-top: 3rem; border-top: 1px solid var(--line); }
+.src-rule { color: inherit; font-weight: 700; text-decoration: underline dotted; }
+
+/* ----------------------------------------------------------------- lint -- */
+
+.lintpage { max-width: 1120px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+.lintpage h2 { margin-top: 2.2rem; }
+.lint-reference h2 { margin-top: 0; }
+.lint-reference {
+  background: var(--bg-sunken); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 1.1rem 1.2rem; margin-top: 1.5rem;
+}
+
+/* The Lint page's picker is the rule reference: one linter per row, its rules
+   in columns, and a rule's explanation opening right under it. */
+.lint-panel-reference { display: flex; flex-direction: column; gap: 0.9rem; }
+.lint-panel-reference .lint-linter { margin: 0; background: var(--surface); }
+.lint-panel-reference .lint-rules {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); column-gap: 1rem;
+}
+.lint-panel-reference .lint-rules li.is-open > label { color: var(--text); }
+.lint-panel-reference .lint-doc-row { grid-column: 1 / -1; display: block; margin: 0.2rem 0 0.5rem; }
+.lint-panel-reference [id^="rule-"] { scroll-margin-top: calc(var(--header-h) + 1rem); }
+
 /* --------------------------------------------------------------- error -- */
 
 .error-page { max-width: 640px; margin: 0 auto; padding: 5rem 1.5rem; text-align: center; }
@@ -956,7 +1382,9 @@ figcaption { font-size: 0.85rem; color: var(--text-faint); margin-top: 0.6rem; m
   .splitter { display: none; }
   body.page-slicer main { overflow: visible; }
   .pane-source { min-height: 70vh; }
-  .pane-output { min-height: 80vh; }
+  /* A fixed height, so the instruction table scrolls inside the pane (it only
+     draws the rows in view) instead of growing the page by thousands of rows. */
+  .pane-output { min-height: 80vh; height: 85vh; }
 }
 
 @media (max-width: 620px) {

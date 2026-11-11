@@ -2,11 +2,10 @@
 
 Names, roles and the project framing come from the project wiki
 (``wiki/Project-Documentation/Working-Agreement.md`` and ``Charter.md``).
-Anything still marked TODO is a genuine gap rather than a guess.
 """
 
 COURSE = {
-    "name": "CSE 449 Senior Capstone",  # TODO: the course's actual title and number
+    "name": "CSE 449 Senior Capstone",
     "term": "2026-2027",
     "institution": "Miami University",
     "summary": "A two-semester capstone building static analysis tooling for quantum "
@@ -33,7 +32,7 @@ MEMBERS = [
         "year": "Senior",
         "focus": "Definition of done, issue board",
         "bio": "Maintains the issues board and reviews work against the QA gates: unit tests, "
-               "wiki documentation, commented code, and integration with the QPDG pipeline. "
+               "wiki documentation, commented code, and integration with the QDG pipeline. "
                "Holds a veto on anything that does not meet them.",
         "links": {},
     },
@@ -43,7 +42,7 @@ MEMBERS = [
         "role": "R&D Developer",
         "year": "Senior",
         "focus": "Dependence graph and slicing",
-        "bio": "Works on QPDG construction and the slicing algorithms, and on keeping the "
+        "bio": "Works on QDG construction and the slicing algorithms, and on keeping the "
                "intermediate representation honest as new dependency rules land.",
         "links": {},
     },

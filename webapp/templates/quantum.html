@@ -12,7 +12,7 @@
       <li><a href="#measurement">Measurement</a></li>
       <li><a href="#slicing">What slicing means</a></li>
       <li><a href="#dependencies">The dependency types</a></li>
-      <li><a href="#qpdg">How our slicer works</a></li>
+      <li><a href="#qdg">How our slicer works</a></li>
       <li><a href="#walkthrough">Walkthrough: teleportation</a></li>
       <li><a href="#inputs">Two ways in</a></li>
       <li><a href="#tools">Tools we use</a></li>
@@ -59,8 +59,8 @@
         qubits: <code>h</code> spreads a definite state into an even superposition,
         <code>x</code> flips it, <code>rz</code> turns its phase, <code>cx</code> flips one
         qubit conditioned on another. Many gates are their own inverse, so applying one twice
-        gets you back where you started &mdash; the analyzer uses exactly this to spot
-        <em>uncomputation</em>.
+        gets you back where you started &mdash; the analyzer uses exactly this to point out
+        likely <em>uncomputation</em>.
       </p>
       <figure class="circuit-figure">
         <svg viewBox="0 0 420 120" class="mini-circuit" role="img"
@@ -93,28 +93,40 @@
     <section id="entanglement">
       <h2>Entanglement</h2>
       <p>
-        Two qubits are entangled when the pair has a state but neither qubit does. In the Bell
-        pair above there is no answer to &ldquo;what is q0 doing?&rdquo; that does not mention
-        q1. This is the thing that makes quantum slicing hard: a gate on q1 can change how the
-        outcomes of measuring q0 and q1 correlate, even though no instruction names both.
+        Two qubits are entangled when their joint state cannot be expressed as a product of
+        independent states for the two qubits. In that case, describing each qubit separately
+        does not capture all the correlations in the pair. In the Bell pair above there is no
+        answer to &ldquo;what is q0 doing?&rdquo; that does not mention q1. This is the thing
+        that makes quantum slicing hard: a gate on q1 can change how the outcomes of measuring
+        q0 and q1 correlate, even though no instruction names both. Operations on entangled
+        qubits can affect joint measurement statistics and the correlations observed between
+        their outcomes.
       </p>
       <p>
-        Our analyzer approximates this. It maintains <em>groups</em> of qubits: every wire
-        starts in its own group, an entangling gate merges the groups of the qubits it
-        touches, and measuring a qubit closes the group it belonged to. The result is an
-        over-approximation &mdash; it can claim entanglement that a full simulation would show
-        has canceled out &mdash; which is the safe direction for an analysis to be wrong in.
+        Our analyzer approximates this without simulating. It keeps <em>groups</em>: the
+        qubits and measurements whose outcomes <em>may</em> be correlated. Every wire starts in
+        its own group, and a multi-qubit gate merges the groups of the qubits it touches. Beside
+        the groups it follows each qubit's state while that is provably one of a few simple
+        ones (<span data-math>|0></span>, <span data-math>|1></span>,
+        <span data-math>|+></span> and the like), which keeps a gate that cannot entangle
+        from merging anything. The result is an over-approximation &mdash; it can claim
+        entanglement that a full simulation would show has canceled out &mdash; which is
+        generally the safer direction for a conservative static analysis to err in.
       </p>
       <div class="two-col">
         <div>
-          <h3>What creates a group</h3>
-          <p>Any gate in the entangling set: <code>cx</code>, <code>cz</code>,
-            <code>ccx</code>, <code>cswap</code>, <code>rzz</code> and friends.</p>
+          <h3>What joins a group</h3>
+          <p>A multi-qubit gate such as <code>cx</code>, <code>cz</code>, <code>ccx</code>,
+            <code>cswap</code> or <code>rzz</code>, unless the known states rule it out: a
+            control known to be <span data-math>|0></span> switches the gate off. A
+            measurement joins its qubit's group, and an operation conditioned on a measured bit
+            joins that measurement's.</p>
         </div>
         <div>
-          <h3>What ends one</h3>
-          <p>A measurement on any member qubit. The analyzer also records gates that look
-            like uncomputation, but that does not close the group.</p>
+          <h3>What leaves one</h3>
+          <p>Only a <code>reset</code> or <code>initialize</code> takes a qubit out. Measuring
+            does not: the outcome stays correlated with the rest of the group, which is what a
+            measurement's hover card reports. Nothing is ever uncomputed out of a group.</p>
         </div>
       </div>
     </section>
@@ -122,23 +134,19 @@
     <section id="measurement">
       <h2>Measurement</h2>
       <p>
-        Measurement converts a qubit into a classical bit and destroys the superposition it
-        read. Along with <code>reset</code>, it is one of the only irreversible operations, and it is where a quantum
-        program hands results back to ordinary code &mdash; including to
+        Measurement produces a classical outcome and changes the quantum state according to the
+        measurement basis. For a projective measurement of a qubit in the computational basis,
+        the post-measurement state is consistent with the observed 0 or 1 outcome. Along with
+        <code>reset</code>, it is one of the only irreversible operations, and it is where a
+        quantum program hands results back to ordinary code &mdash; including to
         <code>if</code> statements that decide which later gates run at all.
       </p>
       <p>
         Measuring always answers a question in <em>some</em> basis. The default is the Z
         basis: &ldquo;is this qubit 0 or 1?&rdquo; Asking about the X axis instead means
         applying <code>h</code> first; asking about Y means <code>sdg</code> then
-        <code>h</code>. The basis toggle on the slicer page shows which rotation each choice
-        would insert.
+        <code>h</code>.
       </p>
-      <aside class="callout callout-note">
-        <strong>Mock-up note.</strong> The basis toggle annotates the graph. It does not
-        rewrite your circuit or re-run the analysis &mdash; that is on the list, not in the
-        build.
-      </aside>
     </section>
 
     <section id="slicing">
@@ -170,17 +178,27 @@
         </table>
       </div>
       <p>
-        Both reduce to <strong>graph reachability</strong> on the QPDG. A backward slice finds
+        Both reduce to <strong>graph reachability</strong> on the QDG. A backward slice finds
         the nodes that can reach <span data-math>s</span> along dependency edges; a forward
         slice finds the nodes reachable from it. That is literally what the slicer does: a
         graph walk over incoming or outgoing edges, filtered by the dependency types
-        you selected.
+        you selected. Here the criterion is always one instruction, the node you click, and
+        <span data-math>V</span> is everything that instruction acts on.
+      </p>
+      <p>
+        Two more questions are built from those walks. A <strong>chop</strong> from one instruction
+        to another (on the slicer page, an operation and the measurement to stop at) keeps the
+        instructions on some dependence path between them: the forward slice from the first intersected with the backward slice from the
+        second, and empty when the first cannot affect the second. <strong>Slicing on a
+        qubit</strong> is a backward slice from that qubit's last measurement.
       </p>
       <p>
         The point is not a smaller program but a <em>semantically equivalent</em> one with
-        respect to the criterion. A slice that respected only classical dependencies could
-        look correct and still produce different measurement outcomes &mdash; which is why the
-        graph has to carry the quantum-specific edges below.
+        respect to the criterion. This implementation approximates that goal through a
+        dependency graph, and its guarantees depend on which dependency rules are implemented
+        and enabled. A slice that respected only classical dependencies could look correct and
+        still produce different measurement outcomes &mdash; which is why the graph has to carry
+        the quantum-specific edges below.
       </p>
     </section>
 
@@ -197,9 +215,9 @@
         <article class="dep-card">
           <h3><span class="swatch" data-dep-swatch="DATA_QUBIT"></span>Qubit data dependence</h3>
           <p>
-            A qubit's state is a complex amplitude carrying both measurement likelihoods and
-            relative phase, and every gate transforms the whole of it. So a gate's output is a
-            function of the complete state every prior gate on that wire produced.
+            A qubit's state is described by a pair of complex amplitudes carrying both measurement
+            likelihoods and relative phase, and every gate transforms the whole of it. So a gate's
+            output is a function of the complete state every prior gate on that wire produced.
           </p>
           <p>
             This is why a gate that looks irrelevant can be essential: <code>z</code> between
@@ -236,8 +254,10 @@
             that touched those qubits has to stay.
           </p>
           <p class="dep-status off">
-            Implemented, ships disabled &mdash; an over-approximate rule quickly makes every
-            slice the whole program.
+            Implemented (<code>EntanglementRule</code>) but not in the default rule set, so the
+            site does not offer it &mdash; an over-approximate rule quickly makes every slice the
+            whole program. The slicer does not detect uncomputation either: the gates that
+            create and undo entanglement stay in a slice through qubit data dependence.
           </p>
         </article>
 
@@ -246,11 +266,12 @@
           <p>
             The ordinary kind, and still needed: classical bits hold measurement outcomes and
             those outcomes control later operations. Reaching definitions on classical bits are
-            in the default rule set; control dependence on a classical branch is a placeholder
-            rule that emits nothing yet.
+            in the default rule set, and so is control dependence: every gate inside an
+            <code>if_test</code> or <code>switch</code> block depends on the test that decides
+            whether it runs.
           </p>
           <p class="dep-status on">
-            Data on by default (<code>DataClassicalRule</code>); control is a stub.
+            On by default (<code>DataClassicalRule</code>, <code>ControlClassicalRule</code>).
           </p>
         </article>
       </div>
@@ -283,7 +304,7 @@
       </div>
     </section>
 
-    <section id="qpdg">
+    <section id="qdg">
       <h2>How our slicer works</h2>
       <ol class="steps">
         <li>
@@ -291,19 +312,22 @@
           <p>
             A parser turns a circuit into a flat list of <code>QuantumInstruction</code>
             objects, each with a gate name, qubit indices, classical bit indices and
-            parameters. The Qiskit parser gets there by executing your file and pulling the
-            <code>QuantumCircuit</code> out of the resulting namespace, so what you see in the
-            graph is the circuit <em>after</em> Qiskit has built and composed it &mdash; gate
-            names may differ from what you typed.
+            parameters. Neither parser runs your file: each reads it and works out the
+            circuit itself, so every instruction keeps the line that produced it (see
+            <a href="#inputs">Two ways in</a>). Loops whose length is known are unrolled, so
+            each iteration's gates are their own nodes. An <code>if_test</code> or
+            <code>switch</code> becomes a test node that reads the condition's bits, followed by
+            the gates of its branches, each of them a node too.
           </p>
         </li>
         <li>
-          <h3>Build the QPDG</h3>
+          <h3>Build the QDG</h3>
           <p>
             Every instruction becomes a node. Then each dependency <em>rule</em> walks the
-            program and emits labeled edges. Rules are independent and pluggable, which is
-            what makes the filter chips on the slicer page meaningful: they select which
-            rules' edges the traversal is allowed to follow.
+            program once, in order, and emits labeled edges. Rules are independent and
+            pluggable, which is what makes the filter chips on the slicer page meaningful: they
+            select which rules' edges the traversal is allowed to follow. The site runs the four
+            rules that are on by default; only those get a chip.
           </p>
           <div class="table-wrap">
             <table class="ref-table">
@@ -311,37 +335,49 @@
               <tbody>
                 <tr>
                   <td><span class="swatch" data-dep-swatch="DATA_QUBIT"></span>Data qubit</td>
-                  <td>A gate writes a wire that a later gate reads. Classical def-use, applied per qubit.</td>
+                  <td>A gate writes a wire that a later gate reads. Classical def-use, applied per
+                    qubit: every qubit a gate acts on, controls included, counts as read and
+                    written. <code>barrier</code> and <code>delay</code> take no part, and a
+                    <code>reset</code> that always runs cuts the wire.</td>
                   <td class="on">on by default</td>
                 </tr>
                 <tr>
                   <td><span class="swatch" data-dep-swatch="MEASUREMENT"></span>Measurement</td>
-                  <td>A later operation is classically conditioned on a measured bit.</td>
+                  <td>A test node, a bit copy or a conditioned gate reads a bit that a measurement
+                    may have written last.</td>
                   <td class="on">on by default</td>
                 </tr>
                 <tr>
                   <td><span class="swatch" data-dep-swatch="DATA_CLASSICAL"></span>Data classical</td>
-                  <td>Reaching definition on a classical bit.</td>
+                  <td>Reaching definition on a classical bit: the same, from any instruction that
+                    writes the bit.</td>
                   <td class="on">on by default</td>
                 </tr>
                 <tr>
                   <td><span class="swatch" data-dep-swatch="CONTROL_CLASSICAL"></span>Control classical</td>
-                  <td>Control dependence on a classical branch.</td>
-                  <td class="off">placeholder rule</td>
+                  <td>The test node of an <code>if_test</code> or <code>switch</code> to each
+                    instruction directly inside its branches.</td>
+                  <td class="on">on by default</td>
                 </tr>
                 <tr>
                   <td><span class="swatch" data-dep-swatch="ENTANGLEMENT"></span>Entanglement</td>
                   <td>An entangling gate to later operations on the qubits it correlated.</td>
-                  <td class="off">implemented, off by default</td>
+                  <td class="off">implemented, not in the default rule set</td>
                 </tr>
                 <tr>
                   <td><span class="swatch" data-dep-swatch="PHASE"></span>Phase</td>
                   <td>A phase-changing gate to later operations that could observe the phase.</td>
-                  <td class="off">implemented, off by default</td>
+                  <td class="off">implemented, not in the default rule set</td>
                 </tr>
               </tbody>
             </table>
           </div>
+          <p>
+            Inside an <code>if</code>/<code>else</code>, each branch starts from what reached
+            the block. After it, the last writes of every branch reach the next reader, and so
+            does what came before the block unless every possible branch overwrote it (an
+            <code>if</code> without an <code>else</code> never does).
+          </p>
         </li>
         <li>
           <h3>Traverse from a criterion</h3>
@@ -356,41 +392,39 @@
           <p>
             Tracking entanglement exactly would mean carrying an internal representation of the
             program's quantum state, which is the thing static analysis exists to avoid. The
-            analyzer approximates instead, with a group object per entanglement: a set of qubit
-            indices, the operation that created it, a stack of the operations applied since,
-            an active flag, and the IDs of the groups it was built from.
+            analyzer approximates instead, in one more pass over the program that keeps the
+            groups and known states described under <a href="#entanglement">Entanglement</a>.
+            It adds no edges to the QDG, so it never changes a slice. What it finds shows up on
+            the graph:
           </p>
-          <p>Every operation is handled one of three ways:</p>
           <ul class="rule-list">
             <li>
-              <strong>Entangling gate.</strong> A new group is created over all the qubits
-              the groups it touches contain, with the gate as its origin. The old groups are
-              marked dormant and recorded as the new group's parents. This happens even when
-              the qubits are already in the same group.
+              <strong>Correlations.</strong> A measurement's hover card lists the other
+              measurements it may be correlated with and the unmeasured qubits it may still be
+              entangled with. While you slice from a measurement, those wires are marked too.
             </li>
             <li>
-              <strong>Any other gate, not matching the top of the stack.</strong> The
-              operation is pushed onto the stack of every active group it touches.
+              <strong>Kickback, no effect, known outcomes.</strong> A controlled gate whose
+              target is an eigenstate of the gate it applies is marked as phase kickback; a gate
+              that provably does nothing says why; a measurement whose outcome is known before
+              running says which.
             </li>
             <li>
-              <strong>Any other gate, matching the top of the stack.</strong> The operation
-              is popped and recorded as uncomputed &mdash; it canceled the one before it.
+              <strong>Mirrors.</strong> A gate and a later gate that is its inverse on the same
+              qubits (a self-inverse gate repeated, <code>s</code> then <code>sdg</code>, a
+              rotation then its negative) can be linked with the <strong>Mirrors</strong>
+              toggle. The lint check QD08 reports the simplest case, a self-inverse gate repeated
+              with nothing between them on its wires.
             </li>
           </ul>
-          <p>
-            Measuring a qubit deactivates the group it belonged to and opens a new
-            measurement group over the same qubits. The analyzer only reports groups; it does
-            not add edges to the QPDG. Entanglement edges come from the separate entanglement
-            rule, which ships disabled.
-          </p>
           <aside class="callout callout-note">
-            <strong>Disentanglement detection is syntactic, not semantic.</strong> It catches a
-            self-inverse single-qubit gate applied twice, such as <code>h</code> or
-            <code>x</code>. It misses a repeated <code>cx</code> or <code>ccx</code>, because
-            every entangling gate opens a new group, and it misses pairs that cancel without being identical, such
-            as <code>s</code> followed by <code>sdg</code>. Catching those needs state
-            tracking, which is out of scope for the approximation. The two ancilla examples on
-            the slicer page show both sides of this line.
+            <strong>Uncomputation detection is syntactic, not semantic.</strong> A mirror link
+            says nothing about what sits between its two ends: in the phase kickback example
+            the two <code>h</code> gates on q0 are linked even though a <code>cx</code> between
+            them changes q0's phase. Gates that cancel without being each other's inverse by name
+            are not found at all. Catching those needs state tracking, which is out of scope for
+            the approximation. The <em>Uncomputation</em> and <em>Ancilla uncompute</em>
+            examples on the slicer page each show a QD08 note.
           </aside>
         </li>
       </ol>
@@ -401,39 +435,48 @@
       <p>
         Load <em>Quantum teleportation</em> on the slicer page. The circuit prepares an
         unknown state on q0, entangles q1 with q2, measures q0 and q1, and then applies
-        corrections to q2 based on those two classical bits.
+        corrections to q2 based on those two classical bits. Each correction is two nodes: the
+        <code>if_else</code> test that reads a bit (#8 and #10) and the gate inside it (#9 and
+        #11).
       </p>
       <ol class="walkthrough">
         <li>
-          <strong>Slice backward from the final measurement (#10).</strong> You get all 11
+          <strong>Slice backward from the final measurement (#12).</strong> You get all 13
           instructions, and here that is the right answer: the measurement of q2 depends on
-          Bob's corrections, the corrections read the bits Alice's measurements wrote, and
-          those measurements depend on everything done to q0 and q1. Teleportation really does
-          need the whole circuit.
+          Bob's corrections, the corrections depend on the tests that read the bits Alice's
+          measurements wrote, and those measurements depend on everything done to q0 and q1.
+          Teleportation really does need the whole circuit.
         </li>
         <li>
           <strong>Now turn off every dependency except Measurement.</strong> Slice backward
-          from #10 again and the slice collapses to <code>{10}</code> alone. The final
+          from #12 again and the slice collapses to <code>{12}</code> alone. The final
           measurement is not classically conditioned on anything, so no measurement edge
           reaches it.
         </li>
         <li>
-          <strong>Slice backward from the first correction (#8) with only Measurement on.</strong>
-          Now you get <code>{7, 8}</code>: the <code>if_else</code> block and the measurement
+          <strong>Slice backward from the first test (#8) with only Measurement on.</strong>
+          Now you get <code>{7, 8}</code>: the <code>if_else</code> test and the measurement
           of q1, which wrote the <code>c1</code> bit it reads. That is what the measurement
           rule exists to produce, and no data-qubit edge would ever have found it &mdash; the
-          correction is on q2, the measurement is on q1. The second correction (#9) reads
-          <code>c0</code> instead, and slicing from it gives <code>{6, 9}</code>.
+          correction is on q2, the measurement is on q1. The second test (#10) reads
+          <code>c0</code> instead, and slicing from it gives <code>{6, 10}</code>. The
+          corrections themselves hang off their tests by Control classical edges.
         </li>
         <li>
-          <strong>Open the entanglement tab.</strong> Group 3 forms at the Bell-pair
-          <code>cx</code> (#3) over q1 and q2, group 4 absorbs q0 at Alice's <code>cx</code>
-          (#4), and the mid-circuit measurements (#6 and #7) close group 4 and open
-          measurement group 5.
+          <strong>Chop from the state preparation (#0) to the <code>x</code> correction
+          (#9).</strong> You get <code>{0, 1, 4, 7, 8, 9}</code>: the unknown state reaches
+          Bob's first correction only through Alice's <code>cx</code>, the measurement of q1
+          and the test that reads its bit.
+        </li>
+        <li>
+          <strong>Hover the final measurement (#12).</strong> Its card says it may be
+          correlated with the measurements of q0 and q1: the two <code>cx</code> gates put all
+          three qubits in one group, and the corrections conditioned on Alice's bits tie her
+          measurements in as well.
         </li>
         <li>
           <strong>Slice forward from the Bell-pair <code>cx</code> (#3).</strong> Everything
-          from there to the end lights up &mdash; eight of the eleven instructions. In a
+          from there to the end lights up &mdash; ten of the thirteen instructions. In a
           teleportation circuit, that is most of the program.
         </li>
       </ol>
@@ -443,40 +486,45 @@
       <h2>Two ways in</h2>
       <p>
         The analysis is the same either way &mdash; both front ends produce the same
-        instruction list, and everything downstream works on that. What differs is what has to
-        happen to your file first, so which one runs is an explicit choice: the
-        <strong>Interpreter</strong> dropdown on the slicer page. Loading an example or
-        uploading a file sets it for you; nothing else moves it.
+        instruction list, and everything downstream works on that. Which one runs follows the
+        language, and is an explicit choice: the <strong>Interpreter</strong> dropdown on the
+        slicer page. Loading an example or uploading a file sets it for you; nothing else
+        moves it. Neither one executes anything you submit.
       </p>
       <div class="two-col">
         <div>
-          <h4>Python (<code>.py</code>)</h4>
+          <h4>Qiskit (<code>.py</code>)</h4>
           <p>
-            The Qiskit parser has to <strong>execute</strong> your file, because the
-            <code>QuantumCircuit</code> only exists once the code that builds it has run. The
-            circuit you see is therefore the circuit Qiskit actually built, after any
-            composition and transpilation &mdash; which is why gate names sometimes differ
-            from what you typed.
+            A small interpreter of our own follows the Python and the Qiskit calls that build
+            the circuit, without running the file, and links every instruction back to its
+            source line. It knows enough Python (loops, functions, comprehensions, seeded
+            random numbers, <code>main()</code> and <code>argparse</code> defaults) and enough of
+            Qiskit to rebuild most programs: registers or loose bits (<code>Qubit()</code>,
+            <code>Clbit()</code>, <code>add_bits</code>), the standard gates and library
+            circuits, <code>compose</code>, <code>inverse</code> and
+            <code>with qc.if_test(...)</code> blocks.
           </p>
           <p>
-            On this site that execution happens in a separate worker process under a timeout,
-            so a circuit that loops forever kills a worker rather than the server. That bounds
-            accidents; it is not a sandbox.
+            Anything only a real run could decide &mdash; a qubit index read from a
+            simulator's result, say &mdash; stops it with the line number, rather than a guess.
           </p>
         </div>
         <div>
-          <h4>OpenQASM 3 (<code>.qasm</code>)</h4>
+          <h4>OpenQASM 2 and 3 (<code>.qasm</code>)</h4>
           <p>
-            Parsed as text against the
+            Parsed against the
             <a href="https://openqasm.com/grammar/index.html" rel="noopener">OpenQASM
-            grammar</a>. Nothing in the file is executed, so there is nothing to time out and
-            nothing to contain &mdash; this is the route to prefer for a circuit that did not
-            come from you.
+            grammar</a> by the language's reference parser, then interpreted without Qiskit.
+            Values known at compile time are worked out. An <code>if</code> or
+            <code>switch</code> on a measured value becomes a test node that reads the bits it
+            depends on, followed by the gates of its branches; a <code>while</code> becomes
+            one node. Copying a measured bit into another keeps the
+            dependency through a <code>store</code> node.
           </p>
           <p>
             Export one from any Qiskit circuit with
-            <code>qiskit.qasm3.dumps(qc)</code>. The static checks are skipped, since they
-            read a Python syntax tree.
+            <code>qiskit.qasm3.dumps(qc)</code>. The quick checks and LintQ are skipped, since
+            they read a Python syntax tree; the dependence checks still run.
           </p>
         </div>
       </div>
@@ -486,31 +534,41 @@
       <h2>Tools we use</h2>
       <dl class="tool-list">
         <dt>Qiskit</dt>
-        <dd>IBM's quantum SDK. The front end most of our sample circuits are written in, and
-          the source of the <code>QuantumCircuit</code> objects the parser consumes. How Qiskit
-          builds and decomposes library circuits is also why parsed gate names sometimes
+        <dd>IBM's quantum SDK. The framework used to implement most of our sample circuits, and
+          the library whose <code>QuantumCircuit</code> API the Python interpreter models. How
+          Qiskit builds and decomposes library circuits is also why parsed gate names sometimes
           differ from the source.</dd>
 
         <dt>OpenQASM</dt>
-        <dd>A textual assembly language for circuits, and the execution-free way into this
-          tool. A second parser loads it through <code>qiskit.qasm3.load</code>, so the file is
-          read rather than run.</dd>
+        <dd>A textual assembly language for circuits. The OpenQASM project's reference parser
+          (the <code>openqasm3</code> package) reads the grammar, and our own interpreter turns
+          its syntax tree into the instruction list.</dd>
 
         <dt>NetworkX</dt>
-        <dd>Graph library. The QPDG is a <code>MultiDiGraph</code> &mdash; multi, because two
+        <dd>Graph library. The QDG is a <code>MultiDiGraph</code> &mdash; multi, because two
           instructions can be joined by several dependencies of different kinds at once.</dd>
 
         <dt>Matplotlib</dt>
-        <dd>Draws the desktop visualizers in <code>scripts/visualizer.py</code> and
-          <code>scripts/combined_visualizer.py</code>.</dd>
+        <dd>Draws the desktop viewer, <code>qslicer viz</code>
+          (<code>qslicer/viz/</code>): the same graph as this site, with slicing,
+          lint markers and the circuit picker, in a window.</dd>
 
         <dt>Flask</dt>
         <dd>Serves this site and exposes the analysis over a small JSON API.</dd>
 
         <dt>Static checks</dt>
-        <dd>A lightweight AST pass flags common Qiskit mistakes before your file is executed.
-          It is a stand-in for LintQ-style quantum-specific linting; wiring in a real linter
-          is future work, and it does not apply to OpenQASM input.</dd>
+        <dd>Linters that read your file without running it, alongside the parser. The quick
+          checks (QS000&ndash;QS017) report what Python or Qiskit would raise, from the syntax
+          tree and the circuit the parser rebuilds. The dependence checks (QD01&ndash;QD03,
+          QD05&ndash;QD12) report quantum-side mistakes in the rebuilt circuit and its QDG, such
+          as gates no measured bit depends on, and are the only ones that also read OpenQASM.
+          Those 29 rules are on by default. LintQ (Paltenghi and Pradel, FSE 2024,
+          LQ01&ndash;LQ10, off by default) comes as a port that matches the original's warnings
+          and, where CodeQL is installed, as the original queries. Pick them under
+          <strong>Lint</strong> on the slicer page; the <a href="{{ url_for('lint') }}">Lint</a>
+          page explains each one{% if benchmark_enabled %}, and the
+          <a href="{{ url_for('benchmark') }}">Benchmark</a> page grades the same selection on
+          the Bugs4Q bugs{% endif %}.</dd>
       </dl>
 
       <aside class="callout">
@@ -518,15 +576,16 @@
         approximation on this page follow the project wiki
         (<code>wiki/Research/</code>), which in turn works from
         <a href="https://ieeexplore.ieee.org/document/11029533" rel="noopener">this IEEE
-        paper</a> on dependence analysis for quantum programs. Where the wiki and the code
-        disagree, this page describes the code and says so.
+        paper</a> on dependence analysis for quantum programs. Both describe the code as it
+        is; where the code stops short of the paper's model, as with uncomputation, they say
+        so.
       </aside>
     </section>
 
     <section id="glossary">
       <h2>Gate reference</h2>
       <p>
-        Every gate the hover cards on the slicer page know about. <em>Entangling</em> gates can
+        Reference for the gates documented in the slicer page's hover cards. <em>Entangling</em> gates can
         create entanglement between the qubits they act on; <em>phase</em> gates are diagonal
         in the computational basis, so they change only relative phases; <em>self-inverse</em>
         gates undo themselves when applied twice. Multi-qubit matrices use Qiskit's qubit

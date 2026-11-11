@@ -1,4 +1,4 @@
-"""The Qiskit (Python, static) route: same graph as the executing route, nothing run."""
+"""The Qiskit (Python, static) route: the graph of a Qiskit file, nothing run."""
 
 import pytest
 
@@ -9,20 +9,18 @@ def shape(body):
     return [(n["name"], n["qubits"], n["clbits"]) for n in body["nodes"]]
 
 
-def test_static_route_matches_the_executing_route(client):
-    _, executed = post_analyze(client, source=BELL_PY, language="qiskit")
+def test_static_route_builds_the_bell_pair(client):
+    # tests/core/test_static_parser.py compares it with the executing parser.
     _, static = post_analyze(client, source=BELL_PY, language="qiskit-static")
-    assert executed["ok"] and static["ok"]
+    assert static["ok"]
     assert static["language"] == "python-static"
     assert "statically" in static["route"]
-    assert shape(static) == shape(executed)
-    assert static["edges"] == executed["edges"]
+    assert shape(static) == [("h", [0], []), ("cx", [0, 1], []), ("measure", [0], [0]),
+                             ("measure", [1], [1])]
 
 
-def test_routes_do_not_share_a_cache_token(client):
-    _, executed = post_analyze(client, source=BELL_PY, language="qiskit")
+def test_static_token_slices(client):
     _, static = post_analyze(client, source=BELL_PY, language="qiskit-static")
-    assert executed["token"] != static["token"]
     response, sliced = post_slice(client, token=static["token"], node_idx=3)
     assert response.status_code == 200 and sliced["ok"]
 
@@ -49,7 +47,7 @@ def test_static_refusal_is_reported_with_its_line(client):
     assert not body["ok"]
     assert body["error"]["kind"] == "static_error"
     assert body["error"]["line"] == 9
-    assert "Qiskit (Python)" in body["error"]["hint"]
+    assert "without running it" in body["error"]["hint"]
 
 
 def test_static_route_without_circuit_is_reported(client):

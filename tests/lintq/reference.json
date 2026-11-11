@@ -1,0 +1,1463 @@
+{
+ "tool": "LintQ",
+ "suite": "LintQ-all.qls",
+ "lintq_commit": "481ca24dfabf032eb93cdf728369242b25a5216e",
+ "codeql_version": "2.11.2",
+ "files": 239,
+ "warnings": 190,
+ "results": {
+  "benchmarks/bugs4q/programs/Aer/bug_1/buggy.py": [],
+  "benchmarks/bugs4q/programs/Aer/bug_1/fixed.py": [],
+  "benchmarks/bugs4q/programs/Aer/bug_10/buggy.py": [],
+  "benchmarks/bugs4q/programs/Aer/bug_10/fixed.py": [],
+  "benchmarks/bugs4q/programs/Aer/bug_7/buggy.py": [],
+  "benchmarks/bugs4q/programs/Aer/bug_7/fixed.py": [],
+  "benchmarks/bugs4q/programs/StackExchange-page-1-25/Bug_19/bug_version.py": [],
+  "benchmarks/bugs4q/programs/StackExchange-page-1-25/Bug_5/bug_version.py": [],
+  "benchmarks/bugs4q/programs/StackExchange-page-1-25/Bug_9/bug_version.py": [],
+  "benchmarks/bugs4q/programs/StackExchange-page-1-25/Fixed_19/fixed_version.py": [],
+  "benchmarks/bugs4q/programs/StackExchange-page-1-25/Fixed_5/fixed_version.py": [],
+  "benchmarks/bugs4q/programs/StackExchange-page-1-25/Fixed_9/fixed_version.py": [],
+  "benchmarks/bugs4q/programs/StackExchange-page-1-25/mod19/mod.py": [],
+  "benchmarks/bugs4q/programs/StackExchange-page-1-25/mod5/mod.py": [],
+  "benchmarks/bugs4q/programs/StackExchange-page-1-25/mod9.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/1/buggy.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/1/fix.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/1/mod.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/12/buggy.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/12/fix.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/12/mod.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/14/buggy.py": [
+   [
+    "ql-constant-classic-bit",
+    30,
+    10,
+    "Circuit 'meas_z' measures qubit '0' but never uses it."
+   ]
+  ],
+  "benchmarks/bugs4q/programs/StackExchange/14/fix.py": [
+   [
+    "ql-constant-classic-bit",
+    29,
+    10,
+    "Circuit 'meas_z' measures qubit '0' but never uses it."
+   ]
+  ],
+  "benchmarks/bugs4q/programs/StackExchange/14/mod.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/15/buggy.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/15/fix.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/15/mod.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/16/buggy.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/16/fix.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/16/mod.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/17/buggy.py": [
+   [
+    "ql-oversized-circuit",
+    17,
+    6,
+    "Circuit 'qr' never manipulates some of its 8qubits."
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    17,
+    6,
+    "Circuit 'qr' has more qubits (8) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/StackExchange/17/fix.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/20/buggy.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/20/fix.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/20/mod.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/3/buggy.py": [
+   [
+    "ql-unmeasurable-qubits",
+    9,
+    11,
+    "Circuit 'circuit' has more qubits (1) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/StackExchange/3/fix.py": [
+   [
+    "ql-unmeasurable-qubits",
+    9,
+    11,
+    "Circuit 'circuit' has more qubits (1) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/StackExchange/3/mod.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/4/buggy.py": [
+   [
+    "ql-unmeasurable-qubits",
+    8,
+    11,
+    "Circuit 'circuit' has more qubits (8) than classical bits (4)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/StackExchange/4/fix.py": [
+   [
+    "ql-unmeasurable-qubits",
+    8,
+    11,
+    "Circuit 'circuit' has more qubits (8) than classical bits (4)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/StackExchange/4/mod.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/5/buggy.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/5/fix.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/5/mod.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/6/buggy.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/6/fix.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/6/mod.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/7/buggy.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/7/fix.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/7/mod.py": [],
+  "benchmarks/bugs4q/programs/StackExchange/9/buggy.py": [
+   [
+    "ql-constant-classic-bit",
+    11,
+    11,
+    "Circuit 'circuit' measures qubit '2' but never uses it."
+   ]
+  ],
+  "benchmarks/bugs4q/programs/StackExchange/9/fix.py": [
+   [
+    "ql-constant-classic-bit",
+    11,
+    11,
+    "Circuit 'circuit' measures qubit '2' but never uses it."
+   ]
+  ],
+  "benchmarks/bugs4q/programs/StackExchange/9/mod.py": [],
+  "benchmarks/bugs4q/programs/StackExchange_2/bug_1/buggy.py": [],
+  "benchmarks/bugs4q/programs/StackExchange_2/bug_1/fixed.py": [],
+  "benchmarks/bugs4q/programs/StackExchange_2/bug_1/mod.py": [],
+  "benchmarks/bugs4q/programs/StackExchange_2/bug_2/buggy.py": [],
+  "benchmarks/bugs4q/programs/StackExchange_2/bug_2/fixed.py": [],
+  "benchmarks/bugs4q/programs/StackExchange_2/bug_2/mod.py": [],
+  "benchmarks/bugs4q/programs/Terra-0-4000/11/buggy.py": [],
+  "benchmarks/bugs4q/programs/Terra-0-4000/11/fix.py": [],
+  "benchmarks/bugs4q/programs/Terra-0-4000/11/modify.py": [],
+  "benchmarks/bugs4q/programs/Terra-0-4000/13/buggy.py": [],
+  "benchmarks/bugs4q/programs/Terra-0-4000/13/fix.py": [],
+  "benchmarks/bugs4q/programs/Terra-0-4000/13/modify.py": [],
+  "benchmarks/bugs4q/programs/Terra-0-4000/22/buggy.py": [
+   [
+    "ql-unmeasurable-qubits",
+    13,
+    11,
+    "Circuit 'circuit' has more qubits (4) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-0-4000/22/fix.py": [
+   [
+    "ql-unmeasurable-qubits",
+    13,
+    11,
+    "Circuit 'circuit' has more qubits (4) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-0-4000/22/mod.py": [],
+  "benchmarks/bugs4q/programs/Terra-0-4000/3/Fixed.py": [
+   [
+    "ql-unmeasurable-qubits",
+    3,
+    6,
+    "Circuit 'qc' has more qubits (3) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-0-4000/3/buggy.py": [
+   [
+    "ql-unmeasurable-qubits",
+    3,
+    6,
+    "Circuit 'qc' has more qubits (3) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-0-4000/3/modify.py": [],
+  "benchmarks/bugs4q/programs/Terra-0-4000/6/Fixed.py": [],
+  "benchmarks/bugs4q/programs/Terra-0-4000/6/buggy.py": [],
+  "benchmarks/bugs4q/programs/Terra-0-4000/6/modify.py": [],
+  "benchmarks/bugs4q/programs/Terra-0-4000/7/Fix.py": [],
+  "benchmarks/bugs4q/programs/Terra-0-4000/7/buggy.py": [],
+  "benchmarks/bugs4q/programs/Terra-0-4000/7/modify.py": [],
+  "benchmarks/bugs4q/programs/Terra-0-4000/8/buggy.py": [],
+  "benchmarks/bugs4q/programs/Terra-0-4000/8/fixed.py": [],
+  "benchmarks/bugs4q/programs/Terra-0-4000/8/modify.py": [],
+  "benchmarks/bugs4q/programs/Terra-11000-15000/11950_Bug/bug_version.py": [],
+  "benchmarks/bugs4q/programs/Terra-11000-15000/11950_Fixed/fixed_version.py": [],
+  "benchmarks/bugs4q/programs/Terra-11000-15000/11950_Mod/mod.py": [],
+  "benchmarks/bugs4q/programs/Terra-11000-15000/12801_Bug/bug_version.py": [
+   [
+    "ql-unmeasurable-qubits",
+    6,
+    6,
+    "Circuit 'qc' has more qubits (5) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-11000-15000/12801_Fixed/fixed_version.py": [
+   [
+    "ql-unmeasurable-qubits",
+    6,
+    6,
+    "Circuit 'qc' has more qubits (5) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-11000-15000/12801_Mod/mod.py": [],
+  "benchmarks/bugs4q/programs/Terra-11000-15000/14407_Bug/bug_version.py": [],
+  "benchmarks/bugs4q/programs/Terra-11000-15000/14407_Fixed/fixed_version.py": [],
+  "benchmarks/bugs4q/programs/Terra-11000-15000/14407_Mod/mod.py": [],
+  "benchmarks/bugs4q/programs/Terra-11000-15000/14635_Bug/bug_version.py": [],
+  "benchmarks/bugs4q/programs/Terra-11000-15000/14635_Fixed/fixed_version.py": [],
+  "benchmarks/bugs4q/programs/Terra-11000-15000/14635_Mod/mod.py": [],
+  "benchmarks/bugs4q/programs/Terra-11000-15000/14645_Bug/bug_version.py": [],
+  "benchmarks/bugs4q/programs/Terra-11000-15000/14645_Fixed/fixed_version.py": [],
+  "benchmarks/bugs4q/programs/Terra-11000-15000/14645_Mod/mod.py": [],
+  "benchmarks/bugs4q/programs/Terra-4001-6000/Bug_11/buggy.py": [],
+  "benchmarks/bugs4q/programs/Terra-4001-6000/Bug_11/fixed.py": [],
+  "benchmarks/bugs4q/programs/Terra-4001-6000/Bug_11/modify.py": [],
+  "benchmarks/bugs4q/programs/Terra-4001-6000/Bug_5/buggy.py": [],
+  "benchmarks/bugs4q/programs/Terra-4001-6000/Bug_5/fixed.py": [],
+  "benchmarks/bugs4q/programs/Terra-4001-6000/Bug_5/modify.py": [],
+  "benchmarks/bugs4q/programs/Terra-4001-6000/Bug_8/buggy.py": [],
+  "benchmarks/bugs4q/programs/Terra-4001-6000/Bug_8/fixed.py": [],
+  "benchmarks/bugs4q/programs/Terra-4001-6000/Bug_8/modify.py": [],
+  "benchmarks/bugs4q/programs/Terra-6000-7100/6255_Bug/bug_version.py": [
+   [
+    "ql-unmeasurable-qubits",
+    6,
+    9,
+    "Circuit 'state' has more qubits (2) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-6000-7100/6255_Fixed/fixed_version.py": [
+   [
+    "ql-unmeasurable-qubits",
+    6,
+    9,
+    "Circuit 'state' has more qubits (2) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-6000-7100/6255_Mod/modify.py": [],
+  "benchmarks/bugs4q/programs/Terra-6000-7100/6540_Bug/bug_version.py": [
+   [
+    "ql-unmeasurable-qubits",
+    2,
+    6,
+    "Circuit 'qc' has more qubits (3) than classical bits (0)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    4,
+    15,
+    "Circuit 'outer_level' has more qubits (2) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-6000-7100/6540_Fixed/fixed_version.py": [
+   [
+    "ql-unmeasurable-qubits",
+    2,
+    6,
+    "Circuit 'qc' has more qubits (3) than classical bits (0)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    4,
+    15,
+    "Circuit 'outer_level' has more qubits (2) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-6000-7100/6540_Mod/modify.py": [],
+  "benchmarks/bugs4q/programs/Terra-6000-7100/6571_Bug/bug_version.py": [],
+  "benchmarks/bugs4q/programs/Terra-6000-7100/6571_Fixed/fixed_version.py": [],
+  "benchmarks/bugs4q/programs/Terra-6000-7100/6571_Mod/modify.py": [],
+  "benchmarks/bugs4q/programs/Terra-6000-7100/6892_Bug/bug_version.py": [
+   [
+    "ql-unmeasurable-qubits",
+    3,
+    11,
+    "Circuit 'circuit' has more qubits (1) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-6000-7100/6892_Fixed/fixed_version.py": [
+   [
+    "ql-unmeasurable-qubits",
+    4,
+    11,
+    "Circuit 'circuit' has more qubits (1) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-6000-7100/6892_Mod/modify.py": [],
+  "benchmarks/bugs4q/programs/Terra-6000-7100/7032_Bug/bug_version.py": [],
+  "benchmarks/bugs4q/programs/Terra-6000-7100/7032_Fixed/fixed_version.py": [],
+  "benchmarks/bugs4q/programs/Terra-6000-7100/7032_Mod/mod.py": [],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_7149/bug.py": [],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_7149/fixed.py": [],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_7149/mod.py": [],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_7317/bug.py": [
+   [
+    "ql-unmeasurable-qubits",
+    17,
+    10,
+    "Circuit 'circ_t' has more qubits (4) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_7317/fixed.py": [
+   [
+    "ql-unmeasurable-qubits",
+    17,
+    10,
+    "Circuit 'circ_t' has more qubits (4) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_7317/mod.py": [],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_7366/bug.py": [
+   [
+    "ql-unmeasurable-qubits",
+    11,
+    14,
+    "Circuit 'state_prep' has more qubits (3) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_7366/fixed.py": [
+   [
+    "ql-unmeasurable-qubits",
+    11,
+    14,
+    "Circuit 'state_prep' has more qubits (3) than classical bits (0)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    17,
+    10,
+    "Circuit 'oracle' has more qubits (3) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_7366/mod.py": [],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_7445/bug.py": [],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_7445/fixed.py": [],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_7445/mod.py": [],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_7507/bug.py": [],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_7507/fixed.py": [],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_7507/mod.py": [],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_7631/bug.py": [
+   [
+    "ql-unmeasurable-qubits",
+    8,
+    8,
+    "Circuit 'circ' has more qubits (3) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_7631/fixed.py": [
+   [
+    "ql-unmeasurable-qubits",
+    6,
+    8,
+    "Circuit 'circ' has more qubits (3) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_7631/mod.py": [],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_8025/bug.py": [],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_8025/fixed.py": [],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_8025/mod.py": [],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_8126/bug.py": [],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_8126/fixed.py": [],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_8126/mod.py": [],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_8402/bug.py": [
+   [
+    "ql-unmeasurable-qubits",
+    12,
+    6,
+    "Circuit 'qc' has more qubits (4) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_8402/fixed.py": [
+   [
+    "ql-unmeasurable-qubits",
+    4,
+    6,
+    "Circuit 'qc' has more qubits (4) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_8402/mod.py": [],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_8918/bug.py": [
+   [
+    "ql-unmeasurable-qubits",
+    5,
+    6,
+    "Circuit 'qc' has more qubits (3) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_8918/fixed.py": [
+   [
+    "ql-unmeasurable-qubits",
+    4,
+    6,
+    "Circuit 'qc' has more qubits (3) than classical bits (0)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    7,
+    7,
+    "Circuit 'tqc' has more qubits (3) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-7100-9100/bug_8918/mod.py": [],
+  "benchmarks/bugs4q/programs/Terra-9100-12000/10145_Bug/bug_version.py": [],
+  "benchmarks/bugs4q/programs/Terra-9100-12000/10145_Fixed/fixed_version.py": [],
+  "benchmarks/bugs4q/programs/Terra-9100-12000/10283_Bug/bug_version.py": [
+   [
+    "ql-oversized-circuit",
+    8,
+    10,
+    "Circuit 'custom' never manipulates some of its 1qubits."
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    9,
+    8,
+    "Circuit 'base' has more qubits (1) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-9100-12000/10283_Fixed/fixed_version.py": [
+   [
+    "ql-oversized-circuit",
+    7,
+    10,
+    "Circuit 'custom' never manipulates some of its 1qubits."
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    8,
+    8,
+    "Circuit 'base' has more qubits (1) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-9100-12000/11355_Bug/bug_version.py": [],
+  "benchmarks/bugs4q/programs/Terra-9100-12000/11355_Fixed/fixed_version.py": [],
+  "benchmarks/bugs4q/programs/Terra-9100-12000/9514_Bug/bug_version.py": [
+   [
+    "ql-unmeasurable-qubits",
+    6,
+    8,
+    "Circuit 'circ' has more qubits (3) than classical bits (0)"
+   ]
+  ],
+  "benchmarks/bugs4q/programs/Terra-9100-12000/9514_Fixed/fixed_version.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-1-5/1/Fix.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-1-5/1/buggy.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-1-5/1/mod.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-1-5/Bug_11/bug_version.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-1-5/Bug_2/bug_version.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-1-5/Bug_3/bug_version.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-1-5/Fixed_11/fixed_version.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-1-5/Fixed_2/fixed_version.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-1-5/Fixed_3/fixed_version.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-1-5/Mod_2/mod.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-1-5/Mod_3/mod.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-1-5/Mod_4/mod.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-6-10/bug_1/buggy.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-6-10/bug_1/fixed.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-6-10/bug_1/mod.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-6-10/bug_2/buggy.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-6-10/bug_2/fixed.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-6-10/bug_2/mod.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-6-10/bug_3/buggy.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-6-10/bug_3/fixed.py": [],
+  "benchmarks/bugs4q/programs/stackoverflow-6-10/bug_3/mod.py": [],
+  "tests/lintq/programs/lintq/library-tests/qiskit/backend/concept_simulator.py": [
+   [
+    "ql-unmeasurable-qubits",
+    18,
+    9,
+    "Circuit 'my_qc' has more qubits (7) than classical bits (0)"
+   ]
+  ],
+  "tests/lintq/programs/lintq/library-tests/qiskit/bitdef/concept_bit_def.py": [
+   [
+    "ql-oversized-circuit",
+    7,
+    6,
+    "Circuit 'qc' never manipulates some of its 8qubits."
+   ]
+  ],
+  "tests/lintq/programs/lintq/library-tests/qiskit/bitdef/concept_bit_def_via_circuit.py": [
+   [
+    "ql-constant-classic-bit",
+    7,
+    6,
+    "Circuit 'qc' measures qubit '1' but never uses it."
+   ],
+   [
+    "ql-measure-all-abuse",
+    9,
+    0,
+    "measure_all() on the circuit 'qc' (at location:7, 6) when it has already 2 classical bits."
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    12,
+    21,
+    "Circuit 'qc_mostly_quantum' has more qubits (10) than classical bits (3)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    26,
+    6,
+    "Circuit 'qc' has more qubits (2) than classical bits (0)"
+   ]
+  ],
+  "tests/lintq/programs/lintq/library-tests/qiskit/bituse/concept_bit_expr.py": [
+   [
+    "ql-constant-classic-bit",
+    8,
+    12,
+    "Circuit 'qc_range' measures qubit '4' but never uses it."
+   ],
+   [
+    "ql-constant-classic-bit",
+    15,
+    11,
+    "Circuit 'qc_last' measures qubit '0' but never uses it. Circuit 'qc_last' measures qubit '1' but never uses it. Circuit 'qc_last' measures qubit '2' but never uses it. Circuit 'qc_last' measures qubit '3' but never uses it. Circuit 'qc_last' measures qubit '5' but never uses it. Circuit 'qc_last' measures qubit '6' but never uses it."
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    8,
+    12,
+    "Circuit 'qc_range' has more qubits (7) than classical bits (5)"
+   ]
+  ],
+  "tests/lintq/programs/lintq/library-tests/qiskit/bituse/concept_bit_range.py": [
+   [
+    "ql-operation-after-measurement",
+    15,
+    0,
+    "Operation 'h' on qubit 0 after measurement at location: (9, 1). Operation 'h' on qubit 1 after measurement at location: (9, 1)."
+   ],
+   [
+    "ql-oversized-circuit",
+    14,
+    12,
+    "Circuit 'qc_range' never manipulates some of its 7qubits."
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    14,
+    12,
+    "Circuit 'qc_range' has more qubits (7) than classical bits (0)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    33,
+    6,
+    "Circuit 'qc' has more qubits (17) than classical bits (7)"
+   ]
+  ],
+  "tests/lintq/programs/lintq/library-tests/qiskit/bituse/concept_complex_bit_use.py": [
+   [
+    "ql-unmeasurable-qubits",
+    36,
+    6,
+    "Circuit 'qc' has more qubits (5) than classical bits (1)"
+   ]
+  ],
+  "tests/lintq/programs/lintq/library-tests/qiskit/bituse/concept_gate_specification.py": [
+   [
+    "ql-measure-all-abuse",
+    52,
+    0,
+    "measure_all() on the circuit 'qc' (at location:6, 6) when it has already 8 classical bits."
+   ],
+   [
+    "ql-operation-after-measurement",
+    55,
+    11,
+    "Operation 'XGate' on qubit 0 after measurement at location: (52, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    56,
+    11,
+    "Operation 'YGate' on qubit 1 after measurement at location: (52, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    57,
+    11,
+    "Operation 'ZGate' on qubit 2 after measurement at location: (52, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    58,
+    11,
+    "Operation 'HGate' on qubit 3 after measurement at location: (52, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    59,
+    11,
+    "Operation 'SGate' on qubit 4 after measurement at location: (52, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    60,
+    11,
+    "Operation 'SdgGate' on qubit 5 after measurement at location: (52, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    61,
+    11,
+    "Operation 'TGate' on qubit 6 after measurement at location: (52, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    62,
+    11,
+    "Operation 'TdgGate' on qubit 7 after measurement at location: (52, 1)."
+   ]
+  ],
+  "tests/lintq/programs/lintq/library-tests/qiskit/bituse/concept_measure.py": [
+   [
+    "ql-double-measurement",
+    21,
+    0,
+    "Two consecutive measurements on qubit '0' at locations: (16, 1) and (21, 1)"
+   ],
+   [
+    "ql-operation-after-measurement",
+    15,
+    0,
+    "Operation 'h' on qubit 0 after measurement at location: (12, 1)."
+   ]
+  ],
+  "tests/lintq/programs/lintq/library-tests/qiskit/circuit/concept_circuit_extender.py": [
+   [
+    "ql-unmeasurable-qubits",
+    22,
+    13,
+    "Circuit 'qc_global' has more qubits (10) than classical bits (7)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    39,
+    6,
+    "Circuit 'qc' has more qubits (9) than classical bits (0)"
+   ]
+  ],
+  "tests/lintq/programs/lintq/library-tests/qiskit/circuit/concept_circuit_parametrizable.py": [
+   [
+    "ql-unmeasurable-qubits",
+    27,
+    6,
+    "Circuit 'qc' has more qubits (2) than classical bits (0)"
+   ]
+  ],
+  "tests/lintq/programs/lintq/library-tests/qiskit/circuit/concept_circuit_subcircuit.py": [
+   [
+    "ql-oversized-circuit",
+    6,
+    17,
+    "Circuit 'qc_subcircuit' never manipulates some of its 3qubits."
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    17,
+    12,
+    "Circuit 'qc_clone' has more qubits (10) than classical bits (8)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    20,
+    15,
+    "Circuit 'qc_composed' has more qubits (10) than classical bits (8)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    56,
+    29,
+    "Circuit 'qc_subcircuit_via_compose' has more qubits (3) than classical bits (0)"
+   ]
+  ],
+  "tests/lintq/programs/lintq/library-tests/qiskit/circuit/concept_circuit_transpile.py": [],
+  "tests/lintq/programs/lintq/library-tests/qiskit/circuit/concept_subcircuit_as_gate_instr.py": [],
+  "tests/lintq/programs/lintq/library-tests/qiskit/circuit/pred_circuit_gate.py": [
+   [
+    "ql-measure-all-abuse",
+    46,
+    0,
+    "measure_all() on the circuit 'qc' (at location:6, 6) when it has already 8 classical bits."
+   ],
+   [
+    "ql-operation-after-measurement",
+    49,
+    11,
+    "Operation 'XGate' on qubit 0 after measurement at location: (46, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    50,
+    11,
+    "Operation 'YGate' on qubit 1 after measurement at location: (46, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    51,
+    11,
+    "Operation 'ZGate' on qubit 2 after measurement at location: (46, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    52,
+    11,
+    "Operation 'HGate' on qubit 3 after measurement at location: (46, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    53,
+    11,
+    "Operation 'SGate' on qubit 4 after measurement at location: (46, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    54,
+    11,
+    "Operation 'SdgGate' on qubit 5 after measurement at location: (46, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    55,
+    11,
+    "Operation 'TGate' on qubit 6 after measurement at location: (46, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    56,
+    11,
+    "Operation 'TdgGate' on qubit 7 after measurement at location: (46, 1)."
+   ]
+  ],
+  "tests/lintq/programs/lintq/library-tests/qiskit/circuit/pred_circuit_size.py": [
+   [
+    "ql-oversized-circuit",
+    5,
+    15,
+    "Circuit 'qc_only_reg' never manipulates some of its 3qubits."
+   ],
+   [
+    "ql-oversized-circuit",
+    7,
+    20,
+    "Circuit 'qc_only_integers' never manipulates some of its 2qubits."
+   ],
+   [
+    "ql-oversized-circuit",
+    11,
+    19,
+    "Circuit 'qc_add_register' never manipulates some of its 10qubits."
+   ],
+   [
+    "ql-oversized-circuit",
+    15,
+    22,
+    "Circuit 'qc_multi_registers' never manipulates some of its 13qubits."
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    7,
+    20,
+    "Circuit 'qc_only_integers' has more qubits (2) than classical bits (1)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    11,
+    19,
+    "Circuit 'qc_add_register' has more qubits (10) than classical bits (8)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    15,
+    22,
+    "Circuit 'qc_multi_registers' has more qubits (13) than classical bits (11)"
+   ]
+  ],
+  "tests/lintq/programs/lintq/library-tests/qiskit/circuit/pred_size.py": [
+   [
+    "ql-oversized-circuit",
+    9,
+    6,
+    "Circuit 'qc' never manipulates some of its 5qubits."
+   ],
+   [
+    "ql-oversized-circuit",
+    16,
+    10,
+    "Circuit 'qc' never manipulates some of its 5qubits."
+   ]
+  ],
+  "tests/lintq/programs/lintq/library-tests/qiskit/gate/concept_reset_gate.py": [
+   [
+    "ql-operation-after-measurement",
+    26,
+    0,
+    "Operation 'h' on qubit 0 after measurement at location: (24, 1)."
+   ]
+  ],
+  "tests/lintq/programs/lintq/library-tests/qiskit/gate/concept_unitary_gate.py": [],
+  "tests/lintq/programs/lintq/library-tests/qiskit/gate/pred_is_applied_after.py": [
+   [
+    "ql-unmeasurable-qubits",
+    35,
+    6,
+    "Circuit 'qc' has more qubits (5) than classical bits (1)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    42,
+    9,
+    "Circuit 'my_qc' has more qubits (3) than classical bits (0)"
+   ]
+  ],
+  "tests/lintq/programs/lintq/library-tests/qiskit/gate/pred_is_conditional.py": [
+   [
+    "ql-conditional-without-measurement",
+    28,
+    0,
+    "Conditional gate 'x' on qubit '0' (l: 28, c: 1) without preceeding measurement."
+   ],
+   [
+    "ql-constant-classic-bit",
+    6,
+    14,
+    "Circuit 'qc_correct' measures qubit '1' but never uses it. Circuit 'qc_correct' measures qubit '2' but never uses it. Circuit 'qc_correct' measures qubit '3' but never uses it. Circuit 'qc_correct' measures qubit '4' but never uses it."
+   ],
+   [
+    "ql-constant-classic-bit",
+    16,
+    12,
+    "Circuit 'qc_buggy' measures qubit '1' but never uses it. Circuit 'qc_buggy' measures qubit '2' but never uses it. Circuit 'qc_buggy' measures qubit '3' but never uses it. Circuit 'qc_buggy' measures qubit '4' but never uses it."
+   ],
+   [
+    "ql-double-measurement",
+    10,
+    0,
+    "Two consecutive measurements on qubit '1' at locations: (8, 1) and (10, 1) Two consecutive measurements on qubit '2' at locations: (8, 1) and (10, 1) Two consecutive measurements on qubit '3' at locations: (8, 1) and (10, 1) Two consecutive measurements on qubit '4' at locations: (8, 1) and (10, 1)"
+   ],
+   [
+    "ql-double-measurement",
+    20,
+    0,
+    "Two consecutive measurements on qubit '1' at locations: (18, 1) and (20, 1) Two consecutive measurements on qubit '2' at locations: (18, 1) and (20, 1) Two consecutive measurements on qubit '3' at locations: (18, 1) and (20, 1) Two consecutive measurements on qubit '4' at locations: (18, 1) and (20, 1)"
+   ]
+  ],
+  "tests/lintq/programs/lintq/library-tests/qiskit/qubits/concept_qubit_access.py": [
+   [
+    "ql-measure-all-abuse",
+    46,
+    0,
+    "measure_all() on the circuit 'qc' (at location:6, 6) when it has already 8 classical bits."
+   ],
+   [
+    "ql-operation-after-measurement",
+    49,
+    11,
+    "Operation 'XGate' on qubit 0 after measurement at location: (46, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    50,
+    11,
+    "Operation 'YGate' on qubit 1 after measurement at location: (46, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    51,
+    11,
+    "Operation 'ZGate' on qubit 2 after measurement at location: (46, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    52,
+    11,
+    "Operation 'HGate' on qubit 3 after measurement at location: (46, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    53,
+    11,
+    "Operation 'SGate' on qubit 4 after measurement at location: (46, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    54,
+    11,
+    "Operation 'SdgGate' on qubit 5 after measurement at location: (46, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    55,
+    11,
+    "Operation 'TGate' on qubit 6 after measurement at location: (46, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    56,
+    11,
+    "Operation 'TdgGate' on qubit 7 after measurement at location: (46, 1)."
+   ]
+  ],
+  "tests/lintq/programs/lintq/library-tests/qiskit/register/parametric_size.py": [],
+  "tests/lintq/programs/lintq/library-tests/qiskit/unknop/concept_unknown_op.py": [
+   [
+    "ql-measure-all-abuse",
+    16,
+    0,
+    "measure_all() on the circuit 'qc_w_reg_index' (at location:10, 18) when it has already 4 classical bits."
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    21,
+    20,
+    "Circuit 'qc_w_unknown_var' has more qubits (7) than classical bits (5)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    28,
+    21,
+    "Circuit 'qc_w_complex_expr' has more qubits (5) than classical bits (4)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    36,
+    6,
+    "Circuit 'qc' has more qubits (2) than classical bits (0)"
+   ]
+  ],
+  "tests/lintq/programs/lintq/query-tests/Interconnection/compose_use.py": [
+   [
+    "ql-ghost-composition",
+    9,
+    0,
+    "Ghost composition at location: (9, 1)"
+   ]
+  ],
+  "tests/lintq/programs/lintq/query-tests/Measurement/double_measurement.py": [
+   [
+    "ql-constant-classic-bit",
+    40,
+    14,
+    "Circuit 'fp_circuit' measures qubit '1' but never uses it. Circuit 'fp_circuit' measures qubit '3' but never uses it."
+   ],
+   [
+    "ql-double-measurement",
+    35,
+    0,
+    "Two consecutive measurements on qubit '0' at locations: (33, 1) and (35, 1)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    40,
+    14,
+    "Circuit 'fp_circuit' has more qubits (5) than classical bits (3)"
+   ]
+  ],
+  "tests/lintq/programs/lintq/query-tests/Measurement/measure_all.py": [
+   [
+    "ql-measure-all-abuse",
+    10,
+    0,
+    "measure_all() on the circuit 'qc' (at location:7, 6) when it has already 2 classical bits."
+   ],
+   [
+    "ql-measure-all-abuse",
+    16,
+    0,
+    "measure_all() on the circuit 'qc_init_w_int' (at location:13, 17) when it has already 2 classical bits."
+   ],
+   [
+    "ql-measure-all-abuse",
+    28,
+    0,
+    "measure_all() on the circuit 'qc_add_bits' (at location:25, 15) when it has already 2 classical bits."
+   ]
+  ],
+  "tests/lintq/programs/lintq/query-tests/Measurement/op_after_measurement.py": [
+   [
+    "ql-constant-classic-bit",
+    14,
+    22,
+    "Circuit 'qc_new_in_loop' measures qubit '0' but never uses it."
+   ],
+   [
+    "ql-operation-after-measurement",
+    8,
+    0,
+    "Operation 'cx' on qubit 0 after measurement at location: (7, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    22,
+    5,
+    "Operation 'crx' on qubit 1 after measurement at location: (23, 5)."
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    29,
+    16,
+    "Circuit 'qc_registers' has more qubits (6) than classical bits (2)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    39,
+    16,
+    "Circuit 'qc_registers' has more qubits (6) than classical bits (2)"
+   ]
+  ],
+  "tests/lintq/programs/lintq/query-tests/Resource/QL101_1_code_with_bug.py": [
+   [
+    "ql-unmeasurable-qubits",
+    5,
+    11,
+    "Circuit 'circuit' has more qubits (3) than classical bits (2)"
+   ]
+  ],
+  "tests/lintq/programs/lintq/query-tests/Resource/QL101_1_code_without_bug.py": [],
+  "tests/lintq/programs/lintq/query-tests/Resource/circuits_as_component.py": [
+   [
+    "ql-unmeasurable-qubits",
+    49,
+    9,
+    "Circuit 'circ2' has more qubits (3) than classical bits (0)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    53,
+    9,
+    "Circuit 'circ2' has more qubits (3) than classical bits (0)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    65,
+    9,
+    "Circuit 'circ3' has more qubits (6) than classical bits (0)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    70,
+    11,
+    "Circuit 'qc_plot' has more qubits (3) than classical bits (0)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    78,
+    6,
+    "Circuit 'qc' has more qubits (2) than classical bits (0)"
+   ]
+  ],
+  "tests/lintq/programs/lintq/query-tests/Resource/multiple_registers.py": [],
+  "tests/lintq/programs/lintq/query-tests/Resource/no_measurement_intent.py": [
+   [
+    "ql-unmeasurable-qubits",
+    19,
+    6,
+    "Circuit 'qc' has more qubits (1) than classical bits (0)"
+   ]
+  ],
+  "tests/lintq/programs/lintq/query-tests/Resource/op_added_with_for_loop.py": [
+   [
+    "ql-unmeasurable-qubits",
+    4,
+    8,
+    "Circuit 'circ' has more qubits (6) than classical bits (0)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    17,
+    10,
+    "Circuit 'circ_x' has more qubits (3) than classical bits (0)"
+   ]
+  ],
+  "tests/lintq/programs/lintq/query-tests/Resource/qubit_used_multiple_registers.py": [
+   [
+    "ql-unmeasurable-qubits",
+    6,
+    6,
+    "Circuit 'qc' has more qubits (6) than classical bits (2)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    20,
+    7,
+    "Circuit 'qc2' has more qubits (6) than classical bits (2)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    32,
+    7,
+    "Circuit 'qc3' has more qubits (6) than classical bits (2)"
+   ]
+  ],
+  "tests/lintq/programs/lintq/query-tests/Resource/tranpiled_circuits.py": [
+   [
+    "ql-ghost-composition",
+    45,
+    0,
+    "Ghost composition at location: (45, 1)"
+   ],
+   [
+    "ql-op-after-optimization",
+    21,
+    0,
+    "Operation measure applied to transpiled circuit: circuit_w_final_swap_ruined."
+   ]
+  ],
+  "tests/lintq/programs/probes/probe_composition.py": [
+   [
+    "ql-conditional-without-measurement",
+    32,
+    0,
+    "Conditional gate 'x' on qubit '0' (l: 32, c: 1) without preceeding measurement."
+   ],
+   [
+    "ql-ghost-composition",
+    8,
+    0,
+    "Ghost composition at location: (8, 1)"
+   ],
+   [
+    "ql-ghost-composition",
+    14,
+    7,
+    "Ghost composition at location: (14, 7)"
+   ]
+  ],
+  "tests/lintq/programs/probes/probe_flow.py": [
+   [
+    "ql-constant-classic-bit",
+    10,
+    8,
+    "Circuit 'qc_a' measures qubit '1' but never uses it."
+   ],
+   [
+    "ql-constant-classic-bit",
+    36,
+    8,
+    "Circuit 'qc_d' measures qubit '0' but never uses it."
+   ],
+   [
+    "ql-constant-classic-bit",
+    46,
+    8,
+    "Circuit 'qc_f' measures qubit '0' but never uses it."
+   ],
+   [
+    "ql-constant-classic-bit",
+    58,
+    14,
+    "Circuit 'qc' measures qubit '0' but never uses it."
+   ],
+   [
+    "ql-constant-classic-bit",
+    73,
+    8,
+    "Circuit 'qc_h' measures qubit '0' but never uses it."
+   ],
+   [
+    "ql-constant-classic-bit",
+    78,
+    8,
+    "Circuit 'qc_i' measures qubit '0' but never uses it."
+   ],
+   [
+    "ql-constant-classic-bit",
+    81,
+    8,
+    "Circuit 'qc_j' measures qubit '1' but never uses it."
+   ],
+   [
+    "ql-double-measurement",
+    60,
+    9,
+    "Two consecutive measurements on qubit '0' at locations: (59, 9) and (60, 9)"
+   ],
+   [
+    "ql-double-measurement",
+    75,
+    5,
+    "Two consecutive measurements on qubit '0' at locations: (75, 5) and (75, 5)"
+   ],
+   [
+    "ql-operation-after-measurement",
+    14,
+    5,
+    "Operation 'x' on qubit 0 after measurement at location: (12, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    23,
+    5,
+    "Operation 'x' on qubit 0 after measurement at location: (21, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    33,
+    0,
+    "Operation 'z' on qubit 0 after measurement at location: (32, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    40,
+    5,
+    "Operation 'h' on qubit 0 after measurement at location: (38, 5)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    48,
+    0,
+    "Operation 'x' on qubit 0 after measurement at location: (47, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    70,
+    0,
+    "Operation 'x' on qubit 0 after measurement at location: (69, 1). Operation 'x' on qubit 1 after measurement at location: (69, 1)."
+   ],
+   [
+    "ql-oversized-circuit",
+    87,
+    13,
+    "Circuit 'circuits' never manipulates some of its 3qubits."
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    44,
+    8,
+    "Circuit 'qc_e' has more qubits (3) than classical bits (1)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    51,
+    10,
+    "Circuit 'ansatz' has more qubits (4) than classical bits (0)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    87,
+    13,
+    "Circuit 'circuits' has more qubits (3) than classical bits (0)"
+   ]
+  ],
+  "tests/lintq/programs/probes/probe_measurement.py": [
+   [
+    "ql-constant-classic-bit",
+    43,
+    8,
+    "Circuit 'qc_f' measures qubit '1' but never uses it."
+   ],
+   [
+    "ql-constant-classic-bit",
+    71,
+    8,
+    "Circuit 'qc_j' measures qubit '1' but never uses it. Circuit 'qc_j' measures qubit '0' but never uses it."
+   ],
+   [
+    "ql-double-measurement",
+    9,
+    0,
+    "Two consecutive measurements on qubit '1' at locations: (8, 1) and (9, 1)"
+   ],
+   [
+    "ql-double-measurement",
+    23,
+    0,
+    "Two consecutive measurements on qubit '0' at locations: (21, 1) and (23, 1)"
+   ],
+   [
+    "ql-operation-after-measurement",
+    30,
+    5,
+    "Operation 'x' on qubit 0 after measurement at location: (28, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    46,
+    13,
+    "Operation 'XGate' on qubit 0 after measurement at location: (45, 13)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    54,
+    0,
+    "Operation 'x' on qubit 1 after measurement at location: (53, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    60,
+    5,
+    "Operation 'ry' on qubit 0 after measurement at location: (61, 5)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    68,
+    0,
+    "Operation 'cx' on qubit 0 after measurement at location: (67, 1). Operation 'cx' on qubit 2 after measurement at location: (67, 1)."
+   ],
+   [
+    "ql-operation-after-measurement",
+    74,
+    0,
+    "Operation 'z' on qubit 2 after measurement at location: (73, 1)."
+   ]
+  ],
+  "tests/lintq/programs/probes/probe_resources.py": [
+   [
+    "ql-constant-classic-bit",
+    10,
+    15,
+    "Circuit 'circuit' measures qubit '0' but never uses it."
+   ],
+   [
+    "ql-constant-classic-bit",
+    17,
+    12,
+    "Circuit 'qc_const' measures qubit '1' but never uses it."
+   ],
+   [
+    "ql-constant-classic-bit",
+    41,
+    12,
+    "Circuit 'qc_added' measures qubit '1' but never uses it."
+   ],
+   [
+    "ql-constant-classic-bit",
+    55,
+    9,
+    "Circuit 'qc_ma' measures qubit '1' but never uses it."
+   ],
+   [
+    "ql-constant-classic-bit",
+    58,
+    12,
+    "Circuit 'qc_ma_ok' measures qubit '1' but never uses it."
+   ],
+   [
+    "ql-deprecated-identity",
+    64,
+    0,
+    "The deprecated iden() API is called."
+   ],
+   [
+    "ql-measure-all-abuse",
+    57,
+    0,
+    "measure_all() on the circuit 'qc_ma' (at location:55, 9) when it has already 2 classical bits."
+   ],
+   [
+    "ql-op-after-optimization",
+    73,
+    0,
+    "Operation measure applied to transpiled circuit: qc_opt."
+   ],
+   [
+    "ql-op-after-optimization",
+    75,
+    0,
+    "Operation x applied to transpiled circuit: qc_opt2."
+   ],
+   [
+    "ql-oversized-circuit",
+    23,
+    11,
+    "Circuit 'qc_idle' never manipulates some of its 4qubits."
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    27,
+    19,
+    "Circuit 'qc_idle_unknown' has more qubits (3) than classical bits (0)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    32,
+    18,
+    "Circuit 'qc_helper_size' has more qubits (3) than classical bits (0)"
+   ],
+   [
+    "ql-unmeasurable-qubits",
+    36,
+    13,
+    "Circuit 'qc_module' has more qubits (5) than classical bits (2)"
+   ]
+  ],
+  "qslicer/examples/ancilla_uncompute.py": [
+   [
+    "ql-unmeasurable-qubits",
+    20,
+    6,
+    "Circuit 'qc' has more qubits (3) than classical bits (2)"
+   ]
+  ],
+  "qslicer/examples/bell_pair.py": [],
+  "qslicer/examples/bernstein_vazirani.py": [],
+  "qslicer/examples/bit_flip_code.py": [
+   [
+    "ql-unmeasurable-qubits",
+    17,
+    6,
+    "Circuit 'qc' has more qubits (5) than classical bits (3)"
+   ]
+  ],
+  "qslicer/examples/deutsch_jozsa.py": [],
+  "qslicer/examples/entanglement_swapping.py": [],
+  "qslicer/examples/ghz_state.py": [],
+  "qslicer/examples/grover_two_qubit.py": [],
+  "qslicer/examples/independent_wires.py": [],
+  "qslicer/examples/library_qft.py": [
+   [
+    "ql-constant-classic-bit",
+    17,
+    6,
+    "Circuit 'qc' measures qubit '1' but never uses it."
+   ]
+  ],
+  "qslicer/examples/linter_showcase.py": [
+   [
+    "ql-unmeasurable-qubits",
+    13,
+    6,
+    "Circuit 'qc' has more qubits (4) than classical bits (0)"
+   ]
+  ],
+  "qslicer/examples/phase_estimation.py": [],
+  "qslicer/examples/phase_kickback.py": [
+   [
+    "ql-unmeasurable-qubits",
+    14,
+    6,
+    "Circuit 'qc' has more qubits (2) than classical bits (1)"
+   ]
+  ],
+  "qslicer/examples/qaoa_maxcut.py": [],
+  "qslicer/examples/quantum_fourier_transform.py": [],
+  "qslicer/examples/quantum_teleportation.py": [],
+  "qslicer/examples/simons_algorithm.py": [
+   [
+    "ql-constant-classic-bit",
+    17,
+    6,
+    "Circuit 'qc' measures qubit '1' but never uses it. Circuit 'qc' measures qubit '0' but never uses it."
+   ]
+  ],
+  "qslicer/examples/stress_test.py": [],
+  "qslicer/examples/superdense_coding.py": [],
+  "qslicer/examples/swap_test.py": [
+   [
+    "ql-unmeasurable-qubits",
+    15,
+    6,
+    "Circuit 'qc' has more qubits (3) than classical bits (1)"
+   ]
+  ],
+  "qslicer/examples/uncomputation.py": [],
+  "qslicer/examples/variational_ansatz.py": []
+ }
+}

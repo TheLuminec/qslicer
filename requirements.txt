@@ -1,5 +1,12 @@
-qiskit
-qiskit-aer
-qiskit-qasm3-import
+# Qiskit is frozen: the static parsers, the quick checks' list of removed APIs
+# (QS011) and the LintQ port are written and tested against exactly this
+# version. Moving to another one is a deliberate change: bump all three pins
+# together, run the whole test suite, and update "Supported Qiskit version" in
+# README.md. tests/core/test_qiskit_version.py fails if the environment drifts.
+qiskit==2.6.0
+qiskit-aer==0.17.2
+qiskit-qasm3-import==0.6.0
 networkx
 matplotlib
+# The web app (webapp/); not a dependency of the qslicer package.
+flask>=3.0

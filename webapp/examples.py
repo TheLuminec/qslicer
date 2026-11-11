@@ -1,26 +1,20 @@
 """The example circuits offered on the slicer page.
 
-Sources live in ``webapp/examples/`` as ordinary Qiskit files, described by
+Sources live in ``qslicer/examples/`` as ordinary Qiskit files, described by
 ``manifest.json`` in that directory. To add one: drop the ``.py`` file in and
 add an entry to the manifest. A file with no manifest entry still appears,
 grouped under "Unsorted", so nothing goes missing.
 
-The sample circuits under ``Attachments/Sample Code`` are left alone: they are
-what the command-line visualizer points at, and some of them are named after
-something other than what they contain.
-
-Note that this module and the ``examples/`` data directory share a name. A
-plain module wins over a directory with no ``__init__.py``, so the import
-resolves here -- but do not add an ``__init__.py`` to ``webapp/examples/``, or
-it will shadow this file.
+The sample circuits under ``Attachments/Sample Code`` are left alone and not
+listed: some of them are named after something other than what they contain
+(see webapp/README.md).
 """
 
 import json
 import os
 from typing import Any, Dict, List, Optional
 
-WEBAPP_DIR = os.path.dirname(os.path.abspath(__file__))
-EXAMPLE_DIR = os.path.join(WEBAPP_DIR, "examples")
+from qslicer import EXAMPLES_DIR as EXAMPLE_DIR
 MANIFEST_PATH = os.path.join(EXAMPLE_DIR, "manifest.json")
 
 UNSORTED = {"id": "unsorted", "title": "Unsorted"}
@@ -58,11 +52,12 @@ SOURCE_SUFFIXES = (".py", ".qasm")
 # Which Interpreter option an example needs. The page reads this when an
 # example is picked, so the dropdown follows the file rather than the other way
 # around.
-INTERPRETER_BY_SUFFIX = {".py": "qiskit", ".qasm": "qasm", ".qasm3": "qasm"}
+INTERPRETER_BY_SUFFIX = {".py": "qiskit-static", ".qasm": "qasm-static",
+                         ".qasm3": "qasm-static"}
 
 
 def interpreter_for(filename: str) -> str:
-    return INTERPRETER_BY_SUFFIX.get(os.path.splitext(filename)[1].lower(), "qiskit")
+    return INTERPRETER_BY_SUFFIX.get(os.path.splitext(filename)[1].lower(), "qiskit-static")
 
 
 def _files_on_disk() -> List[str]:

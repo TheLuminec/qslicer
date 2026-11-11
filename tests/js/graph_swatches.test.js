@@ -52,7 +52,7 @@ test('paintSwatches colors every [data-dep-swatch] and runs on DOMContentLoaded'
 function bareGraph(extra) {
   const { window } = loadPage(['swatches.js', 'mathfmt.js', 'graph.js']);
   const g = Object.create(window.QGraph.prototype);
-  return Object.assign(g, { offsets: {}, range: null, activeDeps: null, basis: 'z' }, extra);
+  return Object.assign(g, { offsets: {}, range: null, activeDeps: null }, extra);
 }
 
 const DATA = {
@@ -65,11 +65,9 @@ const DATA = {
   edges: [],
 };
 
-test('graph.js exposes QGraph and the basis table', () => {
+test('graph.js exposes QGraph', () => {
   const { window } = loadPage(['swatches.js', 'graph.js']);
   assert.strictEqual(typeof window.QGraph, 'function');
-  assert.deepStrictEqual(Object.keys(window.BASIS_PREFIX).sort(), ['x', 'y', 'z']);
-  assert.deepStrictEqual(Array.from(window.BASIS_PREFIX.y.gates), ['sdg', 'h']);
   assert.ok(window.QGraph.READABLE_SCALE > 0 && window.QGraph.READABLE_SCALE < 1);
 });
 
@@ -85,6 +83,61 @@ test('layout runs left to right and places nodes on their lane', () => {
   assert.ok(g.contentWidth > c.x && g.contentHeight > c.y);
 });
 
+test('classical wires sit below the qubits and grow the content height', () => {
+  const g = bareGraph({ data: { ...DATA, program: { num_qubits: 2, num_clbits: 3 } } });
+  g._computeLayout();
+  const lastQubit = g.layout[2].y;
+  assert.ok(g._clbitY(0) > lastQubit + 26, 'clear of the last qubit wire and its line label');
+  assert.ok(g._clbitY(1) > g._clbitY(0) && g._clbitY(2) > g._clbitY(1));
+  assert.ok(g.contentHeight > g._clbitY(2));
+});
+
+test('an instruction on no qubit sits on its classical wires', () => {
+  const nodes = DATA.nodes.concat([{ id: 3, label: 'store', lane: 0, qubits: [], clbits: [1],
+                                     condition_clbits: [0] }]);
+  const g = bareGraph({ data: { program: { num_qubits: 2, num_clbits: 2 }, nodes, edges: [] } });
+  g._computeLayout();
+  assert.strictEqual(g.layout[3].y, (g._clbitY(0) + g._clbitY(1)) / 2);
+  assert.strictEqual(g.layout[0].y, 46, 'nodes with qubits keep their lane');
+});
+
+test('sharedClbits: bits the source wrote that the target reads', () => {
+  const routing = loadPage(['swatches.js', 'graph.js']).window.QGraph.routing;
+  // Copied out of the vm: its arrays have the other realm's prototype, which
+  // deepStrictEqual counts as a difference.
+  const sharedClbits = (...args) => [...routing.sharedClbits(...args)];
+  assert.deepStrictEqual(sharedClbits({ clbits: [0, 1] }, { condition_clbits: [1, 2, 0] }), [1, 0]);
+  assert.deepStrictEqual(sharedClbits({ clbits: [3] }, { condition_clbits: [1] }), []);
+  assert.deepStrictEqual(sharedClbits(undefined, { condition_clbits: [1] }), []);
+});
+
+test('classicalRoute drops to the wire, runs along it and rises into the reader', () => {
+  const { classicalRoute } = loadPage(['swatches.js', 'graph.js']).window.QGraph.routing;
+  const a = { x: 100, y: 46, w: 34, h: 26 };
+  const b = { x: 300, y: 112, w: 34, h: 26 };
+  const points = classicalRoute(a, b, 250, -12);
+  assert.deepStrictEqual(Array.from(points, (p) => [...p]),
+    [[88, 59], [88, 250], [288, 250], [288, 125]]);
+});
+
+test('classicalRoute joins a box on the wire from its side', () => {
+  const { classicalRoute } = loadPage(['swatches.js', 'graph.js']).window.QGraph.routing;
+  const store = { x: 100, y: 250, w: 40, h: 26 };
+  const reader = { x: 300, y: 46, w: 34, h: 26 };
+  const points = classicalRoute(store, reader, 251, 12);
+  assert.deepStrictEqual(Array.from(points, (p) => [...p]), [[120, 251], [312, 251], [312, 59]]);
+});
+
+test('roundedPath rounds each corner and keeps the end points', () => {
+  const { roundedPath } = loadPage(['swatches.js', 'graph.js']).window.QGraph.routing;
+  const d = roundedPath([[0, 0], [0, 100], [50, 100], [50, 60]], 6);
+  assert.ok(d.startsWith('M 0 0 L 0 94 Q 0 100 6 100'));
+  assert.ok(d.endsWith('L 50 60'));
+  assert.strictEqual((d.match(/Q/g) || []).length, 2);
+  // A corner closer than twice the radius gets a smaller one, never an overshoot.
+  assert.ok(roundedPath([[0, 0], [0, 4], [10, 4]], 6).includes('L 0 2 Q 0 4 2 4'));
+});
+
 test('_pos applies drag offsets', () => {
   const g = bareGraph({ data: DATA });
   g._computeLayout();
@@ -93,6 +146,45 @@ test('_pos applies drag offsets', () => {
   assert.deepStrictEqual(
     { ...g._pos(0) },
     { x: g.layout[0].x + 5, y: g.layout[0].y - 3, w: g.layout[0].w, h: g.layout[0].h });
+});
+
+/* Only what overlaps the drawn window exists in the DOM; these are the pure
+   pieces that decide it. */
+
+test('drawWindow pads the view by OVERSCAN of its size on each side', () => {
+  const { drawWindow, OVERSCAN } = loadPage(['swatches.js', 'graph.js']).window.QGraph.culling;
+  assert.strictEqual(OVERSCAN, 0.5);
+  const win = drawWindow({ x0: 100, x1: 300, y0: 0, y1: 100 }, 0.5);
+  assert.deepStrictEqual({ ...win }, { x0: 0, x1: 400, y0: -50, y1: 150 });
+});
+
+test('a view inside the drawn window needs no redraw; one past its edge does', () => {
+  const { contains, overlaps } = loadPage(['swatches.js', 'graph.js']).window.QGraph.culling;
+  const win = { x0: 0, x1: 400, y0: -50, y1: 150 };
+  assert.ok(contains(win, { x0: 50, x1: 350, y0: 0, y1: 100 }));
+  assert.ok(!contains(win, { x0: 250, x1: 450, y0: 0, y1: 100 }));
+  assert.ok(overlaps({ x0: 390, x1: 420, y0: 10, y1: 20 }, win), 'touching the edge counts');
+  assert.ok(!overlaps({ x0: 401, x1: 420, y0: 10, y1: 20 }, win));
+  assert.ok(!overlaps({ x0: 10, x1: 20, y0: 151, y1: 200 }, win));
+});
+
+test('prepareEdges ranks parallel edges and spreads classical ones over shared bits', () => {
+  const { prepareEdges } = loadPage(['swatches.js', 'graph.js']).window.QGraph.routing;
+  const byId = {
+    0: { id: 0, clbits: [0, 1], condition_clbits: [] },
+    1: { id: 1, clbits: [], condition_clbits: [1, 0] },
+  };
+  const meta = prepareEdges([
+    { source: 0, target: 1, dependency: 'DATA_QUBIT' },
+    { source: 0, target: 1, dependency: 'MEASUREMENT' },
+    { source: 0, target: 1, dependency: 'MEASUREMENT' },
+    { source: 0, target: 1, dependency: 'MEASUREMENT', rule: 'r' },
+  ], byId);
+  assert.deepStrictEqual(meta.map((e) => e.rank), [0, 1, 2, 3]);
+  // The k-th MEASUREMENT edge runs along the k-th shared bit, in the reader's order.
+  assert.deepStrictEqual(meta.map((e) => e.clbit), [null, 1, 0, 1]);
+  assert.deepStrictEqual(meta.map((e) => e.side), [0, -1, -1, -1]);
+  assert.strictEqual(meta[3].rule, 'r');
 });
 
 test('_inRange is inclusive and open when no range is set', () => {
@@ -137,11 +229,9 @@ test('tooltip escapes gate names, titles and params', () => {
   assert.ok(html.includes('No reference entry'));
 });
 
-test('tooltip shows the basis note only on measurements outside Z', () => {
+test('tooltip lists the classical bits a measurement writes', () => {
   const node = tooltipNode({ is_measurement: true, clbits: [0] });
-  assert.ok(!bareGraph({ basis: 'z' })._tooltipHtml(node).includes('tip-basis'));
-  const html = bareGraph({ basis: 'x' })._tooltipHtml(node);
-  assert.ok(html.includes('X basis: Apply h'));
+  const html = bareGraph()._tooltipHtml(node);
   assert.ok(html.includes('<dt>clbits</dt><dd>0</dd>'));
 });
 

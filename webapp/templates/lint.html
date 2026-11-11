@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Lint &middot; Quantum Program Slicer{% endblock %}
+
+{% block content %}
+<div class="lintpage">
+  <header class="bench-header">
+    <p class="eyebrow">Linting</p>
+    <h1>Lint rules</h1>
+    <p class="lede">
+      The linters read a program without running it and point at lines that are likely
+      wrong. The rules you pick here are the ones the <a href="/slicer">Slicer</a> reports on
+      every analysis{% if benchmark_enabled %} and the ones the <a href="/benchmark">Benchmark</a> grades{% endif %}.
+    </p>
+  </header>
+
+  <section class="lint-reference" aria-labelledby="lint-rules-title">
+    <div class="bench-controls-head">
+      <h2 id="lint-rules-title">Rules</h2>
+      <p>Tick the rules to run; the choice is kept in this browser and shared with the
+        Slicer{% if benchmark_enabled %} and the Benchmark{% endif %}. Click <strong>?</strong> on a rule for what it catches, its limits, and a
+        worked example with its fix.</p>
+    </div>
+    <div class="lint-panel lint-panel-reference" id="lint-picker">
+      <p class="placeholder">Loading the linters&hellip;</p>
+    </div>
+    <p class="bench-note" id="lint-unavailable" hidden></p>
+  </section>
+
+  <section class="bench-explain">
+    <h2>The linters</h2>
+    <dl class="tool-list">
+      <dt>Quick checks (QS)</dt>
+      <dd>Errors Python or Qiskit would raise, read from the source: syntax, a missing circuit,
+        indices outside the registers, removed, deprecated or unknown Qiskit APIs, operations
+        Qiskit rejects while the static parser rebuilds the circuit, and a circuit changed after
+        it was run.</dd>
+      <dt>Dependence checks (QD)</dt>
+      <dd>Quantum-side mistakes, read from the rebuilt circuit and its dependence graph: gates no
+        measurement depends on, measurements overwritten or constant, no measurement at all,
+        controls and conditions never set, idle qubits, cancelling pairs, gates with no effect,
+        a state read from a circuit that measures, classical bits never written. They also run
+        on OpenQASM.</dd>
+      <dt>LintQ (LQ)</dt>
+      <dd>LintQ's ten analyses (Paltenghi and Pradel, FSE 2024), reimplemented on the syntax
+        tree. Off by default. Where CodeQL is installed, the original queries can run as well.</dd>
+      <dt>Where they run</dt>
+      <dd>On every <strong>Analyze</strong> in the Slicer, where a finding marks its nodes in the
+        graph{% if benchmark_enabled %}, and on every bug of a <a href="/benchmark">Benchmark</a> dataset{% endif %}.</dd>
+    </dl>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/lintrules.js') }}"></script>
+<script src="{{ url_for('static', filename='js/lint.js') }}"></script>
+{% endblock %}

@@ -33,7 +33,7 @@ def test_api_example_returns_source(client, key):
     assert body["key"] == key
     assert body["source"].strip()
     assert body["filename"] == body["file"]
-    assert body["interpreter"] in ("qiskit", "qasm")
+    assert body["interpreter"] in ("qiskit-static", "qasm-static")
 
 
 def test_api_example_unknown_key_is_404(client):
@@ -116,7 +116,7 @@ def test_analyze_qasm_success_payload(ghz_qasm_result):
     assert [n["name"] for n in body["nodes"]] == ["h", "cx", "cx", "measure", "measure", "measure"]
     assert body["edges"], "a GHZ circuit has dependencies"
     assert body["rules"] == ["data_qubit", "measurement", "data_classical", "control_classical"]
-    for key in ("entanglement", "stats", "dependency_types", "diagnostics", "stdout"):
+    for key in ("stats", "dependency_types", "diagnostics", "stdout"):
         assert key in body
 
 
@@ -138,9 +138,20 @@ def test_language_param_overrides_extension(client):
     assert body["ok"] and body["language"] == "qasm"
 
 
+@pytest.mark.requirement("NFR-04")
+@pytest.mark.parametrize("language", ["qiskit", "python", "py"])
+def test_api_refuses_the_executing_interpreter(client, language, tmp_path):
+    marker = tmp_path / "ran.txt"
+    source = f"open({str(marker)!r}, 'w').write('ran')\n"
+    response, body = post_analyze(client, source=source, filename="evil.py", language=language)
+    assert response.status_code == 400
+    assert body["ok"] is False and body["error"]["kind"] == "execution_disabled"
+    assert not marker.exists()
+
+
 def test_extension_decides_without_language(client):
     _, body = post_analyze(client, source=GHZ_QASM, filename="ghz.qasm")
-    assert body["ok"] and body["language"] == "qasm"
+    assert body["ok"] and body["language"] == "qasm-static"
 
 
 def test_unknown_profile_falls_back_to_baseline(client):
@@ -157,13 +168,13 @@ def test_missing_profile_defaults_to_baseline(client):
 @pytest.mark.requirement("FR-04")
 @pytest.mark.requirement("VV-04")
 def test_qasm_text_under_qiskit_interpreter_names_mismatch(client):
-    response, body = post_analyze(client, source=GHZ_QASM, language="qiskit")
+    response, body = post_analyze(client, source=GHZ_QASM, language="qiskit-static")
     assert response.status_code == 200
     assert body["ok"] is False
-    assert body["language"] == "python"
+    assert body["language"] == "python-static"
     assert body["error"]["kind"] == "syntax_error"
     assert "looks like OpenQASM" in body["error"]["hint"]
-    assert "OpenQASM 3" in body["error"]["hint"]
+    assert "OpenQASM 2/3" in body["error"]["hint"]
 
 
 @pytest.mark.requirement("FR-04")
@@ -194,13 +205,9 @@ def test_malformed_qasm_is_rejected_with_reason(client):
 @pytest.mark.requirement("FR-03")
 @pytest.mark.requirement("VV-04")
 @pytest.mark.requirement("VV-07")
-def test_python_syntax_error_is_rejected_before_execution(client, monkeypatch):
-    def boom(*args, **kwargs):
-        raise AssertionError("a syntax error must not start the worker")
-
-    monkeypatch.setattr(analysis.subprocess, "run", boom)
+def test_python_syntax_error_is_reported_with_its_line(client):
     source = "from qiskit import QuantumCircuit\nqc = QuantumCircuit(1\nqc.h(0)\n"
-    _, body = post_analyze(client, source=source, language="qiskit")
+    _, body = post_analyze(client, source=source, language="qiskit-static")
     assert body["ok"] is False
     assert body["error"]["kind"] == "syntax_error"
     assert body["error"]["line"] >= 2
@@ -215,20 +222,27 @@ def test_empty_qasm_program_is_reported(client):
 
 @pytest.mark.requirement("FR-21")
 def test_lint_findings_returned_even_when_run_fails(client, monkeypatch):
-    def fail(source, filename, kind):
-        raise analysis._ParseFailure({"kind": "execution_error", "message": "stub",
-                                      "detail": "", "hint": "h"}, "printed")
+    # The linters read the same parse as the page, so the failure carries the
+    # front end's exception, which QS014 reports.
+    rejected = analysis.StaticParseError("the program raises CircuitError: index 5 out of range",
+                                         4, raised="CircuitError")
+
+    def fail(*_args):
+        raise analysis._ParseFailure({"kind": "static_error", "message": "stub",
+                                      "detail": "", "hint": "h"}, "printed", cause=rejected)
 
     monkeypatch.setattr(analysis, "_parse_source", fail)
     source = ("from qiskit import QuantumCircuit\n"
               "qc = QuantumCircuit(2)\n"
               "qc.h(0)\n"
               "qc.cx(0, 5)\n")
-    _, body = post_analyze(client, source=source, language="qiskit")
+    _, body = post_analyze(client, source=source, language="qiskit-static")
     assert body["ok"] is False
     assert body["stdout"] == "printed"
     codes = {d["code"] for d in body["diagnostics"]}
-    assert {"QS002", "QS005"} <= codes
+    # The literal index (QS002, read from the source) and Qiskit rejecting it
+    # (QS014, from the shared parse's failure).
+    assert {"QS002", "QS014"} <= codes
     for diagnostic in body["diagnostics"]:
         assert isinstance(diagnostic["line"], int) and diagnostic["line"] > 0
         assert diagnostic["hint"]
@@ -364,3 +378,81 @@ def test_unsupported_language_is_rejected_by_name(client):
     assert body["ok"] is False
     error = body["error"]
     assert "cirq" in " ".join(str(error.get(k, "")) for k in ("message", "detail", "hint"))
+
+
+# --------------------------------------------------------------------------
+# Values only a run decides, and files with several circuits
+# --------------------------------------------------------------------------
+
+RUNTIME_SOURCE = '''import random
+from qiskit import QuantumCircuit
+
+
+def bell():
+    qc = QuantumCircuit(2, name="bell")
+    qc.h(0)
+    qc.cx(0, 1)
+    return qc
+
+
+def main():
+    target = random.randrange(3)
+    full = QuantumCircuit(3, 3, name="full")
+    full.compose(bell(), inplace=True)
+    full.x(target)
+    full.measure(range(3), range(3))
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def test_unknown_value_asks_for_it_by_name(client):
+    response, body = post_analyze(client, source=RUNTIME_SOURCE, language="qiskit-static")
+    assert response.status_code == 200 and body["ok"] is False
+    assert body["error"]["kind"] == "needs_value"
+    assert body["error"]["needs"] == {"name": "target", "line": 13, "kind": "variable",
+                                      "expression": "random.randrange(3)"}
+    assert body["error"]["line"] == 13
+
+
+def test_bindings_complete_the_parse_and_list_the_circuits(client):
+    bindings = [{"name": "target", "line": 13, "value": "2"}]
+    _, body = post_analyze(client, source=RUNTIME_SOURCE, language="qiskit-static",
+                           bindings=bindings)
+    assert body["ok"] is True and body["bindings"] == bindings
+    assert [(c["name"], c["used_inside"]) for c in body["circuits"]] == [
+        ("full", False), ("bell", True)]
+    assert body["circuit"] == 0 and body["program"]["num_qubits"] == 3
+    assert any(n["label"].startswith("x") and n["qubits"] == [2] for n in body["nodes"])
+
+    _, sub = post_analyze(client, source=RUNTIME_SOURCE, language="qiskit-static",
+                          bindings=bindings, circuit=1)
+    assert sub["ok"] is True and sub["circuit"] == 1
+    assert sub["program"] == {"num_qubits": 2, "num_clbits": 0, "num_instructions": 2}
+    assert sub["token"] != body["token"]
+
+
+def test_out_of_range_circuit_falls_back_to_the_main_one(client):
+    _, body = post_analyze(client, source=RUNTIME_SOURCE, language="qiskit-static",
+                           bindings=[{"name": "target", "line": 13, "value": "0"}], circuit=9)
+    assert body["ok"] is True and body["circuit"] == 0
+
+
+@pytest.mark.parametrize("bindings, circuit", [
+    ("target=2", 0),
+    ([{"name": "target", "line": 13, "value": "2"}], -1),
+    ([{"name": "target", "line": 13, "value": "2"}], True),
+])
+def test_malformed_bindings_or_circuit_are_rejected(client, bindings, circuit):
+    response, body = post_analyze(client, source=RUNTIME_SOURCE, language="qiskit-static",
+                                  bindings=bindings, circuit=circuit)
+    assert response.status_code == 400 and body["error"]["kind"] == "invalid_request"
+
+
+def test_a_value_that_is_not_a_literal_is_never_run(client):
+    _, body = post_analyze(client, source=RUNTIME_SOURCE, language="qiskit-static",
+                           bindings=[{"name": "target", "line": 13,
+                                      "value": "__import__('os').getcwd()"}])
+    assert body["ok"] is False and body["error"]["kind"] == "invalid_binding"

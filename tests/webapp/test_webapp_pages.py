@@ -7,16 +7,19 @@ import pytest
 
 import analysis
 import examples
-import gates
+from qslicer import gates
 from team import COURSE, MEMBERS, MISSION, PROJECT_BLURB, VISION
 
 PAGES = {
     "/": "index",
     "/slicer": "slicer",
+    "/lint": "lint",
+    "/benchmark": "benchmark",
     "/quantum": "quantum",
     "/team": "team",
 }
-NAV = [("/", "Home"), ("/slicer", "Slicer"), ("/quantum", "Quantum Info"), ("/team", "Team")]
+NAV = [("/", "Home"), ("/slicer", "Slicer"), ("/lint", "Lint"), ("/benchmark", "Benchmark"),
+       ("/quantum", "Quantum Info"), ("/team", "Team")]
 
 
 def _text(response):
@@ -67,7 +70,7 @@ def test_quantum_page_describes_slicing_and_the_tool(client):
                     "Walkthrough: teleportation", "Gate reference"):
         assert heading in body
     lowered = body.lower()
-    for term in ("backward slice", "forward slice", "qpdg", "entanglement", "measurement"):
+    for term in ("backward slice", "forward slice", "qdg", "entanglement", "measurement"):
         assert term in lowered, term
 
 
@@ -91,13 +94,17 @@ def test_slicer_page_offers_all_three_input_methods(client):
 
 
 @pytest.mark.requirement("FR-02")
-def test_slicer_page_offers_both_interpreters_and_profiles(client):
+def test_slicer_page_offers_both_interpreters(client):
     body = _text(client.get("/slicer"))
     for option in analysis.interpreters():
         assert f'<option value="{option["id"]}"' in body
-    assert re.search(r'<option value="qiskit"\s+selected', body), "Qiskit should be the default"
-    for profile in analysis.rule_profiles():
-        assert f'<option value="{profile}">' in body
+    assert re.search(r'<option value="qiskit-static"\s+selected', body), \
+        "the static Qiskit interpreter should be the default"
+    # The executing and qiskit.qasm3 routes are no longer offered.
+    assert '<option value="qiskit"' not in body and '<option value="qasm"' not in body
+    # No rule profile to pick: the page always analyzes with baseline.
+    assert 'id="profile-select"' not in body
+    assert "editkeys.js" in body
 
 
 @pytest.mark.requirement("FR-21")
@@ -118,7 +125,7 @@ def test_team_page_shows_members_and_charter(client):
 
 def test_index_page_content(client):
     body = _text(client.get("/"))
-    assert "See how a quantum program actually fits together." in body
+    assert "Explore how a quantum program actually fits together." in body
     assert "Ready to look at a circuit?" in body
 
 

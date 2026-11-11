@@ -35,24 +35,27 @@
       <label class="field field-narrow">
         <span>Interpreter</span>
         <select id="interpreter-select"
-                title="Qiskit (Python) executes the file to reach the circuit it builds. Qiskit (Python, static) rebuilds the circuit by reading the file without running it. OpenQASM 3 is parsed as text through Qiskit; OpenQASM 2/3 (static) is interpreted without Qiskit. The two static options link every instruction back to its source line.">
+                title="Both read your file without running it. Qiskit (Python) rebuilds the circuit by interpreting the Python itself; OpenQASM 2/3 interprets the program without Qiskit. Every instruction links back to its source line.">
           {% for option in interpreters %}
             <option value="{{ option.id }}" {{ 'selected' if option.default else '' }}>{{ option.label }}</option>
           {% endfor %}
         </select>
       </label>
-      <label class="field field-narrow">
-        <span>Rules</span>
-        <select id="profile-select">
-          {% for profile in profiles %}
-            <option value="{{ profile }}">{{ profile }}</option>
-          {% endfor %}
-        </select>
-      </label>
+      <div class="field lint-field">
+        <span>Lint</span>
+        <details class="lint-dropdown" id="lint-dropdown">
+          <summary id="lint-summary"
+                   title="Which linters and rules run on Analyze.{% if benchmark_enabled %} The Benchmark page grades the same selection.{% endif %}">Default rules</summary>
+          <div class="lint-panel" id="lint-picker"><p class="placeholder">Loading the linters&hellip;</p></div>
+        </details>
+      </div>
       <button class="btn btn-primary" id="btn-analyze" type="button">Analyze</button>
     </div>
 
     <p class="example-blurb" id="example-blurb"></p>
+    <!-- Values picked for what only a run could decide (a random draw, a
+         required command-line argument), each removable. -->
+    <div class="bindings" id="bindings" hidden></div>
 
     <div class="editor-shell" id="editor-shell">
       <div class="editor-body">
@@ -65,7 +68,7 @@
           </div>
           <textarea id="code" spellcheck="false" autocomplete="off" autocapitalize="off"
                     aria-label="Circuit source code"
-                    placeholder="Paste a Qiskit circuit or an OpenQASM 3 program here, drop a .py or .qasm file anywhere on this panel, or load an example above."></textarea>
+                    placeholder="Paste a Qiskit circuit or an OpenQASM 2 or 3 program here, drop a .py or .qasm file anywhere on this panel, or load an example above."></textarea>
         </div>
       </div>
       <div class="drop-overlay" id="drop-overlay" hidden>
@@ -73,16 +76,22 @@
       </div>
     </div>
 
+    <div class="row-splitter" id="diag-splitter" role="separator" aria-orientation="horizontal"
+         tabindex="0" aria-label="Resize the diagnostics panel" aria-controls="diagnostics"
+         title="Drag to resize. Double-click to reset."></div>
+
     <div class="diagnostics" id="diagnostics">
       <div class="diagnostics-head">
         <h3>Diagnostics</h3>
         <span class="diagnostics-summary" id="diagnostics-summary">not run yet</span>
       </div>
       <ul class="diagnostics-list" id="diagnostics-list">
-        <li class="placeholder">Static checks run on every Python analysis, before your file is
-          executed. They catch out-of-range qubits, missing measurements, classical bits
-          written twice, and APIs that Qiskit has removed. OpenQASM is parsed rather than
-          executed, so the checks are skipped for <code>.qasm</code> input.</li>
+        <li class="placeholder">The linters picked under <strong>Lint</strong> run on every
+          analysis. The quick checks catch out-of-range qubits and bits, and Qiskit APIs that
+          are removed or do not exist; they read Python only. The dependence checks read the
+          rebuilt circuit, for missing measurements, classical bits written twice, gates no
+          measurement depends on, and more.
+          {% if benchmark_enabled %}The <a href="/benchmark">Benchmark</a> page grades the same selection on real bugs.{% endif %}</li>
       </ul>
     </div>
   </section>
@@ -99,9 +108,18 @@
       <div class="tabs" role="tablist">
         <button class="tab active" role="tab" data-tab="graph" aria-selected="true">Graph</button>
         <button class="tab" role="tab" data-tab="instructions" aria-selected="false">Instructions</button>
-        <button class="tab" role="tab" data-tab="entanglement" aria-selected="false">Entanglement</button>
         <button class="tab" role="tab" data-tab="console" aria-selected="false">Console</button>
       </div>
+    </div>
+
+    <!-- A file that builds more than one circuit: which one the graph and the
+         instruction table show. -->
+    <div class="circuit-bar" id="circuit-bar" hidden>
+      <label class="circuit-field">
+        <span>Circuit</span>
+        <select id="circuit-select" aria-label="Which of the file's circuits to show"></select>
+      </label>
+      <span class="circuit-count" id="circuit-count"></span>
     </div>
 
     <!-- graph tab -->
@@ -109,15 +127,18 @@
       <div class="graph-toolbar">
         <div class="tool-group" role="group" aria-label="Slice direction">
           <span class="tool-label">Slice</span>
-          <button class="chip chip-toggle active" id="dir-backward" type="button">Backward</button>
-          <button class="chip chip-toggle" id="dir-forward" type="button">Forward</button>
-        </div>
-
-        <div class="tool-group" role="group" aria-label="Measurement basis">
-          <span class="tool-label" title="Mock-up: shows the rotation each basis would need before the measurement.">Basis</span>
-          <button class="chip chip-toggle active" data-basis="z" type="button">Z</button>
-          <button class="chip chip-toggle" data-basis="x" type="button">X</button>
-          <button class="chip chip-toggle" data-basis="y" type="button">Y</button>
+          <button class="chip chip-toggle active" id="dir-backward" type="button" aria-pressed="true"
+                  title="What the clicked node depends on. Ctrl- or Shift-click more nodes to slice from several at once.">Backward</button>
+          <button class="chip chip-toggle" id="dir-forward" type="button" aria-pressed="false"
+                  title="What depends on the clicked node">Forward</button>
+          <button class="chip chip-toggle" id="dir-chop" type="button" aria-pressed="false"
+                  title="Between two nodes: click the operation, then the measurement to stop at">Chop</button>
+          <select class="slice-qubit" id="slice-qubit" aria-label="Slice on a qubit"
+                  title="Slice on a qubit: a backward slice from its last measurement (in Chop, stop there). The &quot;slice&quot; tag under each wire name does the same, and Ctrl- or Shift-click on it adds a slice.">
+            <option value="">on qubit&hellip;</option>
+          </select>
+          <button class="chip" id="slice-clear" type="button" disabled
+                  title="Clear the slice (Esc, or click the criterion again)">Clear</button>
         </div>
 
         <div class="tool-group" role="group" aria-label="Instruction range">
@@ -129,6 +150,10 @@
         </div>
 
         <div class="tool-group tool-group-right">
+          <button class="chip chip-toggle active" id="lint-markers" type="button" aria-pressed="true"
+                  title="Mark the nodes lint findings are about; click a finding to find its nodes">Lint markers</button>
+          <button class="chip chip-toggle" id="mirror-links" type="button" aria-pressed="false"
+                  title="Link every gate in view to its mirror: a later inverse on the same qubits. Off, only the hovered node's and the slice criterion's links show. A visual aid, not a proof.">Mirrors</button>
           <button class="chip" id="download-png" type="button"
                   title="Download a PNG of the current view">PNG</button>
         </div>
@@ -143,8 +168,12 @@
         </span>
       </div>
 
+      <!-- Several backward slices at once: one entry per criterion, with its
+           number, color, size and a remove button. Hidden for a single slice. -->
+      <div class="slice-legend" id="slice-legend" aria-label="Slices" hidden></div>
+
       <div class="graph-stage" id="graph-stage">
-        <svg id="graph" role="img" aria-label="Quantum program dependence graph"></svg>
+        <svg id="graph" role="img" aria-label="quantum dependence graph"></svg>
         <div class="graph-empty" id="graph-empty">
           <p><strong>No graph yet.</strong></p>
           <p>Load an example or paste a circuit, then press Analyze.</p>
@@ -174,7 +203,7 @@
         </div>
 
         <div class="tooltip" id="tooltip" hidden></div>
-        <div class="graph-hint">drag to pan &middot; scroll to zoom &middot; drag a node to move it &middot; click a node to slice</div>
+        <div class="graph-hint">drag to pan &middot; scroll to zoom &middot; drag a node to move it &middot; click a node to slice &middot; Ctrl/Shift-click to add a slice &middot; &#9679; control, &#8853; target</div>
       </div>
 
       <div class="graph-status" id="graph-status">
@@ -195,22 +224,9 @@
             <tr><th>#</th><th>Gate</th><th>Qubits</th><th>Clbits</th><th>Params</th><th>Line</th><th>In slice</th></tr>
           </thead>
           <tbody id="instr-body">
-            <tr><td colspan="6" class="placeholder">No instructions yet.</td></tr>
+            <tr><td colspan="7" class="placeholder">No instructions yet.</td></tr>
           </tbody>
         </table>
-      </div>
-    </div>
-
-    <!-- entanglement tab -->
-    <div class="tab-panel" data-panel="entanglement">
-      <div class="table-scroll">
-        <div id="entanglement-body">
-          <p class="placeholder">
-            The entanglement analyzer groups qubits that an entangling gate has correlated,
-            tracks gates that were later undone by their own inverse, and closes a group when
-            one of its qubits is measured. Analyze a circuit to see its groups.
-          </p>
-        </div>
       </div>
     </div>
 
@@ -219,8 +235,8 @@
       <div class="table-scroll">
         <h3 class="console-title">Program output</h3>
         <p class="console-note">
-          Anything your file printed while the parser executed it. A circuit that calls
-          <code>print(qc.draw())</code> or runs a simulator shows up here.
+          Your file is read, never run, so a <code>print()</code> in it prints nothing here.
+          What the parser had to skip or approximate is listed under Diagnostics.
         </p>
         <pre class="console" id="console-out">(nothing yet)</pre>
         <h3 class="console-title">Last error</h3>
@@ -234,7 +250,9 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/swatches.js') }}"></script>
 <script src="{{ url_for('static', filename='js/highlight.js') }}"></script>
+<script src="{{ url_for('static', filename='js/editkeys.js') }}"></script>
 <script src="{{ url_for('static', filename='js/mathfmt.js') }}"></script>
 <script src="{{ url_for('static', filename='js/graph.js') }}"></script>
+<script src="{{ url_for('static', filename='js/lintrules.js') }}"></script>
 <script src="{{ url_for('static', filename='js/slicer.js') }}"></script>
 {% endblock %}

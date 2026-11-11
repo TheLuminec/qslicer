@@ -1,13 +1,11 @@
 """Fixtures for the web app tests.
 
-The parent ``tests/conftest.py`` puts ``webapp/`` and ``scripts/`` on sys.path,
+The parent ``tests/conftest.py`` puts ``webapp/`` on sys.path,
 so ``import app`` / ``import analysis`` resolve exactly as they do at runtime.
 
-Analyzing a Python circuit spawns ``parse_worker.py`` (a fresh interpreter that
-imports Qiskit), which costs a few seconds. Tests that need such an analysis
-share results through the session-scoped fixtures here and are marked
-``slow``. Everything that can go through the OpenQASM route (parsed in-process,
-never executed) does, because that route is fast.
+Every route parses in-process and runs nothing. Tests that need a full
+analysis of the examples share results through the session-scoped fixtures
+here.
 """
 
 from concurrent.futures import ThreadPoolExecutor
@@ -38,6 +36,8 @@ def _roomy_cache():
 @pytest.fixture(scope="session")
 def flask_app():
     app_module.app.config["TESTING"] = True
+    # Off unless asked for (--benchmark); on here so its pages and API are tested.
+    app_module.app.config["BENCHMARK"] = True
     return app_module.app
 
 
@@ -64,8 +64,7 @@ def ghz_qasm_result(session_client):
 def example_results(flask_app):
     """Every manifest example analyzed once through /api/analyze.
 
-    Python examples each need a worker process, so they run on a small thread
-    pool (the work is in the child processes). Returns {key: (status, body)}.
+    They run on a small thread pool. Returns {key: (status, body)}.
     """
     keys = [entry["key"] for entry in manifest_entries()]
 

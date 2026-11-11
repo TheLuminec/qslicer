@@ -1,0 +1,761 @@
+"""The linter registry, rule selection, and the dependence-checks add-on."""
+
+import os
+import textwrap
+import time
+
+import pytest
+
+from qslicer.lint import registry as linters
+from qslicer.lint.registry import LintContext, Linter, Rule
+from qslicer.parsers.staticqiskitparser import StaticParseError, StaticQiskitParser
+
+BAD_INDEX = "from qiskit import QuantumCircuit\nqc = QuantumCircuit(2)\nqc.h(5)\n"
+
+
+def py(body):
+    return "from qiskit import QuantumCircuit\n" + textwrap.dedent(body)
+
+
+# --------------------------------------------------------------------------
+# Registry and selection
+# --------------------------------------------------------------------------
+
+def test_catalog_has_the_quick_checks_and_the_dependence_add_on():
+    entries = {entry["id"]: entry for entry in linters.catalog()}
+    assert {"quick", "dependence"} <= set(entries)
+    assert [r["code"] for r in entries["quick"]["rules"]][:3] == ["QS000", "QS001", "QS002"]
+    assert entries["quick"]["default"] and entries["dependence"]["default"]
+    assert not entries["lintq"]["default"]
+    assert linters.plugin_errors() == []
+
+
+def test_default_selection_is_the_quick_and_dependence_checks():
+    assert linters.default_selection() == (linters.get("quick").rule_ids()
+                                           + linters.get("dependence").rule_ids())
+    assert linters.normalize_selection(None) == linters.default_selection()
+
+
+def test_quick_checks_are_errors_and_dependence_checks_the_quantum_side():
+    # Quick checks: what Python or Qiskit would reject, so errors; the warnings are API
+    # misuse that still runs (QS009 execute(), QS005 deprecated APIs, QS006 a discarded
+    # result, QS007 an unpacked list in a fixed-size gate, QS015 a classical bit assumed
+    # on a given circuit, QS016 counts from a circuit that may never be measured, QS017 a
+    # circuit changed after it was run). The quantum-side rules live in the dependence checks.
+    quick = {r.code: r.severity for r in linters.get("quick").rules}
+    assert {code for code, severity in quick.items() if severity != "error"} == {
+        "QS005", "QS006", "QS007", "QS009", "QS015", "QS016", "QS017"}
+    assert list(quick) == [f"QS{n:03d}" for n in range(len(quick))]     # no gaps, in order
+    codes = [r.code for r in linters.get("dependence").rules]
+    assert codes == ["QD01", "QD02", "QD03", "QD05", "QD06", "QD07", "QD08", "QD09", "QD10",
+                     "QD11", "QD12"]
+
+
+def test_bare_linter_id_selects_all_its_rules_and_unknown_ids_drop():
+    chosen = linters.normalize_selection(["dependence", "quick/QS002", "nope/X", "quick/ZZ"])
+    assert chosen == ["quick/QS002"] + linters.get("dependence").rule_ids()
+
+
+def test_run_reports_only_selected_rules_and_tags_them():
+    assert [d["code"] for d in linters.run(BAD_INDEX, selection=["quick/QS001"])] == []
+    found = linters.run(BAD_INDEX, selection=["quick/QS002"])
+    assert [d["code"] for d in found] == ["QS002"]
+    assert found[0]["tool"] == "quick" and found[0]["rule"] == "quick/QS002"
+    assert linters.run(BAD_INDEX, selection=[]) == []
+
+
+def test_python_only_linter_skips_openqasm():
+    qasm = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\nh q[0];\n'
+    assert linters.run(qasm, "a.qasm", "qasm-static", ["quick"]) == []
+
+
+def test_crashing_linter_reports_instead_of_raising(monkeypatch):
+    def boom(context):
+        raise RuntimeError("kaput")
+    monkeypatch.setitem(linters._LINTERS, "boom",
+                        Linter("boom", "Boom", "", [Rule("B1", "b")], boom, default=False))
+    found = linters.run("x = 1\n", selection=["boom"])
+    assert len(found) == 1 and "kaput" in found[0]["message"] and found[0]["tool"] == "boom"
+
+
+def test_unavailable_linter_does_not_run(monkeypatch):
+    monkeypatch.setitem(linters._LINTERS, "gone", Linter(
+        "gone", "Gone", "", [Rule("G1", "g")],
+        lambda c: [{"code": "G1", "severity": "info", "line": 1, "column": 0,
+                    "message": "", "hint": ""}],
+        default=False, available=lambda: (False, "not installed")))
+    assert linters.run("x = 1\n", selection=["gone"]) == []
+    entry = next(e for e in linters.catalog() if e["id"] == "gone")
+    assert entry["available"] is False and entry["unavailable_reason"] == "not installed"
+
+
+def test_add_on_named_in_the_environment_is_loaded(monkeypatch, tmp_path):
+    (tmp_path / "my_addon.py").write_text(textwrap.dedent("""
+        from qslicer.lint.registry import Linter, Rule
+        LINTER = Linter("mine", "Mine", "", [Rule("M1", "m")], lambda c: [], default=False)
+    """), encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setenv("QSLICER_LINTER_PLUGINS", "my_addon, missing_addon")
+    monkeypatch.setattr(linters, "_LOADED", False)
+    monkeypatch.setattr(linters, "_LINTERS", dict(linters._LINTERS))
+    monkeypatch.setattr(linters, "_PLUGIN_ERRORS", [])
+    assert linters.get("mine") is not None
+    assert any("missing_addon" in error for error in linters.plugin_errors())
+
+
+def test_context_parses_once():
+    context = LintContext(py("qc = QuantumCircuit(1, 1)\nqc.measure(0, 0)\n"))
+    first = context.program()
+    assert first[0] is not None and context.program() is first
+
+
+def test_context_builds_the_graph_once_with_its_profile():
+    from qslicer.qdg import get_rule_profile
+
+    context = LintContext(py("qc = QuantumCircuit(2, 1)\nqc.h(0)\nqc.cx(0, 1)\nqc.measure(1, 0)\n"))
+    graph = context.qdg()
+    assert graph is not None and graph.program is context.program()[0]
+    assert context.qdg() is graph
+    assert [r.name for r in graph.rules] == [r.name for r in get_rule_profile("baseline")]
+    # An unknown profile falls back to the baseline, as the dependence checks always did.
+    unknown = LintContext(context.source, profile="no-such-profile")
+    assert [r.name for r in unknown.qdg().rules] == [r.name for r in graph.rules]
+
+
+def test_context_uses_a_provided_graph_of_its_own_program():
+    from qslicer.qdg import QDG
+
+    source = py("qc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.measure(0, 0)\n")
+    program = LintContext(source).program()[0]
+    given = QDG(program)
+    calls = []
+
+    def provide():
+        calls.append(1)
+        return given
+
+    context = LintContext(source, parse=lambda: (program, None), qdg=provide)
+    assert context.qdg() is given and context.qdg() is given and calls == [1]
+    # A graph of some other program is not trusted: the context builds its own.
+    other = LintContext(source, qdg=lambda: given)
+    assert other.qdg() is not given and other.qdg().program is other.program()[0]
+
+
+def test_context_without_a_program_has_no_graph():
+    def never():
+        raise AssertionError("no program, so no graph to provide")
+
+    context = LintContext("this is not python(", qdg=never)
+    assert context.program()[0] is None and context.qdg() is None
+
+
+# --------------------------------------------------------------------------
+# Dependence checks
+# --------------------------------------------------------------------------
+
+def dependence(source, code):
+    return [d for d in linters.run(source, selection=[f"dependence/{code}"])]
+
+
+def quick(source, code):
+    return [d for d in linters.run(source, selection=[f"quick/{code}"])]
+
+
+def test_dead_gate_after_the_last_measurement():
+    source = py("""
+        qc = QuantumCircuit(2, 1)
+        qc.h(0)
+        qc.measure(0, 0)
+        qc.x(0)
+        qc.h(1)
+    """)
+    lines = [d["line"] for d in dependence(source, "QD01")]
+    assert lines == [6, 7]       # x after the measurement; h on a qubit never measured
+
+
+def test_gate_feeding_a_measurement_is_live():
+    source = py("""
+        qc = QuantumCircuit(2, 1)
+        qc.h(1)
+        qc.cx(1, 0)
+        qc.measure(0, 0)
+    """)
+    assert dependence(source, "QD01") == []
+
+
+def test_block_that_measures_inside_is_live():
+    # The if_test lists only its condition bit; the measurement in its body writes
+    # the output, so the block is not dead.
+    source = py("""
+        qc = QuantumCircuit(2, 2)
+        qc.h(0)
+        qc.measure(0, 0)
+        with qc.if_test((qc.clbits[0], 1)):
+            qc.x(1)
+            qc.measure(1, 0)
+    """)
+    assert dependence(source, "QD01") == []
+
+
+def test_block_without_a_write_after_the_last_measurement_is_dead():
+    source = py("""
+        qc = QuantumCircuit(2, 1)
+        qc.h(0)
+        qc.measure(0, 0)
+        with qc.if_test((qc.clbits[0], 1)):
+            qc.x(1)
+    """)
+    assert [d["line"] for d in dependence(source, "QD01")] == [6]
+
+
+def test_store_after_the_last_measurement_is_live():
+    qasm = ('OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[1] q;\nbit[2] c;\n'
+            'h q[0];\nc[0] = measure q[0];\nc[1] = c[0];\n')
+    assert linters.run(qasm, "a.qasm", "qasm-static", ["dependence/QD01"]) == []
+
+
+def test_dead_gate_in_a_loop_is_reported_once():
+    source = py("""
+        qc = QuantumCircuit(2, 1)
+        qc.measure(0, 0)
+        for _ in range(3):
+            qc.h(1)
+    """)
+    found = dependence(source, "QD01")
+    assert len(found) == 1 and "3 instances" in found[0]["message"]
+
+
+EXAMPLES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))), "qslicer", "examples")
+
+
+def _example_programs():
+    return sorted(name for name in os.listdir(EXAMPLES_DIR)
+                  if name.endswith((".py", ".qasm")) and not name.startswith("_"))
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("name", _example_programs())
+def test_dead_gates_walk_once_matches_one_slice_per_writer(name):
+    """QD01's single walk keeps exactly what the union of every writer's backward
+    slice (all dependency types) kept when it ran one slice per writer."""
+    from qslicer.lint.plugins import dependence_checks as checks
+    from qslicer.slicer import QuantumSlicer, SlicingCriterion
+
+    with open(os.path.join(EXAMPLES_DIR, name), encoding="utf-8") as handle:
+        source = handle.read()
+    if name.endswith(".qasm"):
+        from qslicer.parsers.staticopenqasmparser import StaticOpenQASMParser
+        parser = StaticOpenQASMParser(time_limit=120)
+    else:
+        parser = StaticQiskitParser(filename=name, time_limit=120)   # Shor takes seconds
+    parser.source = source
+    context = LintContext(source, name, parse=lambda: (parser.parse(), None))
+    program, error = context.program()
+    assert program is not None, error
+    qdg = context.qdg()
+    writers = [i for i in range(len(program)) if checks._writes_a_bit(program[i])]
+    expected = set()
+    for idx in writers:
+        if idx not in expected:
+            expected |= QuantumSlicer.backward_slice(qdg, SlicingCriterion(node_idx=idx))
+    assert checks._live_nodes(qdg, writers) == expected
+    # And so the findings are the ones the per-writer slices gave.
+    dead = [d["nodes"][0] for d in checks._dead_gates(program, qdg)]
+    if any(program[i].name == "measure" for i in writers):
+        # A dead if_test block is reported at its predicate only, not for each gate inside.
+        assert dead == [i for i in range(len(program)) if i not in expected
+                        and program[i].name not in checks._NOT_GATES and checks._line(program[i])
+                        and all(p in expected for p, _ in program[i].metadata.get("guards") or ())]
+    else:
+        assert dead == []
+
+
+def test_overwritten_measurement():
+    source = py("""
+        qc = QuantumCircuit(2, 1)
+        qc.h(0)
+        qc.h(1)
+        qc.measure(0, 0)
+        qc.measure(1, 0)
+    """)
+    found = dependence(source, "QD02")
+    assert [d["line"] for d in found] == [7] and "line 6" in found[0]["message"]
+
+
+def test_measurement_read_by_a_condition_is_not_overwritten():
+    source = py("""
+        qc = QuantumCircuit(2, 1)
+        qc.h(0)
+        qc.measure(0, 0)
+        with qc.if_test((qc.clbits[0], 1)):
+            qc.x(1)
+        qc.measure(1, 0)
+    """)
+    assert dependence(source, "QD02") == []
+
+
+def test_constant_measurement():
+    source = py("""
+        qc = QuantumCircuit(2, 2)
+        qc.h(0)
+        qc.measure(0, 0)
+        qc.measure(1, 1)
+    """)
+    assert [d["line"] for d in dependence(source, "QD03")] == [6]
+
+
+def test_constant_measurement_leaves_a_given_circuit_to_its_caller():
+    # A kata test passes |0>; the solution measuring it is not wrong for that.
+    source = py("""
+        def measure_qubit(qc: QuantumCircuit, q: int):
+            qc.measure(q, 0)
+            return qc
+
+        qc = measure_qubit(QuantumCircuit(1, 1), 0)
+    """)
+    assert dependence(source, "QD03") == []
+
+
+def test_qubit_index_out_of_range_inside_a_function():
+    source = py("""
+        def entangle(qc, qs):
+            qc.h(qs[0])
+            qc.cx(qs[0], qs[1])
+            return qc
+
+        qc = entangle(QuantumCircuit(2), [0, 2])
+    """)
+    found = quick(source, "QS014")
+    assert [d["line"] for d in found] == [5]       # the gate, not the call
+    assert found[0]["severity"] == "error" and "Index 2 out of range" in found[0]["message"]
+
+
+def test_same_qubit_twice_in_a_loop():
+    source = py("""
+        qc = QuantumCircuit(3)
+        for i in range(2):
+            qc.cx(i, i)
+    """)
+    found = quick(source, "QS014")
+    assert [d["line"] for d in found] == [5] and "duplicate qubit" in found[0]["message"]
+
+
+def test_ghz_with_control_and_target_swapped():
+    source = py("""
+        def ghz(n):
+            qc = QuantumCircuit(n)
+            qc.h(0)
+            for i in range(n - 1):
+                qc.cx(i + 1, i)
+            return qc
+
+        qc = ghz(4)
+    """)
+    found = dependence(source, "QD05")
+    assert [d["line"] for d in found] == [7] and "3 instances" in found[0]["message"]
+
+
+def test_ghz_built_correctly_is_quiet():
+    source = py("""
+        def ghz(n):
+            qc = QuantumCircuit(n)
+            qc.h(0)
+            for i in range(n - 1):
+                qc.cx(i, i + 1)
+            return qc
+
+        qc = ghz(4)
+    """)
+    assert dependence(source, "QD05") == []
+
+
+def test_control_prepared_too_late():
+    source = py("""
+        qc = QuantumCircuit(2, 2)
+        qc.cx(0, 1)
+        qc.h(0)
+        qc.measure([0, 1], [0, 1])
+    """)
+    found = dependence(source, "QD05")
+    assert [d["line"] for d in found] == [4] and "[0]" in found[0]["message"]
+
+
+@pytest.mark.parametrize("body", [
+    # A loop line that acts on some iterations: general code meeting one input (a QFT on |010>).
+    "qc = QuantumCircuit(3)\nqc.x(1)\nfor t in range(3):\n    qc.h(t)\n"
+    "    for c in range(t + 1, 3):\n        qc.cp(0.5, c, t)\n",
+    # A function given its circuit is written for any input.
+    "def oracle(qc, a, b):\n    qc.cx(a, b)\n    return qc\n\nqc = oracle(QuantumCircuit(2), 0, 1)\n",
+    # Diagonal gates and a measurement leave |0> where it was; x then reset then x again acts.
+    "qc = QuantumCircuit(2, 1)\nqc.x(0)\nqc.reset(0)\nqc.x(0)\nqc.cx(0, 1)\n",
+    # Open controls fire on |0>; the IR does not record ctrl_state, so the rule stays out.
+    "qc = QuantumCircuit(3)\nqc.mcx([0, 1], 2, ctrl_state='00')\n",
+    # A classically conditioned gate may or may not have run.
+    "qc = QuantumCircuit(2, 1)\nqc.h(1)\nqc.measure(1, 0)\nwith qc.if_test((qc.clbits[0], 1)):\n"
+    "    qc.x(0)\nqc.cx(0, 1)\n",
+])
+def test_qd05_negative(body):
+    assert dependence(py(body), "QD05") == []
+
+
+def test_reset_makes_a_control_zero_again():
+    source = py("""
+        qc = QuantumCircuit(2)
+        qc.h(0)
+        qc.reset(0)
+        qc.cx(0, 1)
+    """)
+    assert [d["line"] for d in dependence(source, "QD05")] == [6]
+
+
+@pytest.mark.parametrize("body", [
+    "qc = QuantumCircuit(1)\nqc.h(undefined_name)\n",   # a Python error: maybe the parser's limit
+    "qc = QuantumCircuit(2)\nqc.cx(0, 1)\n",            # fine
+])
+def test_qs014_reports_only_qiskit_errors(body):
+    assert quick(py(body), "QS014") == []
+
+
+# QD06 no measurement --------------------------------------------------------
+
+def test_no_measurement():
+    found = dependence(py("qc = QuantumCircuit(1)\nqc.h(0)\n"), "QD06")
+    assert [d["line"] for d in found] == [2] and found[0]["severity"] == "warning"
+
+
+@pytest.mark.parametrize("call", ["qc.measure(0, 0)", "qc.measure_all()", "qc.measure_active()"])
+def test_measured_circuits_are_quiet(call):
+    assert dependence(py(f"qc = QuantumCircuit(1, 1)\nqc.h(0)\n{call}\n"), "QD06") == []
+
+
+def test_a_measurement_in_a_helper_counts():
+    source = py("def finish(c):\n    c.measure_all()\n\nqc = QuantumCircuit(2)\nqc.h(0)\n"
+                "finish(qc)\n")
+    assert dependence(source, "QD06") == []
+
+
+@pytest.mark.parametrize("use", [
+    "state = Statevector(qc)",
+    "state = Statevector.from_instruction(qc)",
+    "unitary = Operator(qc)",
+    "job = estimator.run([(qc, observable)])",              # reads expectation values
+    "flip(qc, 0)",                                           # a helper may return it to measure
+    "state = execute(qc, sim).result().get_statevector()",   # statevector simulator
+])
+def test_no_measurement_is_fine_when_the_state_is_read(use):
+    source = py(f"def flip(qc, q):\n    qc.x(q)\n\nqc = QuantumCircuit(1)\nqc.h(0)\n{use}\n")
+    assert dependence(source, "QD06") == []
+
+
+@pytest.mark.parametrize("use", [
+    "counts = backend.run(qc).result().get_counts()",
+    "job = backend.run(qc)",
+    "job = sampler.run([qc])",
+    "flip(qc, 0)\njob = backend.run(qc)",                    # also sampled: still a mistake
+])
+def test_sampling_an_unmeasured_circuit(use):
+    # The static parser has to rebuild the program, so the backends are real names.
+    setup = ("from qiskit_aer import AerSimulator\nfrom qiskit.primitives import StatevectorSampler\n"
+             "backend = AerSimulator()\nsampler = StatevectorSampler()\n")
+    source = py(setup + f"def flip(qc, q):\n    qc.x(q)\n\nqc = QuantumCircuit(1)\nqc.h(0)\n{use}\n")
+    assert [d["code"] for d in dependence(source, "QD06")] == ["QD06"]
+
+
+@pytest.mark.parametrize("use, line", [
+    # Where the counts are read, not where the circuit is built (Bugs4Q stackexchange-11).
+    ("result = backend.run(qc).result()\ncounts = result.get_counts(qc)", 8),
+    ("counts = backend.run(qc).result().get_counts()", 7),
+    # Nothing reads the counts: the sampling call.
+    ("job = backend.run(qc)", 7),
+])
+def test_no_measurement_is_reported_where_the_samples_are_read(use, line):
+    source = py("from qiskit_aer import AerSimulator\nbackend = AerSimulator()\n"
+                f"qc = QuantumCircuit(2)\nqc.h(0)\nqc.cx(0, 1)\n{use}\n")
+    (found,) = dependence(source, "QD06")
+    assert found["line"] == line and found["lines"] == [4, line]
+    assert "line 4" in found["message"] and found["severity"] == "warning"
+
+
+def test_no_measurement_in_a_function_is_left_to_qs016():
+    # QS016 reports the same circuit there, with the error Aer raises.
+    source = py("""
+        from qiskit_aer import AerSimulator
+
+        def sample():
+            qc = QuantumCircuit(2)
+            qc.h(0)
+            return AerSimulator().run(qc).result().get_counts()
+
+        counts = sample()
+    """)
+    assert dependence(source, "QD06") == []
+    assert [d["line"] for d in quick(source, "QS016")] == [8]
+
+
+# QD07 idle qubit ------------------------------------------------------------
+
+def test_idle_qubits():
+    found = dependence(py("qc = QuantumCircuit(4, 1)\nqc.h(0)\nqc.cx(0, 1)\nqc.measure(0, 0)\n"),
+                       "QD07")
+    assert [d["line"] for d in found] == [2] and found[0]["severity"] == "info"
+    assert "[2, 3]" in found[0]["message"]
+    assert found[0]["qubits"] == [2, 3]          # the graph marks these wires red
+
+
+@pytest.mark.parametrize("body, idle", [
+    # The rebuilt circuit sees through loops and helpers, which a literal reading cannot.
+    ("qc = QuantumCircuit(4)\nfor q in range(3):\n    qc.h(q)\n", "[3]"),
+    ("def prepare(qc):\n    qc.x(2)\n\nqc = QuantumCircuit(3)\nqc.h(0)\nprepare(qc)\n", "[1]"),
+    # A barrier spans every qubit without using any.
+    ("qc = QuantumCircuit(2)\nqc.h(0)\nqc.barrier()\n", "[1]"),
+])
+def test_idle_qubits_through_loops_helpers_and_barriers(body, idle):
+    found = dependence(py(body), "QD07")
+    assert len(found) == 1 and idle in found[0]["message"]
+
+
+@pytest.mark.parametrize("body", [
+    "qc = QuantumCircuit(3)\nfor i in range(3):\n    qc.h(i)\n",
+    "qc = QuantumCircuit(3)\nqc.h(0)\nqc.measure_all()\n",   # measured qubits are used (QD03's)
+])
+def test_qd07_negative(body):
+    assert dependence(py(body), "QD07") == []
+
+
+# QD02 also covers two measurements into one literal bit (the old quick QS007) ------
+
+def test_two_literal_measurements_into_one_bit():
+    found = dependence(py("qc = QuantumCircuit(2, 1)\nqc.h(0)\nqc.measure(0, 0)\n"
+                          "qc.measure(1, 0)\n"), "QD02")
+    assert [d["line"] for d in found] == [5] and "line 4" in found[0]["message"]
+
+
+# QD08 cancelling pair -------------------------------------------------------
+
+def test_cancelling_pair():
+    found = dependence(py("qc = QuantumCircuit(2, 2)\nqc.cx(0, 1)\nqc.cx(0, 1)\nqc.measure_all()\n"),
+                       "QD08")
+    assert [d["line"] for d in found] == [4] and found[0]["severity"] == "info"
+    assert "line 3" in found[0]["message"] and found[0]["lines"] == [3, 4]
+    assert found[0]["nodes"] == [0, 1]
+
+
+def test_cancelling_pair_from_a_loop():
+    found = dependence(py("qc = QuantumCircuit(1, 1)\nfor _ in range(2):\n    qc.h(0)\n"
+                          "qc.measure(0, 0)\n"), "QD08")
+    assert [d["line"] for d in found] == [4] and "this same line" in found[0]["message"]
+
+
+@pytest.mark.parametrize("body", [
+    "qc = QuantumCircuit(2)\nqc.cx(0, 1)\nqc.cx(1, 0)\nqc.measure_all()\n",      # other order
+    "qc = QuantumCircuit(1)\nqc.h(0)\nqc.barrier()\nqc.h(0)\nqc.measure_all()\n",  # a barrier
+    "qc = QuantumCircuit(1)\nqc.s(0)\nqc.s(0)\nqc.measure_all()\n",              # not self-inverse
+    "qc = QuantumCircuit(2)\nqc.x(0)\nqc.cx(0, 1)\nqc.x(0)\nqc.measure_all()\n",  # cx in between
+    "qc = QuantumCircuit(2, 1)\nqc.h(1)\nqc.measure(1, 0)\nqc.x(0)\n"
+    "with qc.if_test((qc.clbits[0], 1)):\n    qc.x(0)\nqc.measure_all()\n",       # conditional
+])
+def test_qd08_negative(body):
+    assert dependence(py(body), "QD08") == []
+
+
+def test_showcase_example_trips_the_advertised_checks():
+    import examples
+    found = {d["code"] for d in linters.run(examples.load("linter_showcase")["source"],
+                                              selection=["dependence"])}
+    assert {"QD06", "QD07", "QD08"} <= found
+
+
+def test_unreadable_program_gets_no_dependence_findings():
+    assert linters.run("import os\nos.system('x')\n", selection=["dependence"]) == []
+
+
+def test_dependence_checks_read_openqasm():
+    qasm = ('OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[2];\ncreg c[1];\n'
+            'h q[0];\nmeasure q[0] -> c[0];\nx q[1];\n')
+    found = linters.run(qasm, "a.qasm", "qasm-static", ["dependence/QD01"])
+    assert [d["line"] for d in found] == [7]
+
+
+# --------------------------------------------------------------------------
+# The static parser's time limit, which keeps a benchmark run bounded
+# --------------------------------------------------------------------------
+
+def test_static_parse_time_limit():
+    source = "jobs = [object()]\nwhile jobs:\n    for job in jobs:\n        job.status()\n"
+    parser = StaticQiskitParser(filename="poll.py", time_limit=0.3)
+    parser.source = source
+    started = time.monotonic()
+    with pytest.raises(StaticParseError, match="time limit"):
+        parser.parse()
+    assert time.monotonic() - started < 5
+
+
+@pytest.mark.parametrize("body", [
+    # The test's preparation and the solution's own gate: they cancel only for this input.
+    "def flip(qc, q):\n    qc.x(q)\n    return qc\n\nqc = QuantumCircuit(1, 1)\nqc.x(0)\n"
+    "flip(qc, 0)\nqc.measure(0, 0)\n",
+    # Two calls of one helper.
+    "def flip(qc):\n    qc.x(0)\n\nqc = QuantumCircuit(1, 1)\nflip(qc)\nflip(qc)\nqc.measure(0, 0)\n",
+    # An oracle handed its circuit: compute/uncompute meets nothing in between on this input.
+    "def oracle(qc, q, t):\n    qc.x(q)\n    if q == t:\n        qc.h(t)\n    qc.x(q)\n    return qc\n\n"
+    "qc = oracle(QuantumCircuit(2, 1), 0, 1)\nqc.measure(0, 0)\n",
+])
+def test_qd08_needs_both_gates_from_the_same_code(body):
+    assert dependence(py(body), "QD08") == []
+
+
+# QD09 condition never set ---------------------------------------------------
+
+@pytest.mark.parametrize("body, line", [
+    # The measurement comes after the if_test.
+    ("qc = QuantumCircuit(2, 1)\nqc.h(0)\nwith qc.if_test((qc.clbits[0], 1)):\n    qc.x(1)\n"
+     "qc.measure(0, 0)\n", 4),
+    # The measurement writes another bit.
+    ("qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.measure(0, 1)\nwith qc.if_test((qc.clbits[0], 1)):\n"
+     "    qc.x(1)\n", 5),
+])
+def test_condition_never_set(body, line):
+    found = dependence(py(body), "QD09")
+    assert [d["line"] for d in found] == [line] and found[0]["severity"] == "warning"
+
+
+@pytest.mark.parametrize("body", [
+    "qc = QuantumCircuit(2, 1)\nqc.h(0)\nqc.measure(0, 0)\nwith qc.if_test((qc.clbits[0], 1)):\n"
+    "    qc.x(1)\n",
+    # A bit written inside an earlier branch counts as written.
+    "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.measure(0, 0)\nwith qc.if_test((qc.clbits[0], 1)):\n"
+    "    qc.measure(1, 1)\nwith qc.if_test((qc.clbits[1], 1)):\n    qc.x(0)\n",
+])
+def test_qd09_negative(body):
+    assert dependence(py(body), "QD09") == []
+
+
+# QD10 gate has no effect -----------------------------------------------------
+
+@pytest.mark.parametrize("body, line, ket", [
+    ("qc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.x(0)\nqc.measure(0, 0)\n", 4, "|+>"),
+    ("qc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.s(0)\nqc.y(0)\nqc.measure(0, 0)\n", 5, "|+i>"),
+    ("qc = QuantumCircuit(1, 1)\nqc.x(0)\nqc.h(0)\nqc.sx(0)\nqc.measure(0, 0)\n", 5, "|->"),
+])
+def test_gate_with_no_effect(body, line, ket):
+    found = dependence(py(body), "QD10")
+    assert [d["line"] for d in found] == [line] and ket in found[0]["message"]
+    assert len(found[0]["nodes"]) == 2               # the gate that set the state, and this one
+
+
+@pytest.mark.parametrize("body", [
+    "qc = QuantumCircuit(1, 1)\nqc.x(0)\nqc.h(0)\nqc.measure(0, 0)\n",             # x on |0> acts
+    "qc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.z(0)\nqc.measure(0, 0)\n",             # z on |+> acts
+    # x ... x around a control: an open control, written by hand.
+    "qc = QuantumCircuit(2, 1)\nqc.h(0)\nqc.x(0)\nqc.cx(0, 1)\nqc.x(0)\nqc.measure(1, 0)\n",
+    # The caller's h and the helper's x: other inputs reach the helper too.
+    "def f(qc):\n    qc.x(0)\n\nqc = QuantumCircuit(1, 1)\nqc.h(0)\nf(qc)\nqc.measure(0, 0)\n",
+    # Entangled: no single-qubit state to follow.
+    "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.cx(0, 1)\nqc.x(0)\nqc.measure([0, 1], [0, 1])\n",
+])
+def test_qd10_negative(body):
+    assert dependence(py(body), "QD10") == []
+
+
+# QD11 state read from a circuit that measures --------------------------------
+
+SV = "from qiskit.quantum_info import Statevector, Operator\n"
+
+
+@pytest.mark.parametrize("body, line, severity, text", [
+    # Qiskit raises on a measurement (checked against the installed Qiskit below).
+    (SV + "qc = QuantumCircuit(2)\nqc.h(0)\nqc.cx(0, 1)\nqc.measure_all()\nstate = Statevector(qc)\n",
+     6, "error", "Cannot apply instruction with classical bits: measure"),
+    (SV + "qc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.measure(0, 0)\nU = Operator(qc)\n",
+     5, "error", "Cannot apply operation with classical bits: measure"),
+    (SV + "qc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.measure(0, 0)\n"
+     "state = Statevector.from_label('0').evolve(qc)\n", 5, "error", "classical bits: measure"),
+    (SV + "qc = QuantumCircuit(1)\nqc.h(0)\nqc.reset(0)\nU = Operator(qc)\n",
+     5, "error", "Cannot apply Operation: reset"),
+    # Statevector applies a reset as a random collapse.
+    (SV + "qc = QuantumCircuit(1)\nqc.h(0)\nqc.reset(0)\nstate = Statevector(qc)\n",
+     5, "warning", "random"),
+    # An old statevector simulator returns the collapsed state (Bugs4Q github-16).
+    ("from qiskit_aer import Aer\nqc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.cx(0, 1)\n"
+     "qc.measure([0, 1], [0, 1])\nbackend = Aer.get_backend('statevector_simulator')\n"
+     "state = backend.run(qc).result().get_statevector()\n", 6, "warning", "collapsed"),
+])
+def test_state_read_from_a_circuit_that_measures(body, line, severity, text):
+    (found,) = dependence(py(body), "QD11")
+    assert found["line"] == line and found["severity"] == severity and text in found["message"]
+    assert found["nodes"] and found["lines"][0] == line
+
+
+def test_qd11_quotes_what_the_installed_qiskit_raises():
+    from qiskit import QuantumCircuit
+    from qiskit.quantum_info import Operator, Statevector
+    measured = QuantumCircuit(1, 1)
+    measured.measure(0, 0)
+    reset = QuantumCircuit(1)
+    reset.reset(0)
+    with pytest.raises(Exception, match="Cannot apply instruction with classical bits: measure"):
+        Statevector(measured)
+    with pytest.raises(Exception, match="Cannot apply operation with classical bits: measure"):
+        Operator(measured)
+    with pytest.raises(Exception, match="Cannot apply Operation: reset"):
+        Operator(reset)
+
+
+@pytest.mark.parametrize("body", [
+    # The state is read before the measurement.
+    SV + "qc = QuantumCircuit(2)\nqc.h(0)\nstate = Statevector(qc)\nqc.measure_all()\n",
+    # The circuit is also sampled for counts: its measurements are wanted.
+    SV + "from qiskit_aer import AerSimulator\nqc = QuantumCircuit(2)\nqc.h(0)\nqc.measure_all()\n"
+    "state = Statevector(qc)\ncounts = AerSimulator().run(qc).result().get_counts()\n",
+    # The reader is given another circuit.
+    SV + "qc = QuantumCircuit(2)\nqc.h(0)\nprep = qc.copy()\nqc.measure_all()\n"
+    "state = Statevector(prep)\n",
+    # The measurement comes from a helper handed the circuit.
+    SV + "def finish(c):\n    c.measure_all()\n\nqc = QuantumCircuit(2)\nqc.h(0)\nfinish(qc)\n"
+    "state = Statevector(qc)\n",
+    # Aer saves the state where it is asked to.
+    "from qiskit_aer import AerSimulator\nqc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.save_statevector()\n"
+    "qc.measure(0, 0)\nstate = AerSimulator().run(qc).result().get_statevector()\n",
+    # A density matrix applies a reset exactly.
+    "from qiskit.quantum_info import DensityMatrix\nqc = QuantumCircuit(1)\nqc.h(0)\nqc.reset(0)\n"
+    "rho = DensityMatrix(qc)\n",
+    # The final measurements are removed first.
+    SV + "qc = QuantumCircuit(2)\nqc.h(0)\nqc.measure_all()\nqc.remove_final_measurements()\n"
+    "state = Statevector(qc)\n",
+])
+def test_qd11_negative(body):
+    assert dependence(py(body), "QD11") == []
+
+
+# QD12 classical bits never written ------------------------------------------
+
+def test_measure_all_leaves_the_declared_bits_unwritten():
+    # Bugs4Q github-12: measure_all() adds its own register.
+    found = dependence(py("qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.cx(0, 1)\nqc.measure_all()\n"),
+                       "QD12")
+    assert [d["line"] for d in found] == [5] and found[0]["severity"] == "warning"
+    assert "measure_all() adds its own 2" in found[0]["message"] and "[0, 1]" in found[0]["message"]
+    assert found[0]["lines"] == [2, 5] and len(found[0]["nodes"]) == 2
+
+
+def test_spare_classical_bits_are_information():
+    found = dependence(py("qc = QuantumCircuit(2, 5)\nqc.h(0)\nqc.cx(0, 1)\n"
+                          "qc.measure([0, 1], [0, 1])\n"), "QD12")
+    assert [d["line"] for d in found] == [2] and found[0]["severity"] == "info"
+    assert "[2, 3, 4]" in found[0]["message"] and "nodes" not in found[0]
+
+
+@pytest.mark.parametrize("body", [
+    "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.measure([0, 1], [0, 1])\n",
+    "qc = QuantumCircuit(2)\nqc.h(0)\nqc.measure_all()\n",                     # no declared bits
+    "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.measure_all(add_bits=False)\n",    # into the declared
+    "qc = QuantumCircuit(2, 2)\nqc.h(0)\n",                                     # measures nothing
+    # A bit only a condition reads is read, not spare (QD09 says it is never set).
+    "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.measure(0, 0)\nwith qc.if_test((qc.clbits[1], 1)):\n"
+    "    qc.x(1)\n",
+    # A function handed its circuit: the caller declared the bits.
+    "def solve(qc):\n    qc.h(0)\n    qc.measure_all()\n    return qc\n\nqc = solve(QuantumCircuit(2, 2))\n",
+])
+def test_qd12_negative(body):
+    assert dependence(py(body), "QD12") == []

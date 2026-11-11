@@ -1,0 +1,234 @@
+{
+  "_comment": [
+    "Catalog for the examples dropdown on the slicer page.",
+    "To add a circuit: drop a .py file in this directory and add an entry here.",
+    "A .py file with no entry still shows up, under 'Unsorted', using its filename.",
+    "Every entry's claims were checked against the analyzer's actual output;",
+    "if you change a circuit, re-check its blurb.",
+    "A .qasm entry goes to the OpenQASM front end, which parses without executing."
+  ],
+  "categories": [
+    {
+      "id": "basics",
+      "title": "Basics"
+    },
+    {
+      "id": "algorithms",
+      "title": "Algorithms"
+    },
+    {
+      "id": "protocols",
+      "title": "Communication protocols"
+    },
+    {
+      "id": "analysis",
+      "title": "Analysis showcases"
+    },
+    {
+      "id": "openqasm",
+      "title": "OpenQASM"
+    }
+  ],
+  "examples": [
+    {
+      "key": "bell_pair",
+      "file": "bell_pair.py",
+      "category": "basics",
+      "title": "Bell pair",
+      "blurb": "One Hadamard and one CNOT: the smallest circuit that entangles two qubits.",
+      "highlight": "Try: slice backward from either measurement -- you get both gates."
+    },
+    {
+      "key": "independent_wires",
+      "file": "independent_wires.py",
+      "category": "basics",
+      "title": "Two independent wires",
+      "blurb": "No two-qubit gate, so nothing entangles. The control case for slicing.",
+      "highlight": "Try: slice backward from #3 -- 2 instructions, not 4."
+    },
+    {
+      "key": "ghz_state",
+      "file": "ghz_state.py",
+      "category": "basics",
+      "title": "GHZ state",
+      "blurb": "A chain of CNOTs spreads entanglement across three qubits.",
+      "highlight": "Try: slice backward from a measurement -- the other two qubits are marked as possibly correlated."
+    },
+    {
+      "key": "phase_kickback",
+      "file": "phase_kickback.py",
+      "category": "basics",
+      "title": "Phase kickback",
+      "blurb": "A controlled gate that changes the control instead of the target -- the mechanism every oracle below runs on.",
+      "highlight": ""
+    },
+    {
+      "key": "swap_test",
+      "file": "swap_test.py",
+      "category": "basics",
+      "title": "Swap test",
+      "blurb": "Measures the overlap between two states using a controlled swap.",
+      "highlight": "Try: a three-qubit gate drawn as one node across three wires."
+    },
+    {
+      "key": "grover_two_qubit",
+      "file": "grover_two_qubit.py",
+      "category": "algorithms",
+      "title": "Grover search (2 qubits)",
+      "blurb": "Oracle plus diffuser, marking |11>. Small enough to read every edge in the graph.",
+      "highlight": "Try: slice backward from #12 -- 11 of 14 instructions."
+    },
+    {
+      "key": "deutsch_jozsa",
+      "file": "deutsch_jozsa.py",
+      "category": "algorithms",
+      "title": "Deutsch-Jozsa",
+      "blurb": "Decides constant versus balanced in a single oracle query.",
+      "highlight": ""
+    },
+    {
+      "key": "bernstein_vazirani",
+      "file": "bernstein_vazirani.py",
+      "category": "algorithms",
+      "title": "Bernstein-Vazirani",
+      "blurb": "Recovers a hidden bit string in one query. Only the wires whose bit is 1 are touched.",
+      "highlight": "Try: compare the slice from #15 (untouched wire) with #16."
+    },
+    {
+      "key": "simons_algorithm",
+      "file": "simons_algorithm.py",
+      "category": "algorithms",
+      "title": "Simon's algorithm",
+      "blurb": "Finds the hidden period of a 2-to-1 function. Two registers bridged only by the oracle.",
+      "highlight": ""
+    },
+    {
+      "key": "quantum_fourier_transform",
+      "file": "quantum_fourier_transform.py",
+      "category": "algorithms",
+      "title": "QFT (written out)",
+      "blurb": "Three-qubit Fourier transform, every controlled rotation spelled out as its own node.",
+      "highlight": "Try: note how nearly everything depends on everything."
+    },
+    {
+      "key": "library_qft",
+      "file": "library_qft.py",
+      "category": "algorithms",
+      "title": "QFT (from qiskit.circuit.library)",
+      "blurb": "The same transform pulled from the Qiskit library instead of hand-written.",
+      "highlight": "Try: compare the gate names with the hand-written version."
+    },
+    {
+      "key": "phase_estimation",
+      "file": "phase_estimation.py",
+      "category": "algorithms",
+      "title": "Phase estimation",
+      "blurb": "Reads the eigenphase of the T gate into three counting qubits.",
+      "highlight": ""
+    },
+    {
+      "key": "qaoa_maxcut",
+      "file": "qaoa_maxcut.py",
+      "category": "algorithms",
+      "title": "QAOA MaxCut (one layer)",
+      "blurb": "Cost and mixer layers over a four-node ring. Every rzz is both entangling and phase-carrying.",
+      "highlight": ""
+    },
+    {
+      "key": "variational_ansatz",
+      "file": "variational_ansatz.py",
+      "category": "algorithms",
+      "title": "Variational ansatz",
+      "blurb": "Two layers of rotations and entanglers, the shape most VQE circuits take.",
+      "highlight": ""
+    },
+    {
+      "key": "quantum_teleportation",
+      "file": "quantum_teleportation.py",
+      "category": "protocols",
+      "title": "Quantum teleportation",
+      "blurb": "Mid-circuit measurement and classical feed-forward. The clearest measurement dependency in the set.",
+      "highlight": "Try: keep only Measurement edges, then slice backward from the first correction."
+    },
+    {
+      "key": "superdense_coding",
+      "file": "superdense_coding.py",
+      "category": "protocols",
+      "title": "Superdense coding",
+      "blurb": "Two classical bits carried by one qubit, using a Bell pair agreed in advance.",
+      "highlight": "Try: slice from q1's measurement -- it reaches the encoding gates on q0."
+    },
+    {
+      "key": "entanglement_swapping",
+      "file": "entanglement_swapping.py",
+      "category": "protocols",
+      "title": "Entanglement swapping",
+      "blurb": "Entangles two qubits that no gate ever touched together.",
+      "highlight": "Try: slice from #11 with all edges, then with Data Qubit only."
+    },
+    {
+      "key": "uncomputation",
+      "file": "uncomputation.py",
+      "category": "analysis",
+      "title": "Uncomputation (detected)",
+      "blurb": "An adjacent pair of identical single-qubit gates that cancel, which the dependence checks flag as QD08.",
+      "highlight": "Try: the QD08 note on instruction #3."
+    },
+    {
+      "key": "ancilla_uncompute",
+      "file": "ancilla_uncompute.py",
+      "category": "analysis",
+      "title": "Ancilla uncompute",
+      "blurb": "The same idea with Toffolis. QD08 flags the cancelling pair, but slices do not drop it yet -- a known gap, not a bug in the circuit.",
+      "highlight": "Try: the QD08 note on the second ccx, then a backward slice from a measurement."
+    },
+    {
+      "key": "bit_flip_code",
+      "file": "bit_flip_code.py",
+      "category": "analysis",
+      "title": "Bit-flip code",
+      "blurb": "Encode, inject an error, extract a syndrome, correct. The longest measurement-dependency chain here.",
+      "highlight": ""
+    },
+    {
+      "key": "linter_showcase",
+      "file": "linter_showcase.py",
+      "category": "analysis",
+      "title": "Static-check showcase",
+      "blurb": "Runs fine, but trips three checks: no measurement, an idle qubit, and a canceling gate pair.",
+      "highlight": "Try: read the Diagnostics panel rather than the graph."
+    },
+    {
+      "key": "stress_test",
+      "file": "stress_test.py",
+      "category": "analysis",
+      "title": "Large circuit (viewer stress test)",
+      "blurb": "Six qubits, 44 instructions, 58 edges. Exists to make the graph awkward.",
+      "highlight": "Try: the Range control, then pan and zoom."
+    },
+    {
+      "key": "shors_algorithm",
+      "file": "shors_algorithm.py",
+      "category": "analysis",
+      "title": "Shor's algorithm (parser stress test)",
+      "blurb": "Factoring 21, hybrid and end to end: the parser follows main() through argparse, the retry loop and an lru_cache to an order-finding circuit of 13 qubits, 10 classical bits, 12,821 instructions and 24,154 edges, plus 10 sub-circuits. Takes a few seconds to draw.",
+      "highlight": "Try: the Circuit picker above the graph -- c-U(4) is a single controlled multiplication on its own."
+    },
+    {
+      "key": "ghz_openqasm",
+      "file": "ghz_openqasm.qasm",
+      "category": "openqasm",
+      "title": "GHZ state (OpenQASM)",
+      "blurb": "The same GHZ circuit as an OpenQASM 3 file. This route parses the text and runs nothing.",
+      "highlight": "Try: compare the graph with the Python version -- it is identical."
+    },
+    {
+      "key": "grover_openqasm",
+      "file": "grover_openqasm.qasm",
+      "category": "openqasm",
+      "title": "Grover search (OpenQASM)",
+      "blurb": "Exported with qiskit.qasm3.dumps(). Gate names are whatever the export chose, not what the source said.",
+      "highlight": "Try: note that the quick checks are skipped -- they only read Python; the dependence checks still run."
+    }
+  ]
+}

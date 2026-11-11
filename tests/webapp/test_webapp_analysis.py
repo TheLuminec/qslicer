@@ -8,27 +8,27 @@ from types import SimpleNamespace
 import pytest
 
 import analysis
-import gates
+from qslicer import gates
 from webapp_helpers import GHZ_QASM
 
 
 # --------------------------------------------------------------- routing --
 
 @pytest.mark.parametrize("filename, language, expected", [
-    ("", None, "python"),
-    ("circuit.py", None, "python"),
-    ("circuit.qasm", None, "qasm"),
-    ("circuit.QASM", None, "qasm"),
-    ("circuit.qasm3", None, "qasm"),
-    ("circuit.txt", None, "python"),
+    ("", None, "python-static"),            # no language: a static route, by extension
+    ("circuit.py", None, "python-static"),
+    ("circuit.qasm", None, "qasm-static"),
+    ("circuit.QASM", None, "qasm-static"),
+    ("circuit.qasm3", None, "qasm-static"),
+    ("circuit.txt", None, "python-static"),
     ("circuit.py", "qasm", "qasm"),
-    ("circuit.qasm", "qiskit", "python"),
+    ("circuit.qasm", "qiskit", "qasm-static"),   # refused by validation, never routed
     ("", "openqasm", "qasm"),
     ("", " QASM3 ", "qasm"),
-    ("", "py", "python"),
-    ("", "Python", "python"),
-    ("circuit.qasm", "unknown-lang", "qasm"),   # unknown language: extension decides
-    ("circuit.py", "", "python"),
+    ("", "py", "python-static"),
+    ("", "Python", "python-static"),
+    ("circuit.qasm", "unknown-lang", "qasm-static"),   # unknown language: extension decides
+    ("circuit.py", "", "python-static"),
     ("circuit.py", "qiskit-static", "python-static"),
     ("", "static", "python-static"),
     ("circuit.qasm", "qasm-static", "qasm-static"),
@@ -85,8 +85,8 @@ def test_note_interpreter_mismatch_silent_when_consistent(source, kind):
 
 def test_interpreters_first_is_default():
     options = analysis.interpreters()
-    assert [o["id"] for o in options] == ["qiskit", "qiskit-static", "qasm", "qasm-static"]
-    assert [o["default"] for o in options] == [True, False, False, False]
+    assert [o["id"] for o in options] == ["qiskit-static", "qasm-static"]
+    assert [o["default"] for o in options] == [True, False]
     for option in options:
         assert set(option) == {"id", "label", "suffix", "note", "default"}
     # Calling it does not mutate the module constant.
@@ -105,7 +105,7 @@ def test_rule_profiles_without_backend(monkeypatch):
 
 
 def test_dependency_types_cover_the_enum():
-    from Dependencies.dependency_rules import DependencyType
+    from qslicer.dependencies.dependency_rules import DependencyType
 
     listed = analysis.dependency_types()
     assert [d["name"] for d in listed] == [d.name for d in DependencyType]
@@ -164,6 +164,56 @@ def test_format_param(value, expected):
     assert analysis._format_param(value) == expected
 
 
+def _format_param_before_memoizing(value):
+    """_format_param as it was before the number formatting was memoized."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        if value is None:
+            return "none"
+        if hasattr(value, "num_qubits") and hasattr(value, "data"):
+            return f"<circuit {len(value.data)} ops>"
+        text = " ".join(str(value).split())
+        return text if len(text) <= 24 else text[:21] + "..."
+    if abs(number) < 1e-9:
+        return "0"
+    for numerator in range(1, 9):
+        for denominator in (1, 2, 3, 4, 6, 8):
+            candidate = numerator * math.pi / denominator
+            for sign in (1, -1):
+                if abs(number - sign * candidate) < 1e-6:
+                    prefix = "-" if sign < 0 else ""
+                    head = "pi" if numerator == 1 else f"{numerator}pi"
+                    return f"{prefix}{head}" if denominator == 1 else f"{prefix}{head}/{denominator}"
+    return f"{number:.4g}"
+
+
+def test_format_param_is_unchanged_by_memoizing():
+    import random
+    from fractions import Fraction
+
+    import numpy as np
+    from qiskit.circuit import Parameter
+
+    theta = Parameter("theta")
+    values = [0, 0.0, -0.0, 1e-12, -1e-10, 1, -1, 2, True, False, 0.5, -2.75, 1e300,
+              float("nan"), float("inf"), float("-inf"), Fraction(1, 3), complex(1, 2),
+              np.float64(math.pi / 4), np.float32(0.25), np.int64(3),
+              math.pi / 2 + 5e-7, math.pi / 2 + 2e-6,
+              None, "theta", "x" * 40, "a\n   b", theta, theta * 2 + 1,
+              [1, 2], {"a": 1}]                      # unhashable: never memoized
+    values += [sign * n * math.pi / d for n in range(10) for d in (1, 2, 3, 4, 5, 6, 7, 8, 12, 16)
+               for sign in (1, -1)]
+    rng = random.Random(7)
+    values += [rng.uniform(-10, 10) for _ in range(300)]
+    values += [math.pi / 2 ** k for k in range(1, 40)]      # the QFT's angles
+    for value in values:
+        expected = _format_param_before_memoizing(value)
+        assert analysis._format_param(value) == expected, value
+        assert analysis._format_param(value) == expected, value   # now from the memo
+    assert analysis._format_param(-0.0) == analysis._format_param(0.0) == "0"
+
+
 def test_format_param_collapses_circuits():
     from qiskit import QuantumCircuit
 
@@ -185,7 +235,7 @@ def test_node_labels():
 # ----------------------------------------------------------- payloads --
 
 NODE_KEYS = {"id", "name", "label", "short", "qubits", "clbits", "params",
-             "condition_clbits", "lane", "gate", "category", "is_measurement",
+             "condition_clbits", "lane", "category", "is_measurement",
              "line", "source"}
 
 
@@ -193,14 +243,32 @@ NODE_KEYS = {"id", "name", "label", "short", "qubits", "clbits", "params",
 def test_node_shape(ghz_qasm_result):
     for idx, node in enumerate(ghz_qasm_result["nodes"]):
         assert NODE_KEYS <= set(node)
+        assert "gate" not in node                  # the reference card is in "gates", once
         assert node["id"] == idx
-        assert node["gate"] == gates.describe(node["name"])
-        assert node["category"] == node["gate"]["category"]
+        assert node["category"] == ghz_qasm_result["gates"][node["name"]]["category"]
         assert node["is_measurement"] == (node["name"] == "measure")
         assert node["lane"] == sum(node["qubits"]) / len(node["qubits"])
     cx = ghz_qasm_result["nodes"][2]
     assert cx["qubits"] == [0, 2] and cx["clbits"] == [] and cx["params"] == []
     assert ghz_qasm_result["nodes"][4]["clbits"] == [1]
+
+
+def test_gates_describe_each_node_name_once(ghz_qasm_result):
+    names = {node["name"] for node in ghz_qasm_result["nodes"]}
+    assert set(ghz_qasm_result["gates"]) == names == {"h", "cx", "measure"}
+    for name, info in ghz_qasm_result["gates"].items():
+        assert info == gates.describe(name)
+
+
+@pytest.mark.slow
+def test_gates_cover_every_node_of_every_example(example_results):
+    for key, (status, body, _) in example_results.items():
+        if status != 200 or not body.get("ok"):
+            continue
+        names = {node["name"] for node in body["nodes"]}
+        assert set(body["gates"]) == names, key
+        assert all("gate" not in node for node in body["nodes"]), key
+        assert all(body["gates"][name] == gates.describe(name) for name in names), key
 
 
 def test_edge_shape(ghz_qasm_result):
@@ -210,24 +278,6 @@ def test_edge_shape(ghz_qasm_result):
         assert 0 <= edge["source"] < edge["target"] < nodes   # edges run forward in time
         assert edge["dependency"] in {d["name"] for d in analysis.dependency_types()}
         assert edge["rule"]
-
-
-def test_entanglement_shape(ghz_qasm_result):
-    ent = ghz_qasm_result["entanglement"]
-    assert set(ent) == {"groups", "num_groups", "entangled_groups"}
-    assert ent["num_groups"] == len(ent["groups"])
-    assert ent["entangled_groups"] == sum(g["kind"] == "entangled" for g in ent["groups"])
-    keys = {"id", "kind", "depth", "qubits", "parents", "active", "measured", "origin",
-            "computed", "uncomputed", "measurements"}
-    for gid, group in enumerate(ent["groups"]):
-        assert set(group) == keys
-        assert group["id"] == gid
-        assert group["qubits"] == sorted(group["qubits"])
-        for field in ("computed", "uncomputed", "measurements"):
-            assert all(0 <= i < 6 for i in group[field])
-    # One GHZ group spanning all three qubits, measured.
-    entangled = [g for g in ent["groups"] if g["kind"] == "entangled"]
-    assert any(g["qubits"] == [0, 1, 2] and g["measured"] for g in entangled)
 
 
 def test_stats_shape(ghz_qasm_result):
@@ -307,8 +357,9 @@ def test_qasm_route_never_starts_a_process(monkeypatch):
     def forbidden(*args, **kwargs):
         raise AssertionError("OpenQASM must not start a subprocess")
 
-    monkeypatch.setattr(analysis.subprocess, "run", forbidden)
-    monkeypatch.setattr(analysis.subprocess, "Popen", forbidden)
+    import subprocess
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    monkeypatch.setattr(subprocess, "Popen", forbidden)
     result = analysis.analyze_source(GHZ_QASM, "ghz.qasm", language="qasm")
     assert result["ok"]
 
@@ -340,107 +391,45 @@ def test_qasm_scratch_directory_is_removed(monkeypatch):
     assert made and not any(os.path.exists(p) for p in made)
 
 
-# ------------------------------------------------------- Python route --
-# The worker is replaced with a stub here; the real worker is exercised in
-# test_webapp_python_route.py (slow).
-
-def _fake_run_writing(payload_json):
-    def fake_run(cmd, cwd, capture_output, text, timeout):
-        _, worker, path, workdir = cmd
-        assert worker.endswith("parse_worker.py")
-        assert cwd == workdir and os.path.dirname(path) == workdir
-        if payload_json is not None:
-            with open(os.path.join(workdir, "result.json"), "w", encoding="utf-8") as h:
-                h.write(payload_json)
-        return SimpleNamespace(returncode=3, stdout="", stderr="line1\nKilled\n")
-    return fake_run
-
+# ------------------------------------------------- no execution, ever --
 
 PY_SOURCE = "from qiskit import QuantumCircuit\nqc = QuantumCircuit(1)\nqc.h(0)\nqc.measure_all()\n"
 
 
-def test_worker_without_result_file_is_worker_crashed(monkeypatch):
-    monkeypatch.setattr(analysis.subprocess, "run", _fake_run_writing(None))
-    result = analysis.analyze_source(PY_SOURCE, "c.py")
+@pytest.mark.requirement("NFR-04")
+@pytest.mark.parametrize("language", ["qiskit", "python", "py", " Qiskit "])
+def test_executing_interpreter_is_refused(language, monkeypatch):
+    monkeypatch.setattr(analysis, "_parse_source", lambda *a: pytest.fail("parsed anyway"))
+    result = analysis.analyze_source(PY_SOURCE, "c.py", language=language)
     assert result["ok"] is False
-    assert result["error"]["kind"] == "worker_crashed"
-    assert "code 3" in result["error"]["message"]
-    assert result["error"]["traceback"] == ["line1", "Killed"]
-    assert result["error"]["hint"] == analysis._HINTS["worker_crashed"]
+    assert result["error"]["kind"] == "execution_disabled"
+    assert "qiskit-static" in result["error"]["hint"]
 
 
-def test_worker_reported_error_is_passed_through(monkeypatch):
-    payload = ('{"ok": false, "stdout": "hello", "error": {"kind": "no_circuit", '
-               '"message": "m", "detail": "d", "traceback": null}}')
-    monkeypatch.setattr(analysis.subprocess, "run", _fake_run_writing(payload))
-    result = analysis.analyze_source(PY_SOURCE, "c.py")
-    assert result["error"]["kind"] == "no_circuit"
-    assert result["error"]["hint"] == analysis._HINTS["no_circuit"]
-    assert result["stdout"] == "hello"
+@pytest.mark.requirement("NFR-04")
+@pytest.mark.parametrize("filename, language", [
+    ("c.py", None), ("c.py", ""), ("c.txt", None), ("c.py", "qiskit-static"),
+    ("c.qasm", "qasm-static"), ("c.qasm", "qasm"),
+])
+def test_no_route_starts_a_process_or_runs_the_file(filename, language, monkeypatch, tmp_path):
+    import subprocess
+    import runpy
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("submitted code must never be run")
+
+    monkeypatch.setattr(subprocess, "run", refuse)
+    monkeypatch.setattr(subprocess, "Popen", refuse)
+    monkeypatch.setattr(runpy, "run_path", refuse)
+    marker = tmp_path / "ran.txt"
+    source = PY_SOURCE + f"open({str(marker)!r}, 'w').write('ran')\n"
+    analysis.analyze_source(source, filename, language=language)
+    assert not marker.exists()
 
 
-def test_worker_timeout_is_reported(monkeypatch):
-    def timeout(*args, **kwargs):
-        raise analysis.subprocess.TimeoutExpired(cmd="x", timeout=kwargs["timeout"])
-
-    monkeypatch.setattr(analysis.subprocess, "run", timeout)
-    monkeypatch.setattr(analysis, "PARSE_TIMEOUT", 7)
-    result = analysis.analyze_source(PY_SOURCE, "c.py")
-    assert result["error"]["kind"] == "timeout"
-    assert "7 seconds" in result["error"]["message"]
-    assert "QSLICER_PARSE_TIMEOUT" in result["error"]["hint"]
-
-
-def test_worker_that_cannot_start_is_reported(monkeypatch):
-    def oserror(*args, **kwargs):
-        raise OSError("no such interpreter")
-
-    monkeypatch.setattr(analysis.subprocess, "run", oserror)
-    result = analysis.analyze_source(PY_SOURCE, "c.py")
-    assert result["error"]["kind"] == "worker_failed"
-    assert "no such interpreter" in result["error"]["detail"]
-
-
-def test_python_filename_is_sanitized(monkeypatch):
-    seen = {}
-
-    def fake_run(cmd, **kwargs):
-        seen["path"] = cmd[2]
-        seen["workdir"] = cmd[3]
-        raise OSError("stop here")
-
-    monkeypatch.setattr(analysis.subprocess, "run", fake_run)
-    analysis.analyze_source(PY_SOURCE, "../../outside/evil", language="qiskit")
-    assert os.path.dirname(seen["path"]) == seen["workdir"]
-    assert os.path.basename(seen["path"]) == "evil.py"
-    assert not os.path.exists(seen["workdir"])      # scratch dir cleaned up
-
-
-def test_read_worker_result_with_corrupt_json(tmp_path):
-    (tmp_path / "result.json").write_text("{not json", encoding="utf-8")
-    completed = SimpleNamespace(returncode=1, stdout="out", stderr="")
-    payload = analysis._read_worker_result(str(tmp_path), completed)
-    assert payload["error"]["kind"] == "worker_crashed"
-    assert payload["error"]["traceback"] == ["out"]
-
-
-@pytest.mark.requirement("NFR-07")
-def test_python_source_reaches_worker_unchanged(monkeypatch):
-    source = "# -*- coding: utf-8 -*-\nname = 'qubit ☃ é'\n\tx = 1  \n\n"
-    seen = {}
-
-    def fake_run(cmd, **kwargs):
-        with open(cmd[2], "r", encoding="utf-8", newline="") as handle:
-            raw = handle.read()
-        with open(cmd[2], "r", encoding="utf-8") as handle:
-            seen["text"] = handle.read()       # what Python's own reader would see
-        seen["raw_len"] = len(raw)
-        raise OSError("stop")
-
-    monkeypatch.setattr(analysis.subprocess, "run", fake_run)
-    monkeypatch.setattr(analysis.lint, "check_source", lambda s: [])
-    analysis.analyze_source(source, "c.py")
-    assert seen["text"] == source
+def test_parse_source_has_no_executing_route():
+    with pytest.raises(ValueError):
+        analysis._parse_source(PY_SOURCE, "c.py", "python")
 
 
 @pytest.mark.requirement("NFR-07")
@@ -478,18 +467,14 @@ STAGE_OF_KIND = {
     "qasm_error": "parsing",
     "empty_program": "parsing",
     "no_circuit": "execution",
-    "execution_error": "execution",
-    "timeout": "execution",
-    "worker_crashed": "execution",
-    "worker_failed": "execution",
     "backend_unavailable": "parsing",
 }
 
 
 @pytest.mark.requirement("NFR-12")
 @pytest.mark.parametrize("source, language", [
-    (GHZ_QASM, "qiskit"),
-    ("from qiskit import QuantumCircuit\nqc = QuantumCircuit(1\n", "qiskit"),
+    (GHZ_QASM, "qiskit-static"),
+    ("from qiskit import QuantumCircuit\nqc = QuantumCircuit(1\n", "qiskit-static"),
     ("OPENQASM 3.0;\nqubit[1] q;\nfoo q[0];\n", "qasm"),
     ("OPENQASM 3.0;\nqubit[1] q;\n", "qasm"),
 ])
@@ -517,3 +502,43 @@ def test_slice_errors_name_their_stage():
     result = analysis.slice_program("0" * 32, 0)
     assert isinstance(result["error"], dict)
     assert result["error"].get("kind")
+
+
+def test_insights_ride_along_with_the_graph():
+    """Kickback, a mirrored pair and a predetermined outcome, with JSON's string keys."""
+    source = (
+        "from qiskit import QuantumCircuit\n"
+        "qc = QuantumCircuit(2, 1)\n"
+        "qc.x(1)\n"           # 0
+        "qc.h(1)\n"           # 1  q1 = |->
+        "qc.h(0)\n"           # 2
+        "qc.cx(0, 1)\n"       # 3  kickback onto q0
+        "qc.h(0)\n"           # 4  mirrors 2
+        "qc.measure(0, 0)\n"  # 5  always 1
+    )
+    result = analysis.analyze_source(source, "kick.py", language="qiskit-static")
+    assert result["ok"]
+    assert result["insights"] == {
+        "measurements": {"0": [5]},
+        "mirrors": [[2, 4, 0]],
+        "kickback": {"3": [0]},
+        "no_effect": {},
+        "predetermined": {"5": 1},
+        "correlations": {},
+        "guards": {},
+    }
+
+
+def test_insights_name_the_if_test_a_gate_sits_in_and_what_may_correlate():
+    source = (
+        "from qiskit import QuantumCircuit\n"
+        "qc = QuantumCircuit(2, 2)\n"
+        "qc.h(0)\n"                               # 0
+        "qc.measure(0, 0)\n"                      # 1
+        "with qc.if_test((qc.clbits[0], 1)):\n"   # 2
+        "    qc.x(1)\n"                           # 3
+        "qc.measure(1, 1)\n"                      # 4
+    )
+    insights = analysis.analyze_source(source, "ff.py", language="qiskit-static")["insights"]
+    assert insights["guards"] == {"3": 2}
+    assert insights["correlations"]["4"] == {"measurements": [1], "qubits": [0], "unmeasured": []}

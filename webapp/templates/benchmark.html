@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Benchmark &middot; Quantum Program Slicer{% endblock %}
+
+{% block content %}
+<div class="bench" data-dataset="{{ dataset.id }}">
+  <header class="bench-header">
+    <p class="eyebrow">Benchmark</p>
+    <h1>{{ dataset.name }}</h1>
+    {% if datasets|length > 1 %}
+    <nav class="bench-filter" aria-label="Datasets">
+      {% for other in datasets %}
+        <a class="chip{% if other.id == dataset.id %} active{% endif %}"
+           href="/benchmark?dataset={{ other.id }}">{{ other.name }} ({{ other.bugs }})</a>
+      {% endfor %}
+    </nav>
+    {% endif %}
+    <p class="lede">
+      Grade the lint rules you have selected on {{ dataset.bugs }} {{ dataset.description or 'bugs' }}, each a
+      buggy program and the program that fixed it. The fix tells us where the fault was, so a
+      rule <em>detects</em> a bug when it warns on a line the fix changed and the fix silences it.
+    </p>
+    <p class="bench-meta">
+      {% if dataset.upstream %}<a href="{{ dataset.upstream }}" target="_blank" rel="noopener">{{ dataset.name }}</a>{% else %}{{ dataset.name }}{% endif %}
+      {% if dataset.commit %}at <code>{{ dataset.commit[:7] }}</code>{% endif %}
+      {% if dataset.license %}({{ dataset.license }}){% endif %} &middot;
+      {% for kind, count in dataset.kinds|dictsort %}{{ count }} {{ kind }}{% if not loop.last %}, {% endif %}{% endfor %}
+      &middot; nothing is executed: every linter reads the programs as text or through the
+      static front ends.
+    </p>
+  </header>
+
+  <section class="bench-controls" aria-label="Benchmark settings">
+    <div class="bench-controls-head">
+      <h2>Rules to grade</h2>
+      <p>The rules picked on the <a href="/lint">Lint</a> page, where each one is explained with an
+        example; the <a href="/slicer">Slicer</a> uses them too. Pick rules from several linters
+        to see each one alone and all of them combined.</p>
+    </div>
+    <div class="bench-run">
+      <div class="field lint-field">
+        <span>Lint</span>
+        <details class="lint-dropdown" id="lint-dropdown">
+          <summary id="lint-summary" title="The rules to grade, the same selection as the Lint page.">Default rules</summary>
+          <div class="lint-panel" id="lint-picker"><p class="placeholder">Loading the linters&hellip;</p></div>
+        </details>
+      </div>
+      <button class="btn btn-primary" id="btn-run" type="button">Run benchmark</button>
+      <span class="bench-status" id="bench-status" role="status">Not run yet.</span>
+    </div>
+  </section>
+
+  <section id="bench-results" class="bench-results" hidden>
+    <div class="stat-grid" id="stat-grid"></div>
+
+    <h2>Comparison</h2>
+    <p class="bench-note">One row per linter in the selection, the selection as a whole, and any
+      recorded run of another tool (<code>benchmarks/{{ dataset.id }}/external/</code>). Rewrites are fixes
+      that replace most of the program, where any warning lands on a changed line.</p>
+    <div class="table-wrap">
+      <table class="ref-table bench-table" id="compare-table"></table>
+    </div>
+
+    <h2>Per rule</h2>
+    <div class="table-wrap">
+      <table class="ref-table bench-table" id="rule-table"></table>
+    </div>
+
+    <h2>Per bug</h2>
+    <div class="bench-filter" role="group" aria-label="Show bugs">
+      <button class="chip chip-toggle active" data-filter="all" type="button">All</button>
+      <button class="chip chip-toggle" data-filter="detected" type="button">Detected</button>
+      <button class="chip chip-toggle" data-filter="hit" type="button">Warned on a fault line</button>
+      <button class="chip chip-toggle" data-filter="warned" type="button">Warned</button>
+      <button class="chip chip-toggle" data-filter="missed" type="button">Missed</button>
+      <span class="bench-filter-count" id="bug-count"></span>
+    </div>
+    <div class="table-wrap">
+      <table class="ref-table bench-table bug-table" id="bug-table"></table>
+    </div>
+  </section>
+
+  <section class="bench-explain">
+    <h2>How it is graded</h2>
+    <dl class="tool-list">
+      <dt>Fault lines</dt>
+      <dd>The buggy program's code lines that the fix deletes or rewrites. Comments, blank lines
+        and re-indentation are ignored. When a fix only adds code (an <em>omission</em>), the code
+        lines on either side of the insertion stand in.</dd>
+      <dt>Warned</dt>
+      <dd>The selected rules report anything at all on the buggy program.</dd>
+      <dt>Hit</dt>
+      <dd>One of those warnings is on a fault line.</dd>
+      <dt>Detected</dt>
+      <dd>A hit whose rule fires less often on the fixed program: the fix is what silenced it.</dd>
+      <dt>Warnings on fixed programs</dt>
+      <dd>The fix resolved the bug, so most warnings still left there are false alarms.</dd>
+      <dt>On a fault line</dt>
+      <dd>The share of the warnings on buggy programs that land on a fault line, a rough
+        precision.</dd>
+      <dt>Comparing another tool</dt>
+      <dd>Run it over <code>benchmarks/{{ dataset.id }}/programs/</code>, then
+        <code>python benchmarks/run_benchmark.py --manifest {{ dataset.id }} --import-sarif results.sarif --tool mytool</code>.
+        Its results then appear in the comparison table of every run.</dd>
+    </dl>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/lintrules.js') }}"></script>
+<script src="{{ url_for('static', filename='js/benchmark.js') }}"></script>
+{% endblock %}

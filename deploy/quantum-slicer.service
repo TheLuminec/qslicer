@@ -12,9 +12,8 @@
 # (the default after a git clone); no service account has to be created,
 # because DynamicUser= allocates a throwaway one each time the service starts.
 #
-# The hardening below is not decoration. Analysing a Python circuit executes it
-# in a child of this service, so these limits are what bound what that code can
-# reach. See deploy/README.md.
+# The site never executes what users submit; the hardening below is defence in
+# depth, and bounds what a pathological parse can cost. See deploy/README.md.
 #
 # Note: systemd does not allow comments at the end of a setting line. Keep
 # every comment on its own line or the setting is rejected.
@@ -27,8 +26,8 @@ After=network.target
 
 [Service]
 Type=simple
-# A fresh unprivileged UID per start. It owns nothing on disk, so submitted
-# code cannot modify the checkout, and it has no sudo, keys or shell history.
+# A fresh unprivileged UID per start. It owns nothing on disk, so the service
+# cannot modify the checkout, and it has no sudo, keys or shell history.
 DynamicUser=yes
 WorkingDirectory=/home/ubuntu/slicing-for-quantum-programs/webapp
 
@@ -38,8 +37,10 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 # private /tmp so Qiskit and matplotlib have somewhere writable.
 Environment=HOME=/tmp
 Environment=MPLCONFIGDIR=/tmp/matplotlib
-# Seconds a submitted circuit may run before its worker is killed.
+# Seconds the static parse of a submitted circuit may take before it stops.
 Environment=QSLICER_PARSE_TIMEOUT=20
+# The Benchmark page and its /api/benchmark routes are off unless this is set.
+#Environment=QSLICER_BENCHMARK=1
 
 # One worker process, several threads. The analysis cache is per-process: a
 # second worker would answer /api/slice without the token the first one issued.
@@ -58,7 +59,7 @@ Restart=on-failure
 RestartSec=3
 
 # ---------------------------------------------------------------- limits --
-# A submitted circuit that allocates forever, or forks, stops at these.
+# A pathological parse that allocates forever stops at these.
 MemoryMax=1500M
 TasksMax=64
 LimitNOFILE=4096
@@ -87,8 +88,8 @@ RestrictNamespaces=yes
 LockPersonality=yes
 UMask=0077
 
-# Submitted code runs here, so do not let it reach the network. Loopback stays
-# open because that is how nginx talks to gunicorn.
+# Defence in depth: the service has no need to reach the network. Loopback
+# stays open because that is how nginx talks to gunicorn.
 IPAddressDeny=any
 IPAddressAllow=localhost
 

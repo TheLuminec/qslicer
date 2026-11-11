@@ -1,6 +1,7 @@
 /* Dependency colors, shared by the graph, the legend chips and the reference
-   tables. These match the palette in scripts/visualizer.py so a screenshot from
-   the web view and one from the desktop viewer can sit side by side. */
+   tables. qslicer/viz/model.py (DEP_COLORS) has the same palette, so a screenshot
+   from the web view and one from the desktop viewer, `qslicer viz`, can sit side
+   by side: change both. */
 
 window.DEP_COLORS = {
   DATA_QUBIT: '#2196F3',

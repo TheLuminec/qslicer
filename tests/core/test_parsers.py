@@ -3,9 +3,9 @@
 import pytest
 from qiskit import QuantumCircuit, qasm3
 
-from Parsers.qiskitparser import QiskitParser
-from Parsers.openqasmparser import OpenQASMParser
-from qprogram import QuantumProgram
+from qslicer.parsers.qiskitparser import QiskitParser
+from qslicer.parsers.openqasmparser import OpenQASMParser
+from qslicer.ir.qprogram import QuantumProgram
 
 QASM_BELL = """OPENQASM 3.0;
 include "stdgates.inc";
@@ -91,9 +91,16 @@ def test_if_test_condition_parses_from_both_frontends():
     text = qasm3.dumps(qc)
     from_qiskit = QiskitParser(qc).program
     from_qasm = OpenQASMParser(qasm3.loads(text)).parse()
-    assert [i.name for i in from_qiskit.instructions] == ["measure", "if_else"]
+    # The if_else is a predicate on no wire; its body gate follows it.
+    assert shape(from_qiskit) == [
+        ("measure", [0], [0]), ("if_else", [], []), ("x", [1], [])]
     assert shape(from_qiskit) == shape(from_qasm)
     assert list(from_qiskit[1].metadata["condition_clbits"]) == [0]
+    body = from_qiskit[2]
+    assert body.metadata["guards"] == ((1, 0),)
+    assert body.metadata["condition"] is not None
+    assert list(body.metadata["condition_clbits"]) == []
+    assert from_qasm[2].metadata["guards"] == ((1, 0),)
 
 
 @pytest.mark.requirement("FR-07")
@@ -122,3 +129,24 @@ def test_parse_is_deterministic():
     runs = [shape(QiskitParser(bell_circuit()).program) for _ in range(3)]
     runs += [shape(OpenQASMParser(qasm3.loads(QASM_BELL)).parse()) for _ in range(2)]
     assert all(run == runs[0] for run in runs)
+
+
+def test_switch_cases_become_instructions_under_the_switch():
+    """The executing front end flattens a switch the way it does an if_test."""
+    from qiskit import ClassicalRegister, QuantumRegister
+
+    q, c = QuantumRegister(2), ClassicalRegister(2)
+    qc = QuantumCircuit(q, c)
+    qc.measure(q, c)                 # 0, 1
+    with qc.switch(c) as case:       # 2
+        with case(0):
+            qc.x(1)                  # 3
+        with case(case.DEFAULT):
+            qc.z(1)                  # 4
+    program = QiskitParser(qc).program
+    assert [(i.name, list(i.qubits)) for i in program.instructions] == [
+        ("measure", [0]), ("measure", [1]), ("switch_case", []), ("x", [1]), ("z", [1])]
+    switch = program[2]
+    assert switch.metadata["condition_clbits"] == [0, 1]
+    assert switch.metadata["arms"] == 2          # a default: the cases cover every value
+    assert [program[i].metadata["guards"] for i in (3, 4)] == [((2, 0),), ((2, 1),)]

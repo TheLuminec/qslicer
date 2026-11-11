@@ -1,51 +1,45 @@
-"""Bridge between the web mock-up and the analysis code under ``scripts/``.
+"""Bridge between the web pages and the ``qslicer`` package.
 
-The modules in ``scripts/`` import each other by bare name (``from qprogram
-import *``), so that directory has to be on ``sys.path`` rather than imported as
-a package. Everything the web layer needs is converted to plain JSON-safe dicts
-here, so the templates and the JavaScript never touch the analysis objects.
+Everything the web layer needs is converted to plain JSON-safe dicts here, so
+the templates and the JavaScript never touch the analysis objects.
 
-Two front ends:
+Nothing a user submits is ever executed. The front ends:
 
-* **OpenQASM** (``.qasm``) is parsed as text and never executed. This is the
-  route to prefer for anything that did not come from you.
-* **Python** (``.py``) has to be executed, because that is how the Qiskit
-  parser reaches the ``QuantumCircuit`` a file builds. It runs in a child
-  process under a timeout (``parse_worker.py``), which bounds accidents -- an
-  endless loop kills a worker rather than the server -- but is not a sandbox.
-  See webapp/README.md before exposing this app to anyone but yourself.
-* **Python, static** (``language="qiskit-static"``) reads the same ``.py``
-  files without executing them: StaticQiskitParser interprets the source
-  itself and refuses, with a line number, anything it cannot work out. It runs
-  alongside the executing route for now so the two can be compared.
+* **Python, static** (``language="qiskit-static"``) reads ``.py`` files
+  without executing them: StaticQiskitParser interprets the source itself and
+  refuses, with a line number, anything it cannot work out.
 * **OpenQASM, static** (``language="qasm-static"``) interprets the reference
   parser's syntax tree itself instead of going through ``qiskit.qasm3``. Like
   the static Python route, it records where in the source every instruction
-  came from (FR-07); the two routes without that knowledge send no location.
+  came from (FR-07).
+* **OpenQASM** (``language="qasm"``, not offered on the page) goes through
+  ``qiskit.qasm3.load``, which parses the text and sends no location.
+
+The route that executed a submitted ``.py`` file to reach its circuit has been
+removed. Asking for it by name (``"qiskit"``, ``"python"``, ``"py"``) is
+refused with ``execution_disabled`` rather than quietly rerouted, so a caller
+relying on it finds out.
 """
 
+import ast
+import functools
+import gc
 import io
 import json
+import math
 import os
 import shutil
-import subprocess
-import sys
 import tempfile
+import threading
 from collections import OrderedDict
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from hashlib import sha256
 from typing import Any, Dict, List, Optional, Tuple
 
-import gates
-import lint
+from qslicer import gates
+from qslicer.lint import registry as linters
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
-
-if SCRIPTS_DIR not in sys.path:
-    sys.path.insert(0, SCRIPTS_DIR)
-
-# Seconds a submitted Python file may run before the worker process is killed.
+# Seconds a static parse may take before it is stopped.
 PARSE_TIMEOUT = int(os.environ.get("QSLICER_PARSE_TIMEOUT", "20"))
 
 # Extensions that go to the OpenQASM front end instead of the Python one.
@@ -55,14 +49,12 @@ QASM_SUFFIXES = (".qasm", ".qasm3")
 # networkx are missing from the environment.
 _IMPORT_ERROR: Optional[str] = None
 try:
-    from Dependencies.dependency_rules import DependencyType
-    from entanglement import EntanglementAnalyzer
-    from Parsers.openqasmparser import OpenQASMParser
-    from Parsers.qiskitparser import QiskitParser
-    from Parsers.staticopenqasmparser import StaticOpenQASMParser
-    from Parsers.staticqiskitparser import StaticParseError, StaticQiskitParser
-    from qpdg import QPDG, get_rule_profile, list_rule_profiles
-    from slicer import QuantumSlicer, SlicingCriterion
+    from qslicer.dependencies.dependency_rules import DependencyType
+    from qslicer.parsers.openqasmparser import OpenQASMParser
+    from qslicer.parsers.staticopenqasmparser import StaticOpenQASMParser
+    from qslicer.parsers.staticqiskitparser import StaticParseError, StaticQiskitParser
+    from qslicer.qdg import QDG, get_rule_profile, list_rule_profiles
+    from qslicer.slicer import QuantumSlicer, SlicingCriterion
 except Exception as exc:  # pragma: no cover - depends on the local environment
     _IMPORT_ERROR = f"{type(exc).__name__}: {exc}"
 
@@ -78,26 +70,144 @@ def backend_error() -> Optional[str]:
 # --------------------------------------------------------------------------
 # Analysis cache
 #
-# Slicing re-uses the QPDG that the analyze call already built, so picking a new
-# criterion never re-executes the submitted program.
+# Slicing re-uses the QDG that the analyze call already built, so picking a new
+# criterion never parses the submitted program again.
 # --------------------------------------------------------------------------
 
 _CACHE: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 _CACHE_LIMIT = 24
+# Requests run on several threads (wsgi.py); the cache is changed under this.
+_CACHE_LOCK = threading.RLock()
+
+# Finished /api/analyze responses, encoded, are kept in their token's entry
+# (under "responses", by response_key), so a repeated request is answered
+# without linting or describing again -- and a response is only ever handed out
+# while the QDG its token names is still here to slice. Evicting an entry drops
+# its responses with it; beyond that, all of them together stay under this.
+_RESPONSE_CACHE_BYTES = 64 * 1024 * 1024
 
 
 def _cache_put(token: str, payload: Dict[str, Any]) -> None:
-    _CACHE[token] = payload
-    _CACHE.move_to_end(token)
-    while len(_CACHE) > _CACHE_LIMIT:
-        _CACHE.popitem(last=False)
+    with _CACHE_LOCK:
+        previous = _CACHE.get(token)
+        # Re-analyzing the same input (another lint selection, say) keeps the
+        # responses already made for it: the token says they are still right.
+        if previous is not None and previous.get("responses") and "responses" not in payload:
+            payload["responses"] = previous["responses"]
+        _CACHE[token] = payload
+        _CACHE.move_to_end(token)
+        while len(_CACHE) > _CACHE_LIMIT:
+            _CACHE.popitem(last=False)
 
 
 def _cache_get(token: str) -> Optional[Dict[str, Any]]:
-    entry = _CACHE.get(token)
-    if entry is not None:
-        _CACHE.move_to_end(token)
-    return entry
+    with _CACHE_LOCK:
+        entry = _CACHE.get(token)
+        if entry is not None:
+            _CACHE.move_to_end(token)
+        return entry
+
+
+def response_key(source: str, filename: str = "", profile: str = "baseline",
+                 language: Optional[str] = None, lint_rules: Optional[List[str]] = None,
+                 bindings: Optional[List[Dict[str, Any]]] = None, circuit: int = 0) -> str:
+    """What identifies an analyze request's response: everything it depends on.
+
+    The lint selection is normalized (None and an explicit default selection
+    are the same request) and the interpreter resolved, as analyze_source does.
+    """
+    material = json.dumps([
+        source, filename, profile, source_kind(filename, language),
+        linters.normalize_selection(lint_rules), bindings or [], circuit,
+    ], sort_keys=True, default=repr)
+    return sha256(material.encode("ascii")).hexdigest()
+
+
+def cached_response(key: str) -> Optional[Dict[str, Any]]:
+    """The stored response for ``response_key`` ``key``, or None.
+
+    It is a dict with ``body`` (the encoded JSON) and ``gzip`` (the same,
+    gzipped, or None). Finding one counts as using its token, which moves to
+    the young end of the cache.
+    """
+    if _IMPORT_ERROR is not None:
+        return None
+    with _CACHE_LOCK:
+        for token, entry in _CACHE.items():
+            record = (entry.get("responses") or {}).get(key)
+            if record is not None:
+                _CACHE.move_to_end(token)
+                return record
+    return None
+
+
+def store_response(key: str, token: str, body: bytes,
+                   gzipped: Optional[bytes] = None) -> Optional[Dict[str, Any]]:
+    """Keep a successful analysis' encoded response with its token's QDG.
+
+    Returns the stored record, or None when the token is no longer cached (the
+    response would name a QDG that is gone) or the body alone is over the
+    limit. Older responses are dropped, least recently used first, to keep
+    the total under _RESPONSE_CACHE_BYTES.
+    """
+    record = {"body": body, "gzip": gzipped}
+    size = _record_size(record)
+    with _CACHE_LOCK:
+        entry = _CACHE.get(token)
+        if entry is None or size > _RESPONSE_CACHE_BYTES:
+            return None
+        responses = entry.setdefault("responses", OrderedDict())
+        responses.pop(key, None)
+        responses[key] = record
+        total = sum(_record_size(r) for e in _CACHE.values()
+                    for r in (e.get("responses") or {}).values())
+        for other in list(_CACHE.values()):
+            stored = other.get("responses") or {}
+            for other_key in list(stored):
+                if total <= _RESPONSE_CACHE_BYTES:
+                    return record
+                if stored[other_key] is not record:
+                    total -= _record_size(stored.pop(other_key))
+    return record
+
+
+def _record_size(record: Dict[str, Any]) -> int:
+    return len(record["body"]) + len(record.get("gzip") or b"")
+
+
+# No full garbage collection while a request builds its analysis. The work
+# allocates hundreds of thousands of objects that stay alive (instructions,
+# graph edges, node dicts), so Python's default thresholds start a full
+# collection every few hundred thousand allocations, and each one walks every
+# cached parse and QDG as well: for Shor that was about a third of a warm
+# analysis (0.22 s) and of a cold one (0.8 s). The young generations are still
+# collected, so the static interpreter's short-lived cycles (350,000 objects
+# for a cold Shor parse) are freed as before. Requests overlap on threads, so
+# the thresholds are put back when the last of them is done.
+_GC_LOCK = threading.Lock()
+_GC_PAUSES = 0
+_GC_SAVED: Tuple[int, ...] = ()
+# Collections of the middle generation between two full ones, during a request
+# (Python's default is 10).
+_GC_FULL_EVERY = 1000
+
+
+@contextmanager
+def no_full_gc():
+    global _GC_PAUSES, _GC_SAVED
+    with _GC_LOCK:
+        if _GC_PAUSES == 0:
+            _GC_SAVED = gc.get_threshold()
+            if len(_GC_SAVED) >= 3:
+                gc.set_threshold(_GC_SAVED[0], _GC_SAVED[1], max(_GC_SAVED[2], _GC_FULL_EVERY))
+        _GC_PAUSES += 1
+    try:
+        yield
+    finally:
+        with _GC_LOCK:
+            _GC_PAUSES -= 1
+            if _GC_PAUSES == 0:
+                gc.set_threshold(*_GC_SAVED)
 
 
 # --------------------------------------------------------------------------
@@ -120,9 +230,14 @@ def _format_param(value: Any) -> str:
             return f"<circuit {len(value.data)} ops>"
         text = " ".join(str(value).split())
         return text if len(text) <= 24 else text[:21] + "..."
+    return _format_number(number)
 
-    import math
 
+# Keyed by the float alone, which is all the text depends on. Large circuits
+# repeat a few hundred angles thousands of times (Shor's QFTs), and the pi
+# search below is most of the cost of describing them.
+@functools.lru_cache(maxsize=4096)
+def _format_number(number: float) -> str:
     if abs(number) < 1e-9:
         return "0"
     for numerator in range(1, 9):
@@ -137,9 +252,14 @@ def _format_param(value: Any) -> str:
 
 
 def _node_label(name: str, qubits: List[int], params: List[Any]) -> str:
+    return _label_from(name, qubits, [_format_param(p) for p in params[:3]])
+
+
+def _label_from(name: str, qubits: List[int], formatted: List[str]) -> str:
+    """_node_label from parameters already formatted (only the first three are shown)."""
     label = name
-    if params:
-        label += "(" + ", ".join(_format_param(p) for p in params[:3]) + ")"
+    if formatted:
+        label += "(" + ", ".join(formatted[:3]) + ")"
     if qubits:
         label += " q" + ",".join(str(q) for q in qubits)
     return label
@@ -147,7 +267,8 @@ def _node_label(name: str, qubits: List[int], params: List[Any]) -> str:
 
 def _short_label(name: str, qubits: List[int]) -> str:
     """The text drawn inside a node box: no parameters, and never long enough
-    to stretch the layout out of usable range."""
+    to stretch the layout out of usable range. ``qslicer.viz.model.short_label``
+    is the same for the desktop viewer."""
     label = name if len(name) <= 12 else name[:11] + "…"
     if qubits:
         wires = "q" + ",".join(str(q) for q in qubits)
@@ -167,7 +288,7 @@ def dependency_types() -> List[Dict[str, str]]:
         "DATA_QUBIT": "A gate writes a wire that a later gate reads (def-use).",
         "MEASUREMENT": "A later operation is classically conditioned on this measurement.",
         "DATA_CLASSICAL": "Reaching definition on a classical bit.",
-        "CONTROL_CLASSICAL": "Control dependence. Rule is a placeholder today.",
+        "CONTROL_CLASSICAL": "An if_test decides whether the gates in its block run.",
         "ENTANGLEMENT": "Entangling gate to later operations on the entangled qubits.",
         "PHASE": "Phase-changing gate to later operations that can observe the phase.",
     }
@@ -272,7 +393,7 @@ def _note_interpreter_mismatch(error: Dict[str, Any], source: str, kind: str) ->
     """
     looks_qasm = _looks_like_qasm(source)
     if kind not in QASM_KINDS and looks_qasm:
-        error["hint"] = ("This looks like OpenQASM. Set Interpreter to OpenQASM 3 and "
+        error["hint"] = ("This looks like OpenQASM. Set Interpreter to OpenQASM 2/3 and "
                          "analyze again. " + error.get("hint", ""))
     elif kind in QASM_KINDS and not looks_qasm and source.strip():
         error["hint"] = ("This does not start with an OPENQASM header. If it is a Qiskit "
@@ -288,11 +409,23 @@ def analyze_source(
     filename: str = "",
     profile: str = "baseline",
     language: Optional[str] = None,
+    lint_rules: Optional[List[str]] = None,
+    bindings: Optional[List[Dict[str, Any]]] = None,
+    circuit: int = 0,
 ) -> Dict[str, Any]:
-    """Lint, parse, build the QPDG, and describe everything as JSON-safe data.
+    """Lint, parse, build the QDG, and describe everything as JSON-safe data.
 
-    ``language`` names the front end: ``"qiskit"`` or ``"qasm"``. The page
+    ``language`` names the front end: ``"qiskit-static"``, ``"qasm-static"`` or
+    ``"qasm"`` (see INTERPRETERS and _ALIASES; ``"qiskit"`` is refused). The page
     always passes one; without it the filename extension decides.
+    ``lint_rules`` are the rule ids to lint with (see ``qslicer.lint.registry``);
+    None means the default selection.
+
+    ``bindings`` are values the user picked for things only a run could
+    decide, as ``{"name", "line", "value"}`` with ``value`` a Python literal
+    (see parse_bindings); a parse that stops on such a value says which in
+    ``error.needs``. ``circuit`` picks one of the ``circuits`` a Python file
+    builds; 0, the default, is the main one.
 
     Always returns a dict with an ``ok`` flag. Lint findings are returned even
     when the run fails, because they are usually what explains the failure.
@@ -304,10 +437,65 @@ def analyze_source(
     kind = source_kind(filename, language)
     filename = filename or default_filename(kind)
 
-    # The static checks read a Python AST, so they have nothing to say about
+    try:
+        parsed_bindings = parse_bindings(bindings)
+    except ValueError as exc:
+        parsed_bindings = None
+        binding_error = str(exc)
+
+    # The file is interpreted once, on first use: by a linter that reads the
+    # circuit, or below. Both then see the same circuit -- the one picked, with
+    # the user's values -- so a finding's node ids are the graph's.
+    parsed: Dict[str, Any] = {}
+
+    def parse_once() -> Tuple[Any, str, Optional["_ParseFailure"]]:
+        if not parsed:
+            try:
+                program, captured = _parse_source(source, filename, kind, parsed_bindings, circuit)
+                parsed["value"] = (program, captured, None)
+            except _ParseFailure as failure:
+                parsed["value"] = (None, failure.stdout, failure)
+        return parsed["value"]
+
+    def parse_for_linters() -> Tuple[Any, Optional[Exception]]:
+        program, _, failure = parse_once()
+        return program, (failure.cause or failure) if failure is not None else None
+
+    # Likewise the dependence graph: built once, on first use, by the dependence
+    # checks or below, with the rules of the profile asked for.
+    rules: Any = None
+    known_profile = True
+    if _IMPORT_ERROR is None:
+        try:
+            rules = get_rule_profile(profile)
+        except ValueError:
+            rules = get_rule_profile("baseline")
+            known_profile = False
+    graphs: Dict[str, Any] = {}
+
+    def qdg_once() -> Any:
+        if "value" not in graphs:
+            program, _, failure = parse_once()
+            graphs["value"] = QDG(program, rules=rules) if failure is None else None
+        return graphs["value"]
+
+    selection = linters.normalize_selection(lint_rules)
+    context = None
+    # The static routes give the linters the circuit shown here (and its graph);
+    # the qiskit.qasm3 route has no source locations, so its linters read the
+    # file themselves.
+    if kind in ("python-static", "qasm-static") and parsed_bindings is not None \
+            and _IMPORT_ERROR is None:
+        context = linters.LintContext(source, filename, kind, profile, parse=parse_for_linters,
+                                      qdg=qdg_once)
+    diagnostics = linters.run(source, filename, kind, selection, profile, context=context)
+    # With QS000 deselected, a syntax error goes on to the parser, which
+    # reports it in its own words.
+    syntax = next((d for d in diagnostics if d.get("code") == "QS000"), None)
+    # The quick checks read a Python AST, so they have nothing to say about
     # OpenQASM. Rather than report a syntax error on a perfectly good .qasm
-    # file, say plainly that the checks did not run.
-    if kind in QASM_KINDS:
+    # file, say plainly that they did not run.
+    if kind in QASM_KINDS and any(rule.startswith("quick/") for rule in selection):
         diagnostics = [{
             "code": "QS100",
             "severity": "info",
@@ -317,15 +505,14 @@ def analyze_source(
             "hint": "OpenQASM is parsed rather than executed, so the checks that exist to catch "
                     "mistakes before execution have nothing to guard here. Errors in the QASM "
                     "itself are reported by the parser.",
-        }]
-    else:
-        diagnostics = lint.check_source(source)
+        }] + diagnostics
 
     result: Dict[str, Any] = {
         "ok": False,
         "filename": filename,
         "profile": profile,
         "language": kind,
+        "lint_rules": selection,
         "diagnostics": diagnostics,
         "stdout": "",
     }
@@ -339,8 +526,7 @@ def analyze_source(
         }
         return result
 
-    if any(d["severity"] == "error" and d["code"] == "QS000" for d in diagnostics):
-        syntax = next(d for d in diagnostics if d["code"] == "QS000")
+    if syntax is not None:
         result["error"] = {
             "kind": "syntax_error",
             "message": syntax["message"],
@@ -351,15 +537,28 @@ def analyze_source(
         _note_interpreter_mismatch(result["error"], source, kind)
         return result
 
-    try:
-        program, captured = _parse_source(source, filename, kind)
-    except _ParseFailure as failure:
+    if parsed_bindings is None:
+        result["error"] = {
+            "kind": "invalid_binding",
+            "message": "One of the values you picked is not a Python literal.",
+            "detail": binding_error,
+            "hint": "Use a number, a string in quotes, True/False/None, or a list or tuple of those.",
+            "line": 0,
+        }
+        return result
+
+    program, captured, failure = parse_once()
+    if failure is not None:
         result["error"] = failure.payload
         _note_interpreter_mismatch(result["error"], source, kind)
         result["stdout"] = failure.stdout
         return result
 
     result["stdout"] = captured
+    # The circuits a Python file builds, for the page to switch between.
+    result["circuits"] = getattr(program, "static_circuits", [])
+    result["circuit"] = getattr(program, "static_circuit_index", 0)
+    result["bindings"] = bindings or []
     notes = getattr(program, "static_notes", None)
     if notes:
         result["diagnostics"] = sorted(diagnostics + _static_diagnostics(notes),
@@ -374,17 +573,15 @@ def analyze_source(
         }
         return result
 
-    try:
-        rules = get_rule_profile(profile)
-    except ValueError:
-        rules = get_rule_profile("baseline")
+    if not known_profile:
         result["profile"] = "baseline"
 
-    qpdg = QPDG(program, rules=rules)
+    qdg = qdg_once()
 
-    # The front end is part of the key: the two Python routes must not share an entry.
-    token = sha256(f"{filename}\x00{profile}\x00{kind}\x00{source}".encode("utf-8")).hexdigest()[:32]
-    _cache_put(token, {"qpdg": qpdg, "program": program})
+    # The front end is part of the key: the two OpenQASM routes must not share an entry.
+    token = sha256(f"{filename}\x00{profile}\x00{kind}\x00{result['circuit']}\x00"
+                   f"{sorted(parsed_bindings.items())!r}\x00{source}".encode("utf-8")).hexdigest()[:32]
+    _cache_put(token, {"qdg": qdg, "program": program})
 
     result.update({
         "ok": True,
@@ -396,50 +593,105 @@ def analyze_source(
         },
         "route": _ROUTES[kind].format(timeout=PARSE_TIMEOUT),
         "nodes": _describe_nodes(program),
-        "edges": _describe_edges(qpdg),
-        "entanglement": _describe_entanglement(program),
+        "edges": _describe_edges(qdg),
         "rules": [rule.name for rule in rules],
     })
+    # Each gate's reference card once, rather than a copy on every node.
+    result["gates"] = _describe_gates(result["nodes"])
     result["stats"] = _describe_stats(result)
     # The Follow chips are built from this, so a rule set that never emits
     # phase edges never offers to follow them.
     result["dependency_types"] = _offered_dependencies(rules, result["edges"])
+    result["insights"] = _describe_insights(program)
+    attach_lint_nodes(result["diagnostics"], result["nodes"])
     return result
 
 
+def _describe_insights(program: Any) -> Dict[str, Any]:
+    """What the insight passes found (``qslicer.insights.summary.summarize``), with
+    string keys as JSON has them: each qubit's measurements, mirrored gates,
+    kickback, gates with no effect, predetermined and possibly correlated
+    measurements, and which if_test each guarded node sits in. One of these
+    failing must not cost the user the graph, so it degrades to nothing found."""
+    try:
+        from qslicer.insights.summary import summarize
+        found = summarize(program)
+    except Exception:       # noqa: BLE001 - labels are extras; the graph still stands
+        return {"measurements": {}, "mirrors": [], "kickback": {}, "no_effect": {},
+                "predetermined": {}, "correlations": {}, "guards": {}}
+    return {key: ({str(k): v for k, v in value.items()} if isinstance(value, dict) else value)
+            for key, value in found.items()}
+
+
+def attach_lint_nodes(diagnostics: List[Dict[str, Any]], nodes: List[Dict[str, Any]]) -> None:
+    """Give each diagnostic ``nodes``: the graph nodes it is about, for the graph to mark.
+
+    ``qslicer.viz.model.attach_lint_nodes`` applies the same rule for the desktop viewer.
+
+    A linter that reads the rebuilt circuit names its instructions, whose
+    indices are the node ids; those are kept when one of them really comes
+    from the diagnostic's line (the linters parse the source themselves, so
+    this guards against a different reading). Otherwise the diagnostic's
+    ``lines`` (or its ``line``) pick every node whose source span covers them,
+    as clicking a line number in the editor does. A diagnostic with no line
+    (an empty file, a skipped linter) gets no nodes.
+    """
+    def covers(node: Dict[str, Any], line: int) -> bool:
+        source = node.get("source") or {}
+        return bool(source) and source["line"] <= line <= source.get("end_line", source["line"])
+
+    # (id, first line, last line) of every node with a source span, made once,
+    # on first need: a large circuit has thousands of nodes to scan per finding.
+    spans: Optional[List[Tuple[int, int, int]]] = None
+
+    def covering(lines: List[int]) -> List[int]:
+        nonlocal spans
+        if not lines:
+            return []
+        if spans is None:
+            spans = [(node["id"], source["line"], source.get("end_line", source["line"]))
+                     for node in nodes for source in [node.get("source")] if source]
+        if len(lines) == 1:
+            line = lines[0]
+            return [idx for idx, first, last in spans if first <= line <= last]
+        return [idx for idx, first, last in spans
+                if any(first <= line <= last for line in lines)]
+
+    for diagnostic in diagnostics:
+        named = [n for n in diagnostic.get("nodes", []) if isinstance(n, int) and 0 <= n < len(nodes)]
+        if named and any(covers(nodes[n], diagnostic.get("line") or 0) for n in named):
+            diagnostic["nodes"] = named
+            continue
+        lines = diagnostic.get("lines") or ([diagnostic["line"]] if diagnostic.get("line") else [])
+        diagnostic["nodes"] = covering(lines)
+
+
 class _ParseFailure(Exception):
-    def __init__(self, payload: Dict[str, Any], stdout: str = "") -> None:
+    def __init__(self, payload: Dict[str, Any], stdout: str = "",
+                 cause: Optional[Exception] = None) -> None:
         super().__init__(payload.get("message", "parse failure"))
         self.payload = payload
         self.stdout = stdout
+        # The front end's own exception, which the quick checks read (QS014).
+        self.cause = cause
 
 
 # The front ends the Interpreter dropdown offers. ``id`` is what the API takes
 # as ``language``; ``suffix`` is what a pasted circuit is called when it has no
-# file of its own.
+# file of its own. Both read the file without running it. The executing Qiskit
+# route ("qiskit") and the qiskit.qasm3 route ("qasm") are no longer offered;
+# API callers can still name them.
 INTERPRETERS = [
     {
-        "id": "qiskit",
-        "label": "Qiskit (Python)",
-        "suffix": ".py",
-        "note": "Executed in a worker process to reach the circuit it builds.",
-    },
-    {
         "id": "qiskit-static",
-        "label": "Qiskit (Python, static)",
+        "label": "Qiskit (Python)",
         "suffix": ".py",
         "note": "Read without executing: the parser interprets the file itself to rebuild "
                 "the circuit.",
     },
     {
-        "id": "qasm",
-        "label": "OpenQASM 3",
-        "suffix": ".qasm",
-        "note": "Parsed as text. Nothing in the file is executed.",
-    },
-    {
         "id": "qasm-static",
-        "label": "OpenQASM 2/3 (static)",
+        "label": "OpenQASM 2/3",
         "suffix": ".qasm",
         "note": "Parsed and interpreted without Qiskit; every instruction keeps its source line.",
     },
@@ -449,11 +701,15 @@ INTERPRETERS = [
 QASM_KINDS = ("qasm", "qasm-static")
 
 _ALIASES = {
-    "qiskit": "python", "python": "python", "py": "python",
     "qiskit-static": "python-static", "static": "python-static",
     "qasm": "qasm", "openqasm": "qasm", "qasm3": "qasm",
     "qasm-static": "qasm-static", "openqasm-static": "qasm-static",
 }
+
+
+# Names of the removed route that executed submitted Python. Refused outright,
+# never mapped to another route.
+_EXECUTING = frozenset({"qiskit", "python", "py"})
 
 
 def unsupported_language(language: Any) -> Optional[Dict[str, Any]]:
@@ -464,6 +720,16 @@ def unsupported_language(language: Any) -> Optional[Dict[str, Any]]:
     """
     if language is None or language == "":
         return None
+    if isinstance(language, str) and language.strip().lower() in _EXECUTING:
+        return {
+            "kind": "execution_disabled",
+            "stage": "validation",
+            "message": "Executing submitted Python is disabled on this server.",
+            "detail": f"The {language.strip()!r} interpreter ran the file to reach its "
+                      "circuit, so it could run any code the file contains.",
+            "hint": "Use language \"qiskit-static\", which reads the file without running it.",
+            "line": 0,
+        }
     if isinstance(language, str) and language.strip().lower() in _ALIASES:
         return None
     supported = ", ".join(option["id"] for option in INTERPRETERS)
@@ -486,19 +752,20 @@ def interpreters() -> List[Dict[str, Any]]:
 
 
 def source_kind(filename: str = "", language: Optional[str] = None) -> str:
-    """Which front end a submission goes to: ``"qasm"``, ``"qasm-static"``, ``"python"``
-    or ``"python-static"``.
+    """Which front end a submission goes to: ``"qasm"``, ``"qasm-static"`` or
+    ``"python-static"``.
 
     ``language`` is the caller's explicit choice and wins outright -- the page
     always sends one, taken from the Interpreter dropdown. The extension is
-    only a fallback for API callers that leave it out; nothing here reads the
-    file contents to guess.
+    only a fallback for API callers that leave it out, and picks a static route;
+    nothing here reads the file contents to guess.
     """
     if language:
         resolved = _ALIASES.get(str(language).strip().lower())
         if resolved:
             return resolved
-    return "qasm" if os.path.splitext(filename)[1].lower() in QASM_SUFFIXES else "python"
+    return ("qasm-static" if os.path.splitext(filename)[1].lower() in QASM_SUFFIXES
+            else "python-static")
 
 
 def default_filename(kind: str) -> str:
@@ -506,22 +773,50 @@ def default_filename(kind: str) -> str:
     return "pasted_circuit.qasm" if kind in QASM_KINDS else "pasted_circuit.py"
 
 
-def _parse_source(source: str, filename: str, kind: str) -> Tuple[Any, str]:
+def parse_bindings(bindings: Any) -> Dict[Tuple[int, str], Any]:
+    """``[{"name", "line", "value"}, ...]`` as the parser takes them: ``{(line, name): value}``.
+
+    ``value`` is text the user typed, read as a Python literal (never run).
+    Raises ValueError, naming the entry, for anything else.
+    """
+    out: Dict[Tuple[int, str], Any] = {}
+    for entry in bindings or []:
+        if not isinstance(entry, dict):
+            raise ValueError("each binding must be an object with name, line and value")
+        name, line, text = entry.get("name"), entry.get("line"), entry.get("value")
+        if not isinstance(name, str) or not name.isidentifier():
+            raise ValueError(f"{name!r} is not a variable name")
+        if isinstance(line, bool) or not isinstance(line, int) or line < 1:
+            raise ValueError(f"the line of {name} must be a positive integer")
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError(f"no value given for {name}")
+        if len(text) > 10_000:
+            raise ValueError(f"the value of {name} is too long")
+        try:
+            out[(line, name)] = ast.literal_eval(text.strip())
+        except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+            raise ValueError(f"{name} = {text.strip()} is not a Python literal") from None
+    return out
+
+
+def _parse_source(source: str, filename: str, kind: str,
+                  bindings: Optional[Dict[Tuple[int, str], Any]] = None,
+                  circuit: int = 0) -> Tuple[Any, str]:
     """Turn submitted text into a QuantumProgram, by the route the caller chose."""
     if kind == "qasm":
         return _parse_qasm_source(source, filename)
     if kind == "qasm-static":
         return _parse_qasm_static_source(source)
     if kind == "python-static":
-        return _parse_static_source(source, filename)
-    return _parse_python_source(source, filename)
+        return _parse_static_source(source, filename, bindings or {}, circuit)
+    # There is deliberately no route that executes the submission.
+    raise ValueError(f"no front end for {kind!r}")
 
 
 # How each front end reached the circuit, as shown on the page.
 _ROUTES = {
     "qasm": "OpenQASM, parsed without executing",
     "qasm-static": "OpenQASM, interpreted statically with source locations",
-    "python": "Python, executed in a worker process (timeout {timeout}s)",
     "python-static": "Python, interpreted statically without executing",
 }
 
@@ -568,39 +863,86 @@ def _parse_qasm_source(source: str, filename: str) -> Tuple[Any, str]:
 # Python, static: interpreted, never executed
 # --------------------------------------------------------------------------
 
-def _parse_static_source(source: str, filename: str) -> Tuple[Any, str]:
+# Parsed Python files, so switching between the circuits of one file does not
+# interpret it again. Keyed by the source, its filename and the user's values.
+_PARSES: "OrderedDict[str, Any]" = OrderedDict()
+_PARSE_LIMIT = 6
+
+
+def _parse_static_source(source: str, filename: str,
+                         bindings: Optional[Dict[Tuple[int, str], Any]] = None,
+                         circuit: int = 0) -> Tuple[Any, str]:
     """Rebuild the circuit with StaticQiskitParser, which never runs the file.
 
-    Nothing is executed, so there is no worker process and no timeout; the
-    parser bounds its own work. What it had to skip or approximate is attached
+    Nothing is executed, so there is no worker process; the parser bounds its
+    own work, in steps and in PARSE_TIMEOUT seconds. What it had to skip or approximate is attached
     to the program as ``static_notes``, which analyze_source reports as
-    warning diagnostics.
+    warning diagnostics. The circuits the file builds go on ``static_circuits``
+    and the one this program is, on ``static_circuit_index``.
     """
-    parser = StaticQiskitParser(filename=os.path.basename(filename) or "pasted_circuit.py")
-    parser.source = source
-    try:
-        program = parser.parse()
-    except StaticParseError as exc:
-        raise _ParseFailure({
-            "kind": "static_error",
-            "message": "The static parser could not work out the circuit.",
-            "detail": exc.message,
-            "hint": "This route reads the file without running it, so it stops at anything "
-                    "only a real run could decide. Switch Interpreter to Qiskit (Python) to "
-                    "execute the file instead.",
-            "line": exc.lineno or 0,
-        })
-    except ValueError as exc:
-        no_circuit = "No QuantumCircuit" in str(exc)
-        raise _ParseFailure({
-            "kind": "no_circuit" if no_circuit else "static_error",
-            "message": ("No QuantumCircuit was left in the file's module namespace."
-                        if no_circuit else "The static parser could not work out the circuit."),
-            "detail": str(exc),
-            "hint": _HINTS["no_circuit"] if no_circuit else "",
-        })
+    bindings = bindings or {}
+    name = os.path.basename(filename) or "pasted_circuit.py"
+    key = sha256(f"{name}\x00{sorted(bindings.items())!r}\x00{source}".encode("utf-8")).hexdigest()
+    parser = _PARSES.get(key)
+    if parser is not None:
+        _PARSES.move_to_end(key)
+        program = parser.select(circuit)
+    else:
+        parser = StaticQiskitParser(filename=name, time_limit=PARSE_TIMEOUT, bindings=bindings,
+                                    circuit_index=circuit)
+        parser.source = source
+        try:
+            program = parser.parse()
+        except StaticParseError as exc:
+            raise _ParseFailure(_static_error_payload(exc), cause=exc)
+        except ValueError as exc:
+            no_circuit = "No QuantumCircuit" in str(exc)
+            hint = _HINTS["no_circuit"] if no_circuit else ""
+            if no_circuit and bindings:
+                hint = ("With the values you picked, the program never gets as far as building "
+                        "a circuit (it may take a classical shortcut). Try a different value.")
+            raise _ParseFailure({
+                "kind": "no_circuit" if no_circuit else "static_error",
+                "message": ("The program never builds a QuantumCircuit."
+                            if no_circuit else "The static parser could not work out the circuit."),
+                "detail": str(exc),
+                "hint": hint,
+            }, cause=exc)
+        _PARSES[key] = parser
+        while len(_PARSES) > _PARSE_LIMIT:
+            _PARSES.popitem(last=False)
     program.static_notes = list(parser.notes)
+    program.static_circuits = [dict(info) for info in parser.circuits]
+    # Read from the request, not the shared parser, which another request may re-select.
+    program.static_circuit_index = circuit if 0 <= circuit < len(parser.circuits) else 0
     return program, ""
+
+
+def _static_error_payload(exc: Any) -> Dict[str, Any]:
+    """The error for a StaticParseError; a ``needs_value`` one when the user can supply it."""
+    needs = getattr(exc, "needs", None)
+    if needs:
+        what = ("the command-line argument" if needs["kind"] == "argument" else "the variable")
+        return {
+            "kind": "needs_value",
+            "message": f"Pick a value for {what} `{needs['name']}` (line {needs['line']}).",
+            # The error points at the line to change; where the parse stopped is detail.
+            "detail": (f"line {exc.lineno}: {exc.message}" if exc.lineno else exc.message),
+            "hint": f"`{needs['expression']}` only has a value when the program runs, and the "
+                    "circuit depends on it. Whatever you pick is used where it is assigned, "
+                    "as if a run had produced it.",
+            "line": needs["line"],
+            "needs": dict(needs),
+        }
+    return {
+        "kind": "static_error",
+        "message": "The static parser could not work out the circuit.",
+        "detail": exc.message,
+        "hint": "The file is read without running it, so the parser stops at anything "
+                "only a real run could decide. Make that value a literal, or build the "
+                "circuit without it.",
+        "line": exc.lineno or 0,
+    }
 
 
 def _static_diagnostics(notes: List[Tuple[Any, str]]) -> List[Dict[str, Any]]:
@@ -617,7 +959,7 @@ def _static_diagnostics(notes: List[Tuple[Any, str]]) -> List[Dict[str, Any]]:
 
 def _parse_qasm_static_source(source: str) -> Tuple[Any, str]:
     """Interpret OpenQASM 2/3 with StaticOpenQASMParser, which keeps source locations."""
-    parser = StaticOpenQASMParser()
+    parser = StaticOpenQASMParser(time_limit=PARSE_TIMEOUT)
     parser.source = source
     try:
         program = parser.parse()
@@ -641,214 +983,88 @@ def _parse_qasm_static_source(source: str) -> Tuple[Any, str]:
     return program, ""
 
 
-# --------------------------------------------------------------------------
-# Python: executed in a child process, under a timeout
-# --------------------------------------------------------------------------
-
-def _parse_python_source(source: str, filename: str) -> Tuple[Any, str]:
-    """Run the submitted file in a worker process and read back its circuit.
-
-    The Qiskit front end has to execute the file to reach the QuantumCircuit it
-    builds. Doing that in a child process means the damage a bad file can do is
-    bounded in time: the parent kills it at PARSE_TIMEOUT seconds instead of
-    hanging the request forever. The circuit comes back as QPY rather than
-    crossing process boundaries as a live object.
-
-    This bounds accidents, not attacks. See webapp/README.md.
-    """
-    safe_name = os.path.basename(filename) or "pasted_circuit.py"
-    if not safe_name.endswith(".py"):
-        safe_name += ".py"
-
-    workdir = tempfile.mkdtemp(prefix="qslice_")
-    path = os.path.join(workdir, safe_name)
-    try:
-        with open(path, "w", encoding="utf-8", newline="") as handle:
-            handle.write(source)
-
-        worker = os.path.join(os.path.dirname(os.path.abspath(__file__)), "parse_worker.py")
-        try:
-            completed = subprocess.run(
-                [sys.executable, worker, path, workdir],
-                # cwd is the scratch directory, so a stray open() in the
-                # submitted file cannot scribble over the repository.
-                cwd=workdir,
-                capture_output=True,
-                text=True,
-                timeout=PARSE_TIMEOUT,
-            )
-        except subprocess.TimeoutExpired:
-            raise _ParseFailure({
-                "kind": "timeout",
-                "message": f"The circuit file was still running after {PARSE_TIMEOUT} seconds.",
-                "detail": "The worker process was killed.",
-                "hint": "The parser has to execute your file, so an endless loop or a very long "
-                        "simulation never finishes. Trim the run, or set QSLICER_PARSE_TIMEOUT "
-                        "to allow longer.",
-            })
-        except OSError as exc:
-            raise _ParseFailure({
-                "kind": "worker_failed",
-                "message": "The parser process could not be started.",
-                "detail": f"{type(exc).__name__}: {exc}",
-                "hint": f"Check that {sys.executable} can run webapp/parse_worker.py.",
-            })
-
-        payload = _read_worker_result(workdir, completed)
-        captured = payload.get("stdout", "") or ""
-
-        if not payload.get("ok"):
-            error = payload.get("error") or {}
-            raise _ParseFailure({
-                "kind": error.get("kind", "execution_error"),
-                "message": error.get("message", "The circuit file could not be parsed."),
-                "detail": error.get("detail", ""),
-                "hint": _HINTS.get(error.get("kind", ""), _HINTS["execution_error"]),
-                "traceback": error.get("traceback"),
-            }, captured)
-
-        circuit = _load_qpy(os.path.join(workdir, "circuit.qpy"))
-        # QiskitParser parses in its constructor; calling parse() again would
-        # append every instruction a second time.
-        program = QiskitParser(circuit).program
-        return program, captured
-    finally:
-        # The submitted file may have left a __pycache__ or written its own
-        # output next to itself, so remove the whole scratch directory.
-        shutil.rmtree(workdir, ignore_errors=True)
-
-
 _HINTS = {
-    "execution_error": "The parser has to run your file to get the circuit object, so any "
-                       "exception on the way there stops the analysis.",
-    "no_circuit": "Assign the circuit to a module-level variable. A circuit built inside a "
-                  "function and never returned into a global is invisible to the parser.",
+    "no_circuit": "Build the circuit at module level, or call the function that builds it "
+                  "(from main() or an `if __name__ == \"__main__\":` block, which the parser "
+                  "follows).",
     "backend_unavailable": "Install the project requirements: pip install -r requirements.txt",
-    "worker_crashed": "The worker process died without reporting why, which usually means the "
-                      "submitted file exhausted memory or called sys.exit.",
 }
 
 
-def _read_worker_result(workdir: str, completed: Any) -> Dict[str, Any]:
-    """Read result.json, or synthesize a failure if the worker never wrote it."""
-    result_path = os.path.join(workdir, "result.json")
-    try:
-        with open(result_path, "r", encoding="utf-8") as handle:
-            return json.load(handle)
-    except (OSError, ValueError):
-        tail = (completed.stderr or completed.stdout or "").strip().splitlines()[-12:]
-        return {
-            "ok": False,
-            "stdout": "",
-            "error": {
-                "kind": "worker_crashed",
-                "message": f"The parser process exited with code {completed.returncode}.",
-                "detail": "It did not report a reason.",
-                "traceback": tail or None,
-            },
-        }
-
-
-def _load_qpy(path: str) -> Any:
-    """Read the circuit the worker serialized."""
-    import qiskit.qpy
-
-    with open(path, "rb") as handle:
-        circuits = qiskit.qpy.load(handle)
-    if not circuits:
-        raise _ParseFailure({
-            "kind": "worker_crashed",
-            "message": "The worker returned an empty circuit file.",
-            "detail": "",
-            "hint": "This is a bug in the analysis pipeline rather than in your circuit.",
-        })
-    return circuits[0]
-
-
 def _describe_nodes(program: Any) -> List[Dict[str, Any]]:
+    """One JSON-safe dict per instruction. The gate's reference card is not on
+    the node: ``_describe_gates`` gives each name's once, as ``gates``."""
     nodes = []
+    categories: Dict[str, str] = {}
     for idx in range(len(program)):
         instruction = program[idx]
+        name = instruction.name
         qubits = list(instruction.qubits)
         clbits = list(instruction.clbits)
-        info = gates.describe(instruction.name)
+        category = categories.get(name)
+        if category is None:
+            category = categories[name] = gates.describe(name)["category"]
+        params = [_format_param(p) for p in instruction.params]
         nodes.append({
             "id": idx,
-            "name": instruction.name,
-            "label": _node_label(instruction.name, qubits, instruction.params),
-            "short": _short_label(instruction.name, qubits),
+            "name": name,
+            "label": _label_from(name, qubits, params),
+            "short": _short_label(name, qubits),
             "qubits": qubits,
             "clbits": clbits,
-            "params": [_format_param(p) for p in instruction.params],
+            "params": params,
             "condition_clbits": list(instruction.metadata.get("condition_clbits", []) or []),
             "lane": (sum(qubits) / len(qubits)) if qubits else 0.0,
-            "gate": info,
-            "category": info["category"],
-            "is_measurement": info["category"] == gates.MEASURE,
+            "category": category,
+            "is_measurement": category == gates.MEASURE,
             **_describe_location(getattr(instruction, "location", None)),
         })
     return nodes
 
 
+def _describe_gates(nodes: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """``{name: gates.describe(name)}`` for every gate name the nodes use."""
+    described: Dict[str, Dict[str, Any]] = {}
+    for node in nodes:
+        if node["name"] not in described:
+            described[node["name"]] = gates.describe(node["name"])
+    return described
+
+
 def _describe_location(location: Any) -> Dict[str, Any]:
     """Where a node came from in the source (FR-07): ``line`` plus the full span.
 
-    Both are None when the front end could not tell, as for the executing
-    Python route and the qiskit.qasm3 one.
+    Both are None when the front end could not tell, as for the qiskit.qasm3
+    route.
     """
     if location is None:
         return {"line": None, "source": None}
     return {"line": location.line, "source": location.to_dict()}
 
 
-def _describe_edges(qpdg: Any) -> List[Dict[str, Any]]:
+def _describe_edges(qdg: Any) -> List[Dict[str, Any]]:
+    # In the order graph.edges(keys=True) gives, read straight from the
+    # adjacency (networkx's _adj, when there is one) and with each dependency's
+    # name worked out once: a third less time for Shor's 24,000 edges.
+    names: Dict[Any, str] = {}
+    adjacency = getattr(qdg.graph, "_adj", None) or qdg.graph.adj
     edges = []
-    for source, target, key, data in qpdg.graph.edges(keys=True, data=True):
-        edges.append({
-            "source": source,
-            "target": target,
-            "key": key,
-            "dependency": _dependency_name(data.get("dependency")),
-            "rule": data.get("rule", ""),
-        })
+    for source, targets in adjacency.items():
+        for target, keyed in targets.items():
+            for key, data in keyed.items():
+                dependency = data.get("dependency")
+                try:
+                    name = names[dependency]
+                except KeyError:
+                    name = names[dependency] = _dependency_name(dependency)
+                edges.append({
+                    "source": source,
+                    "target": target,
+                    "key": key,
+                    "dependency": name,
+                    "rule": data.get("rule", ""),
+                })
     return edges
-
-
-def _describe_entanglement(program: Any) -> Dict[str, Any]:
-    """Run the entanglement analyzer and flatten its groups for the side panel."""
-    analyzer = EntanglementAnalyzer(program)
-    analyzer.analyze()
-
-    # Group members are QuantumInstruction objects; map them back to indices via
-    # object identity, which holds because the analyzer stores the very objects
-    # the program owns. Synthetic "init" instructions have no index.
-    index_of = {id(program[i]): i for i in range(len(program))}
-
-    def indices(instructions):
-        return [index_of[id(i)] for i in instructions if id(i) in index_of]
-
-    groups = []
-    for gid, group in enumerate(analyzer.get_groups()):
-        groups.append({
-            "id": gid,
-            "kind": group.kind,
-            "depth": group.depth,
-            "qubits": sorted(group.qubits),
-            "parents": sorted(group.parent_groups),
-            "active": bool(group.active),
-            "measured": bool(group.measurement_applied),
-            "origin": _node_label(
-                group.origin.name, list(group.origin.qubits), group.origin.params
-            ),
-            "computed": indices(group.computed_instructions),
-            "uncomputed": indices(group.uncomputed_instructions),
-            "measurements": indices(group.measurement_instructions),
-        })
-    return {
-        "groups": groups,
-        "num_groups": len(groups),
-        "entangled_groups": sum(1 for g in groups if g["kind"] == "entangled"),
-    }
 
 
 def _describe_stats(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -861,7 +1077,8 @@ def _describe_stats(result: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "edges_by_dependency": counts,
         "gate_counts": dict(sorted(gate_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
-        "entangling_gates": sum(1 for n in result["nodes"] if n["gate"]["entangling"]),
+        "entangling_gates": sum(1 for n in result["nodes"]
+                                if result["gates"][n["name"]]["entangling"]),
         "measurements": sum(1 for n in result["nodes"] if n["is_measurement"]),
     }
 
@@ -877,22 +1094,53 @@ def _slice_error(kind: str, message: str, hint: str = "", **extra: Any) -> Dict[
     return result
 
 
+MAX_SLICE_NODES = 16
+CHOP_EMPTY_REASON = "This operation cannot affect that measurement."
+
+
+def _is_int(value: Any) -> bool:
+    # bool is a subclass of int, so JSON true/false would otherwise pass.
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def slice_program(
     token: str,
-    node_idx: int,
+    node_idx: Optional[int] = None,
     direction: str = "backward",
     dep_types: Optional[List[str]] = None,
+    target_idx: Optional[int] = None,
+    node_indices: Optional[List[int]] = None,
 ) -> Dict[str, Any]:
-    """Run the real slicer over a cached QPDG.
+    """Run the real slicer over a cached QDG.
 
     ``dep_types`` is a list of DependencyType names; None or empty means follow
     every dependency, matching SlicingCriterion's default.
+
+    ``direction`` is "backward", "forward" or "chop". A chop runs from
+    ``node_idx`` (the operation) to ``target_idx`` (e.g. a measurement): the
+    nodes on some dependence path between them. ``node_indices`` (backward
+    only, 1 to MAX_SLICE_NODES of them) slices from several nodes at once and
+    takes precedence over ``node_idx``.
     """
     if _IMPORT_ERROR is not None:
         return _slice_error("backend_unavailable", "The analysis backend is unavailable.")
 
-    if isinstance(node_idx, bool) or not isinstance(node_idx, int):
+    if node_indices is not None:
+        if (not isinstance(node_indices, list) or not node_indices
+                or len(node_indices) > MAX_SLICE_NODES
+                or not all(_is_int(i) for i in node_indices)):
+            return _slice_error(
+                "invalid_request",
+                f"node_indices must be a list of 1 to {MAX_SLICE_NODES} integers.")
+        if direction != "backward":
+            return _slice_error("invalid_request",
+                                "node_indices can only be used with a backward slice.")
+        node_indices = list(dict.fromkeys(node_indices))
+        node_idx = node_indices[0]
+    if not _is_int(node_idx):
         return _slice_error("invalid_request", "node_idx must be an integer.")
+    if direction == "chop" and not _is_int(target_idx):
+        return _slice_error("invalid_request", "A chop needs an integer target_idx.")
     if dep_types is not None and (
         not isinstance(dep_types, list) or not all(isinstance(n, str) for n in dep_types)
     ):
@@ -907,10 +1155,11 @@ def slice_program(
             stale=True,
         )
 
-    qpdg = entry["qpdg"]
+    qdg = entry["qdg"]
     program = entry["program"]
-    if not 0 <= node_idx < len(program):
-        return _slice_error("out_of_range", f"Instruction {node_idx} is outside this program.")
+    for idx in (node_indices or [node_idx]) + ([target_idx] if direction == "chop" else []):
+        if not 0 <= idx < len(program):
+            return _slice_error("out_of_range", f"Instruction {idx} is outside this program.")
 
     selected = None
     if dep_types:
@@ -919,13 +1168,28 @@ def slice_program(
         if not selected:
             selected = None
 
-    criterion = SlicingCriterion(node_idx=node_idx, dep_types=selected)
-    if direction == "forward":
-        indices = QuantumSlicer.forward_slice(qpdg, criterion)
+    extra: Dict[str, Any] = {}
+    if node_indices is not None:
+        slices = QuantumSlicer.backward_slices(qdg, node_indices, selected)
+        indices = set().union(*slices.values())
+        extra = {
+            "node_indices": node_indices,
+            "slices": [{"node_idx": i, "slice": sorted(slices[i]), "size": len(slices[i])}
+                       for i in node_indices],
+        }
+    elif direction == "chop":
+        indices = QuantumSlicer.chop(qdg, node_idx, target_idx, selected)
+        extra = {"target_idx": target_idx}
+        if not indices:
+            extra["empty_reason"] = CHOP_EMPTY_REASON
     else:
-        indices = QuantumSlicer.backward_slice(qpdg, criterion)
+        criterion = SlicingCriterion(node_idx=node_idx, dep_types=selected)
+        if direction == "forward":
+            indices = QuantumSlicer.forward_slice(qdg, criterion)
+        else:
+            indices = QuantumSlicer.backward_slice(qdg, criterion)
 
-    return {
+    result = {
         "ok": True,
         "direction": direction,
         "node_idx": node_idx,
@@ -934,3 +1198,5 @@ def slice_program(
         "size": len(indices),
         "total": len(program),
     }
+    result.update(extra)
+    return result
