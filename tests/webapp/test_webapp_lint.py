@@ -158,6 +158,36 @@ def test_qs002_negative():
     assert "QS002" not in codes(findings)
 
 
+@pytest.mark.parametrize("added", [
+    "qc.add_bits([Qubit(), Clbit()])",
+    "qc.add_register(QuantumRegister(1))",
+])
+def test_qs002_negative_once_qubits_are_added(added):
+    # QuantumCircuit(1) is not the whole story once add_bits/add_register runs.
+    findings = lint.check_source(textwrap.dedent(f"""
+        from qiskit.circuit import QuantumCircuit, QuantumRegister, Qubit, Clbit
+        qc = QuantumCircuit(1, 1)
+        {added}
+        qc.cx(0, 1)
+        qc.measure(1, 1)
+        """))
+    assert "QS002" not in codes(findings) and "QS004" not in codes(findings)
+
+
+def test_standalone_bits_have_no_findings():
+    findings = lint.check_source(textwrap.dedent("""
+        from qiskit.circuit import QuantumCircuit, Qubit, Clbit, AncillaQubit
+        bits = [Qubit(), Qubit(), Qubit(), Clbit(), Clbit()]
+        qc = QuantumCircuit(bits)
+        qc.add_bits([AncillaQubit()])
+        qc.h(0)
+        qc.cx(0, 1)
+        qc.measure(0, 0)
+        qc.measure(bits[2], bits[4])
+        """))
+    assert findings == []
+
+
 # QS003 repeated qubit in a multi-qubit gate ---------------------------------
 
 def test_qs003_positive():
@@ -322,6 +352,7 @@ def test_qs011_leaves_c_if_and_execute_to_their_own_codes():
      "Did you mean Pauli?"),
     ("from qiskit import execute", "qiskit has no name execute", "backend's run()"),
     ("from qiskit import pulse", "qiskit has no name pulse", "no replacement"),
+    ("from qiskit import Qubit", "qiskit has no name Qubit", ""),     # only qiskit.circuit has it
     ("from qiskit.made_up import thing", "There is no module qiskit.made_up", ""),
     ("import qiskit.not_a_module", "There is no module qiskit.not_a_module", ""),
 ])
@@ -336,6 +367,7 @@ def test_qs012_positive(line, message, hint):
 @pytest.mark.parametrize("line", [
     "from qiskit import QuantumCircuit, transpile, QuantumRegister, qasm2",
     "from qiskit.circuit.library import CXGate, QFT, MCXGate",
+    "from qiskit.circuit import Qubit, Clbit, AncillaQubit",
     "from qiskit.quantum_info import Statevector, Operator, Pauli",
     "from qiskit_aer import AerSimulator, Aer",
     "import qiskit.qasm3",
@@ -616,3 +648,57 @@ def test_qs016_positive(body, line):
 ])
 def test_qs016_negative(body):
     assert "QS016" not in codes(check(AER_IMPORT + body))
+
+
+# QS017 circuit changed after it was run ------------------------------------------
+
+RUN = AER_IMPORT + "backend = AerSimulator()\nqc = QuantumCircuit(2, 2)\nqc.h(0)\n"
+
+
+@pytest.mark.parametrize("after, line, lines", [
+    # Bugs4Q stackoverflow-1: the last measurement comes after execute().
+    ("job = execute(qc, backend).result()\nqc.measure(1, 1)\nprint(job.get_counts())\nqc.draw()\n",
+     7, [6, 7]),
+    ("job = backend.run(qc)\nqc.cx(0, 1)\nqc.measure_all()\n", 7, [6, 7, 8]),
+    # what transpile() made of it is what runs
+    ("tqc = transpile(qc, backend)\njob = backend.run(tqc)\nqc.measure_all()\n", 8, [7, 8]),
+    ("job = backend.run(qc)\nqc.compose(QuantumCircuit(2), inplace=True)\n", 7, [6, 7]),
+])
+def test_qs017_positive(after, line, lines):
+    qs = only(check(RUN + after), "QS017")
+    assert len(qs) == 1 and qs[0]["line"] == line and qs[0]["lines"] == lines
+    assert qs[0]["severity"] == "warning" and "not run again" in qs[0]["message"]
+
+
+@pytest.mark.parametrize("after", [
+    # measured before running
+    "qc.measure_all()\njob = backend.run(qc)\n",
+    # run again after the change
+    "job = backend.run(qc)\nqc.measure_all()\njob = backend.run(qc)\n",
+    # drawing, printing or a barrier changes nothing
+    "job = backend.run(qc)\nqc.draw()\nprint(qc)\nqc.barrier()\n",
+    # run in a loop: each iteration may run the last one's change
+    "for _ in range(2):\n    job = backend.run(qc)\n    qc.x(0)\n",
+    "for _ in range(2):\n    job = backend.run(qc)\nqc.x(0)\n",
+    # rebound after the run: a new circuit
+    "job = backend.run(qc)\nqc = QuantumCircuit(2)\nqc.x(0)\n",
+    # used afterwards in another way
+    "job = backend.run(qc)\nqc.x(0)\nstate = Statevector(qc)\n",
+    # compose without inplace returns a new circuit (QS006's)
+    "job = backend.run(qc)\nqc.compose(QuantumCircuit(2))\n",
+    # the change is in another block than the run
+    "job = backend.run(qc)\nif job:\n    qc.x(0)\n",
+    # an estimator's or pass manager's run
+    "job = estimator.run([(qc, obs)])\nqc.x(0)\n",
+    "isa = pm.run(qc)\nqc.x(0)\n",
+])
+def test_qs017_negative(after):
+    assert "QS017" not in codes(check(RUN + after))
+
+
+def test_qs017_in_a_function_that_returns_the_circuit_is_quiet():
+    body = ("def build():\n    qc = QuantumCircuit(1, 1)\n    job = AerSimulator().run(qc)\n"
+            "    qc.measure(0, 0)\n    return qc\n")
+    assert "QS017" not in codes(check(AER_IMPORT + body))
+    body = body.replace("    return qc\n", "    return job\n")
+    assert [f["line"] for f in only(check(AER_IMPORT + body), "QS017")] == [6]

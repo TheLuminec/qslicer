@@ -347,8 +347,9 @@ register(Linter(
     id="quick",
     label="Quick checks",
     description="Errors Python or Qiskit would raise: syntax, a missing circuit, indices outside "
-                "the registers, removed or unknown Qiskit APIs, and operations Qiskit rejects "
-                "while the static parser rebuilds the circuit.",
+                "the registers, removed or unknown Qiskit APIs, operations Qiskit rejects "
+                "while the static parser rebuilds the circuit, and a circuit changed after it "
+                "was run.",
     rules=[Rule(code, *info) for code, info in quick_checks.RULES.items()],
     # QS014 comes from the static parse, which the context shares with the dependence checks.
     run=lambda context: quick_checks.check_source(context.source) + quick_checks.rejected_operation(context.failure()),

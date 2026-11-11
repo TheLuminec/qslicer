@@ -5,7 +5,9 @@ error, a QuantumCircuit that is never built, an index outside a literal
 register, removed or unknown Qiskit APIs (QS012 and QS013 look names and
 arguments up in the installed Qiskit, importing its modules, never the file).
 QS014 adds the errors Qiskit itself raises while the static parser rebuilds the
-circuit, which also covers indices computed in loops and helpers.
+circuit, which also covers indices computed in loops and helpers. A few warn
+about code that runs but gives the wrong result: QS016 counts from a circuit
+nothing measures, QS017 a circuit changed after it was run.
 
 Mistakes about what the circuit does (no measurement, idle qubits, overwritten
 measurements, cancelling pairs, dead gates) need the rebuilt circuit and are
@@ -36,7 +38,7 @@ _PARAM_GATES = {
 }
 
 # Every code check_source can report: (title, severity, description). The
-# linter registry (linters.py) offers these as individually selectable rules.
+# linter registry (registry.py) offers these as individually selectable rules.
 RULES = {
     "QS000": ("Python syntax error", "error", "The file does not parse as Python."),
     "QS001": ("No circuit", "error",
@@ -88,6 +90,10 @@ RULES = {
     "QS016": ("Counts from a circuit that never measures", "warning",
               "A function runs a circuit (its own, or one it is given) and reads get_counts(), "
               "but nothing measures that circuit: Aer raises 'No counts for experiment'."),
+    "QS017": ("Circuit changed after it was run", "warning",
+              "A gate, measurement, append or compose on a circuit after the last time it was "
+              "run (execute, .run, assemble, or transpile and then run), and it is not run "
+              "again: the results come from the circuit without that change."),
 }
 # Quantum-side checks that read the rebuilt circuit (no measurement, idle qubits,
 # measurements overwritten, cancelling pairs) are dependence checks, QD01-QD08,
@@ -291,6 +297,7 @@ def check_source(source: str) -> List[Dict[str, Any]]:
     findings += _check_unsaved_results(tree)
     findings += _check_assumed_clbits(tree)
     findings += _check_unmeasured_counts(tree)
+    findings += _check_changed_after_run(tree, collector)
 
     findings.sort(key=lambda f: (f["line"], f["column"], f["code"]))
     return findings
@@ -338,7 +345,7 @@ def _check_indices(collector: _CircuitCollector) -> List[Dict[str, Any]]:
 
         # Qiskit indexes qubits like a Python list: -1 is the last qubit, and
         # anything below -num_qubits is out of range.
-        num_qubits = circuit["num_qubits"]
+        num_qubits = _known_qubits(collector, call["owner"])
         seen_in_call: List[int] = []
         scalar_args = True
         for arg in qargs:
@@ -389,6 +396,15 @@ def _check_indices(collector: _CircuitCollector) -> List[Dict[str, Any]]:
                         "measure_all(), which adds its own.",
                     ))
     return findings
+
+
+def _known_qubits(collector: _CircuitCollector, name: str) -> Optional[int]:
+    """A circuit's literal number of qubits, unless add_register/add_bits may add more."""
+    circuit = collector.circuits.get(name)
+    if circuit is None or any(call["owner"] == name and call["method"] in
+                              ("add_register", "add_bits") for call in collector.calls):
+        return None
+    return circuit["num_qubits"]
 
 
 def _known_clbits(collector: _CircuitCollector, name: str) -> Optional[int]:
@@ -455,6 +471,73 @@ def circuit_line(source: str) -> Optional[int]:
     collector.visit(tree)
     lines = [c["node"].lineno for c in collector.circuits.values()]
     return min(lines) if lines else None
+
+
+# Result methods that read what sampling a circuit gave (QD06 reports there).
+_SAMPLE_READS = frozenset({"get_counts", "get_memory"})
+
+
+def _flat_names(arguments: List[ast.AST]) -> List[ast.Name]:
+    """The names among a call's arguments, those inside lists and tuples included
+    (sampler.run([qc]), sampler.run([(qc, values)]))."""
+    found: List[ast.Name] = []
+    while arguments:
+        arg = arguments.pop()
+        if isinstance(arg, ast.Starred):
+            arg = arg.value
+        if isinstance(arg, (ast.List, ast.Tuple)):
+            arguments.extend(arg.elts)
+        elif isinstance(arg, ast.Name):
+            found.append(arg)
+    return found
+
+
+def sampled_read_line(source: str) -> Optional[int]:
+    """Where QD06 reports a circuit that never measures but is sampled: the first
+    get_counts() or get_memory() after the first sampling call (execute, .run, a
+    Sampler) that is given it, else that call; None when nothing samples one.
+
+    A circuit the file measures (measure, measure_all, measure_active on it) is
+    not the rebuilt circuit QD06 found unmeasured, so it does not count.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    collector = _CircuitCollector()
+    collector.visit(tree)
+    measured = {call["owner"] for call in collector.calls if call["method"] in _MEASURES}
+    names = set(collector.circuits) - measured
+    first = None
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        callee = _callee_name(node.func)
+        owner = node.func.value.id if (isinstance(node.func, ast.Attribute)
+                                       and isinstance(node.func.value, ast.Name)) else ""
+        if callee not in _SAMPLERS or (callee == "run" and "estimator" in owner.lower()):
+            continue
+        given = _flat_names(list(node.args) + [k.value for k in node.keywords])
+        if any(name.id in names and name.id != owner for name in given):
+            first = node.lineno if first is None else min(first, node.lineno)
+    if first is None:
+        return None
+    reads = [node.lineno for node in ast.walk(tree)
+             if isinstance(node, ast.Call) and _callee_name(node.func) in _SAMPLE_READS
+             and node.lineno >= first
+             and all(isinstance(arg, ast.Constant) or (isinstance(arg, ast.Name) and arg.id in names)
+                     for arg in node.args)]
+    return min(reads) if reads else first
+
+
+def unmeasured_counts_functions(source: str) -> List[tuple]:
+    """``(first line, last line)`` of each function QS016 reports in: QD06 leaves a
+    read inside one of them to QS016, which says what Aer raises."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+    return [(fn.lineno, fn.end_lineno or fn.lineno) for fn, _ in _unmeasured_counts(tree)]
 
 
 # QS014: errors the static parser raises where Qiskit would. Other exceptions it
@@ -1086,9 +1169,14 @@ def _check_unmeasured_counts(tree: ast.AST) -> List[Dict[str, Any]]:
     gate methods), get_counts() is read, and nothing measures it. A given circuit is only
     judged when the file never calls the function (a caller may have measured it), and a
     circuit passed anywhere else (transpile, a helper) may be measured there."""
+    return [finding for _, finding in _unmeasured_counts(tree)]
+
+
+def _unmeasured_counts(tree: ast.AST) -> List[tuple]:
+    """QS016's findings, each with the function it is in: ``(function, finding)``."""
     called = {node.func.id for node in ast.walk(tree)
               if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
-    findings: List[Dict[str, Any]] = []
+    findings: List[tuple] = []
     for fn in ast.walk(tree):
         if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
@@ -1114,10 +1202,168 @@ def _check_unmeasured_counts(tree: ast.AST) -> List[Dict[str, Any]]:
             if not runs or any(_callee_name(call.func) not in ("run", "get_counts") for call in takers):
                 continue
             whose = "it builds" if name in own else "it is given"
-            findings.append(_Finding(
+            findings.append((fn, _Finding(
                 "QS016", "warning", runs[0],
                 f"{name}, the circuit {whose}, is run and its counts read, but nothing measures "
                 "it: Aer raises 'No counts for experiment'.",
                 f"Measure before running: {name}.measure_all(), or {name}.measure(qubits, "
-                "clbits) into classical bits the circuit has."))
+                "clbits) into classical bits the circuit has.")))
     return findings
+
+
+# QS017: circuit methods that add instructions (a barrier changes no result, so it is
+# not one), the calls that run a circuit, and the calls whose result stands for the
+# circuit they are given, so that running the result runs it.
+_ADDS_INSTRUCTIONS = (frozenset(_GATE_ARITY) | frozenset(_PARAM_GATES)
+                      | {"measure", "measure_all", "measure_active", "reset", "append", "compose",
+                         "initialize", "prepare_state", "unitary", "mcx", "mcp", "mcrx", "mcry",
+                         "mcrz", "cu", "rccx", "rcccx", "ms", "pauli", "global_phase"})
+_RUNS = frozenset({"execute", "run", "assemble"})
+_STANDS_FOR = frozenset({"transpile"})
+# Later uses of a changed circuit that still leave the change unused.
+_LOOKS_AT = frozenset({"draw", "barrier"})
+_PRINTS = frozenset({"print", "display"})
+_SIMPLE_STATEMENTS = (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.Expr, ast.Return)
+_LOOPS = (ast.For, ast.AsyncFor, ast.While)
+_COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+_NEW_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+
+
+def _scope_nodes(body: List[ast.stmt], in_loop: bool = False):
+    """``(node, in_loop)`` for every node of a function's (or the module's) own code:
+    nested functions and classes are scopes of their own. Comprehensions count as loops."""
+    stack = [(stmt, in_loop) for stmt in body]
+    while stack:
+        node, looped = stack.pop()
+        yield node, looped
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, _NEW_SCOPES):
+                continue
+            stack.append((child, looped or isinstance(node, _LOOPS + _COMPREHENSIONS)))
+
+
+def _statement_lists(body: List[ast.stmt], in_loop: bool = False):
+    """``(statements, in_loop)`` for a scope's body and every block nested in it."""
+    yield body, in_loop
+    for stmt in body:
+        if isinstance(stmt, _NEW_SCOPES):
+            continue
+        looped = in_loop or isinstance(stmt, _LOOPS)
+        for field in ("body", "orelse", "finalbody"):
+            block = getattr(stmt, field, None)
+            if isinstance(block, list) and block and isinstance(block[0], ast.stmt):
+                yield from _statement_lists(block, looped)
+        for handler in getattr(stmt, "handlers", []) or []:
+            yield from _statement_lists(handler.body, looped)
+        for case in getattr(stmt, "cases", []) or []:
+            yield from _statement_lists(case.body, looped)
+
+
+def _adds_instructions(call: ast.Call) -> bool:
+    """qc.h(0), qc.measure_all(), qc.compose(other, inplace=True): calls that change qc.
+    compose without inplace=True returns a new circuit instead (QS006)."""
+    if call.func.attr != "compose":
+        return True
+    inplace = next((k.value for k in call.keywords if k.arg == "inplace"), None)
+    return isinstance(inplace, ast.Constant) and inplace.value is True
+
+
+def _check_changed_after_run(tree: ast.AST, collector: _CircuitCollector) -> List[Dict[str, Any]]:
+    """QS017: in one block of straight-line statements, a statement that only adds
+    instructions to a circuit comes after a statement that runs it, and nothing runs
+    or otherwise uses it afterwards (drawing and printing it are fine).
+
+    A circuit is run when it, or what transpile() made of it, goes to execute(),
+    assemble() or a .run(). Not judged: a circuit run or changed inside a loop (each
+    iteration may run the last one's change), one rebound after it was run, and an
+    estimator's or pass manager's run (pm.run(qc) is a transpile).
+    """
+    circuits = set(collector.circuits) | collector.circuit_params
+    findings: List[Dict[str, Any]] = []
+    scopes = [tree] + [fn for fn in ast.walk(tree)
+                       if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    for scope in scopes:
+        nodes = list(_scope_nodes(scope.body))
+        stands_for: Dict[str, str] = {}          # tqc -> qc, for tqc = transpile(qc, ...)
+        for node, _ in nodes:
+            if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name) and isinstance(node.value, ast.Call)
+                    and node.value.args and isinstance(node.value.args[0], ast.Name)
+                    and node.value.args[0].id in circuits
+                    and (_callee_name(node.value.func) in _STANDS_FOR or _passes(node.value))):
+                stands_for[node.targets[0].id] = node.value.args[0].id
+        runs: Dict[str, List[tuple]] = {}         # circuit -> (line, in a loop, call)
+        stores: Dict[str, List[int]] = {}
+        uses: Dict[str, List[int]] = {}           # loads that may use the change
+        harmless = set()                          # ids of loads that do not
+        for node, looped in nodes:
+            if isinstance(node, ast.Call):
+                callee = _callee_name(node.func)
+                if (isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
+                        and (callee in _LOOKS_AT or callee in _ADDS_INSTRUCTIONS)):
+                    harmless.add(id(node.func.value))
+                if isinstance(node.func, ast.Name) and callee in _PRINTS:
+                    harmless.update(id(arg) for arg in node.args if isinstance(arg, ast.Name))
+                owner = node.func.value.id if (isinstance(node.func, ast.Attribute)
+                                               and isinstance(node.func.value, ast.Name)) else ""
+                if callee in _RUNS and not _passes(node) and "estimator" not in owner.lower():
+                    for name in _flat_names(list(node.args) + [k.value for k in node.keywords]):
+                        circuit = stands_for.get(name.id, name.id)
+                        if circuit in circuits:
+                            runs.setdefault(circuit, []).append((node.lineno, looped, node))
+                            harmless.add(id(name))
+            elif isinstance(node, ast.Name):
+                if isinstance(node.ctx, ast.Store):
+                    stores.setdefault(node.id, []).append(node.lineno)
+                elif node.id in circuits or node.id in stands_for:
+                    uses.setdefault(stands_for.get(node.id, node.id), []).append((node.lineno, node))
+        for block, looped in _statement_lists(scope.body):
+            if looped:
+                continue
+            reported: Dict[tuple, Dict[str, Any]] = {}
+            last_run: Dict[str, ast.stmt] = {}
+            for stmt in block:
+                if isinstance(stmt, _SIMPLE_STATEMENTS):
+                    for circuit, calls in runs.items():
+                        if any(_contains(stmt, call) for _, _, call in calls):
+                            last_run[circuit] = stmt
+                if not (isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call)
+                        and isinstance(stmt.value.func, ast.Attribute)
+                        and isinstance(stmt.value.func.value, ast.Name)):
+                    continue
+                call, circuit = stmt.value, stmt.value.func.value.id
+                run = last_run.get(circuit)
+                if (run is None or call.func.attr not in _ADDS_INSTRUCTIONS
+                        or not _adds_instructions(call)
+                        or any(looped_run for _, looped_run, _ in runs[circuit])
+                        or any(line > stmt.lineno for line, _, _ in runs[circuit])
+                        or any(line > run.lineno for line in stores.get(circuit, []))
+                        or any(line > stmt.lineno and id(name) not in harmless
+                               for line, name in uses.get(circuit, []))):
+                    continue
+                key = (circuit, run.lineno)
+                if key in reported:
+                    reported[key]["lines"].append(stmt.lineno)
+                    continue
+                finding = _Finding(
+                    "QS017", "warning", call,
+                    f"{circuit}.{call.func.attr}() changes {circuit} after it was run at line "
+                    f"{run.lineno}, and {circuit} is not run again: the results do not include "
+                    "this change.",
+                    "Add the gates and measurements before running the circuit, or run it again "
+                    "after changing it.")
+                finding["lines"] = [run.lineno, stmt.lineno]
+                reported[key] = finding
+            findings += reported.values()
+    return findings
+
+
+def _passes(call: ast.Call) -> bool:
+    """pm.run(qc), a pass manager's: it transpiles the circuit rather than running it."""
+    owner = call.func.value.id.lower() if (isinstance(call.func, ast.Attribute)
+                                           and isinstance(call.func.value, ast.Name)) else ""
+    return _callee_name(call.func) == "run" and (owner.endswith("pm") or "pass" in owner)
+
+
+def _contains(stmt: ast.AST, target: ast.AST) -> bool:
+    return any(node is target for node in ast.walk(stmt))

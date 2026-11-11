@@ -6,7 +6,9 @@ source misses. Some use the dependence graph: the slicer keeps every
 instruction that could change a measured bit, and QD01 reports those that
 provably cannot. The others follow the rebuilt circuit: measurements that are
 overwritten or constant, controls that are never set, a circuit that measures
-nothing, idle qubits, gates that cancel. A file the static parser cannot read
+nothing, idle qubits, gates that cancel, conditions no measurement sets, gates
+that leave their qubit unchanged, a measured circuit whose state is read,
+classical bits nothing writes. A file the static parser cannot read
 gets no findings (the errors Qiskit raises while rebuilding it are the quick
 checks' QS014).
 
@@ -54,6 +56,14 @@ RULES = [
     Rule("QD10", "Gate has no effect", "warning",
          "A gate that leaves its qubit's state unchanged, because its own code just put the "
          "qubit in an eigenstate of it: x after h (x leaves |+> as it is), y on |+i>."),
+    Rule("QD11", "State read from a circuit that measures", "error",
+         "A circuit measures (or resets) and is then given to something that reads its quantum "
+         "state: Statevector(qc) and Operator(qc) raise an error; a statevector simulator "
+         "returns the collapsed state (a warning)."),
+    Rule("QD12", "Classical bits never written", "warning",
+         "A circuit that measures declares classical bits that no measurement writes and no "
+         "condition reads: a warning when measure_all() added bits of its own instead, "
+         "information otherwise."),
 ]
 
 # QD10: single-qubit Clifford gates as maps of a qubit's stabilizer, one of
@@ -328,18 +338,32 @@ def _operation_names(program) -> Set[str]:
 
 
 def _no_measurement(program, source: str) -> List[Dict[str, Any]]:
-    """QD06: the rebuilt circuit never measures, and nothing reads its state instead."""
+    """QD06: the rebuilt circuit never measures, and nothing reads its state instead.
+
+    Reported where the samples are read (the first get_counts() after the circuit is
+    sampled, else the sampling call), with the circuit's line in ``lines``; at the
+    circuit when nothing samples it. A read inside a function QS016 reports is left
+    to QS016, which names the error Aer raises there.
+    """
     from .. import quick_checks as lint
     if len(program) == 0 or "measure" in _operation_names(program) \
             or lint.measurement_excused(source):
         return []
     line = lint.circuit_line(source) or _line(program[0])
-    return [_finding(
-        "QD06", line, "This circuit never measures anything.",
+    read = lint.sampled_read_line(source)
+    if read and any(first <= read <= last for first, last in lint.unmeasured_counts_functions(source)):
+        return []
+    finding = _finding(
+        "QD06", read or line,
+        (f"The circuit built at line {line} never measures anything, so sampling it gives no "
+         "counts." if read and line and read != line else "This circuit never measures anything."),
         "Sampling it returns nothing useful. Add measure_all() (or measure the qubits you "
         "want), or read its state with Statevector if that is what you meant. Slicing still "
         "works on the gate graph, but a backward slice usually starts from a measurement.",
-    )]
+    )
+    if read and line and read != line:
+        finding["lines"] = sorted({read, line})
+    return [finding]
 
 
 def _idle_qubits(program, source: str) -> List[Dict[str, Any]]:
@@ -519,6 +543,225 @@ def _apply(gate: str, stabilizer: str) -> str:
     return ("-" if flip else "+") + mapped[1]
 
 
+# QD11: quantum_info calls that read the state or operator of the circuit they are
+# given, and what Qiskit raises on a measure or reset in it. Every one raises on a
+# measure; Operators raise on a reset too, Statevector applies it as a random collapse,
+# and a density matrix (which DensityMatrix, evolve and from_instruction may be) applies
+# it exactly, so a reset is only judged for the first two.
+_STATE_CALLS = frozenset({"Statevector", "DensityMatrix", "Operator", "from_instruction",
+                          "from_circuit", "evolve"})
+_RAISES = {
+    ("measure", "Operator"): "Cannot apply operation with classical bits: measure",
+    ("measure", "from_circuit"): "Cannot apply operation with classical bits: measure",
+    ("reset", "Operator"): "Cannot apply Operation: reset",
+    ("reset", "from_circuit"): "Cannot apply Operation: reset",
+}
+_RAISES_ON_MEASURE = "Cannot apply instruction with classical bits: measure"
+_COLLAPSES_ON_RESET = frozenset({"Statevector"})
+# Old-style backends that return a simulated state: execute(qc, statevector backend).
+_STATE_BACKENDS = ("statevector_simulator", "unitary_simulator", "StatevectorSimulator",
+                   "UnitarySimulator")
+_STATE_GETTERS = frozenset({"get_statevector", "get_unitary"})
+# What says a circuit is also sampled, so its measurements are wanted.
+_COUNT_READS = frozenset({"get_counts", "get_memory", "get_probabilities"})
+_SAMPLER_CALLS = frozenset({"Sampler", "SamplerV2", "StatevectorSampler", "BackendSamplerV2"})
+_SAVES = frozenset({"save_statevector", "save_unitary", "save_density_matrix"})
+
+
+@functools.lru_cache(maxsize=8)
+def _state_reads(source: str) -> Optional[Dict[str, Any]]:
+    """What QD11 needs from the source, read once: who reads which circuit's state.
+
+    ``readers``: ``(line, circuit name, reader, function)`` for each call given a
+    circuit variable that reads its state (``function`` is the (first, last) lines of
+    the function the call is in, None at module level). ``receivers``: line -> the
+    variables measured or reset on that line, with their function. ``stores``: name
+    -> the lines that rebind it. ``excused``: circuits that are also sampled for
+    counts or have their final measurements removed, or every circuit when the file
+    saves a simulator's state itself.
+    """
+    import ast
+    from .. import quick_checks as lint
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    functions = [(fn.lineno, fn.end_lineno or fn.lineno) for fn in ast.walk(tree)
+                 if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))]
+
+    def scope(line: int):
+        inside = [span for span in functions if span[0] <= line <= span[1]]
+        return max(inside) if inside else None          # the innermost one
+
+    calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
+    callees = {lint._callee_name(call.func) for call in calls}
+    texts = [node.value for node in ast.walk(tree)
+             if isinstance(node, ast.Constant) and isinstance(node.value, str)]
+    names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)} | callees
+    state_backend = any(b in names or any(b in text for text in texts) for b in _STATE_BACKENDS)
+    reads_counts = bool(callees & _COUNT_READS)
+    readers, receivers, stores, excused, sampled = [], {}, {}, set(), set()
+    for call in calls:
+        callee = lint._callee_name(call.func)
+        owner = call.func.value.id if (isinstance(call.func, ast.Attribute)
+                                       and isinstance(call.func.value, ast.Name)) else ""
+        if owner and callee in ("measure", "measure_all", "measure_active", "reset"):
+            receivers.setdefault(call.lineno, set()).add((owner, scope(call.lineno)))
+        if owner and callee == "remove_final_measurements":
+            excused.add(owner)
+        given = [arg.id for arg in call.args if isinstance(arg, ast.Name) and arg.id != owner]
+        if callee in _STATE_CALLS and given:
+            readers += [(call.lineno, name, callee, scope(call.lineno)) for name in given[:1]]
+        everything = [n.id for n in lint._flat_names(list(call.args)
+                                                    + [k.value for k in call.keywords])]
+        if callee in _SAMPLER_CALLS or (callee == "run" and "sampler" in owner.lower()):
+            sampled.update(everything)
+        if callee in ("execute", "run") and "estimator" not in owner.lower():
+            if reads_counts:
+                sampled.update(everything)
+            elif state_backend and callees & _STATE_GETTERS and given:
+                readers.append((call.lineno, given[0], "simulator", scope(call.lineno)))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            stores.setdefault(node.id, []).append(node.lineno)
+    if callees & _SAVES:
+        excused.add("*")
+    return {"readers": readers, "receivers": receivers, "stores": stores,
+            "excused": excused | sampled}
+
+
+def _measured_state_reads(program, source: str) -> List[Dict[str, Any]]:
+    """QD11: a measure or reset in a circuit whose state is then read.
+
+    The instruction must be written on the circuit variable (qc.measure_all(), not in a
+    helper handed it) in the same function as the call that reads that variable, on an
+    earlier line, with no rebinding in between. Not judged when the circuit is also
+    sampled for counts (its measurements are wanted, and the state may be read before
+    them), has its final measurements removed, or the file saves a simulator's state
+    itself (save_statevector). Statevector(qc), Operator(qc) and evolve raise on a
+    measurement (Operator on a reset too): errors. A statevector simulator, or a reset
+    under Statevector, returns a collapsed state instead: warnings.
+    """
+    reads = _state_reads(source)
+    if not reads or "*" in reads["excused"]:
+        return []
+    by_line: Dict[int, List[int]] = {}
+    for idx in range(len(program)):
+        instruction = program[idx]
+        if (instruction.name in ("measure", "reset") and _line(instruction)
+                and instruction.metadata.get("condition") is None
+                and not instruction.metadata.get("guards")):
+            by_line.setdefault(_line(instruction), []).append(idx)
+    findings = []
+    for line, indices in sorted(by_line.items()):
+        kind = program[indices[0]].name
+        later = sorted(
+            (read_line, name, reader) for read_line, name, reader, where in reads["readers"]
+            if read_line > line and (name, where) in reads["receivers"].get(line, set())
+            and name not in reads["excused"]
+            and not any(line < store <= read_line for store in reads["stores"].get(name, []))
+            and (kind == "measure" or reader == "simulator" or (kind, reader) in _RAISES
+                 or reader in _COLLAPSES_ON_RESET))
+        if not later:
+            continue
+        read_line, name, reader = later[0]
+        raised = _RAISES.get((kind, reader), _RAISES_ON_MEASURE if kind == "measure" else None)
+        if reader == "simulator":
+            message = (f"The statevector simulator run at line {read_line} applies this {kind}, so "
+                       f"the state it returns is collapsed (one random outcome), not the state "
+                       f"{name} prepares.")
+            severity = "warning"
+        elif raised:
+            message = (f"{reader}({name}) at line {read_line} reads the state of {name}, which has "
+                       f"this {kind}: Qiskit raises QiskitError '{raised}'.")
+            severity = "error"
+        else:
+            message = (f"{reader}({name}) at line {read_line} applies this reset as a random "
+                       "collapse, so the state it gives changes from run to run.")
+            severity = "warning"
+        finding = _finding(
+            "QD11", line, message,
+            f"Read the state of the circuit without its measurements "
+            f"({name}.remove_final_measurements(inplace=False)), or read it before measuring; "
+            "sample counts instead if the measurement is what you want.",
+            nodes=indices,
+        )
+        finding["severity"] = severity
+        finding["lines"] = [line, read_line]
+        findings.append(finding)
+    return findings
+
+
+@functools.lru_cache(maxsize=8)
+def _measure_all_lines(source: str) -> FrozenSet[int]:
+    """Lines of measure_all() calls that add classical bits of their own (all but
+    measure_all(add_bits=False))."""
+    import ast
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return frozenset()
+    found: Set[int] = set()
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "measure_all"):
+            add_bits = next((k.value for k in node.keywords if k.arg == "add_bits"), None)
+            if not (isinstance(add_bits, ast.Constant) and add_bits.value is False):
+                found.add(node.lineno)
+    return frozenset(found)
+
+
+def _unwritten_clbits(program, source: str) -> List[Dict[str, Any]]:
+    """QD12: declared classical bits that no instruction writes or reads, in a circuit
+    that measures. Any instruction naming a bit (a measurement, a store, a block,
+    whatever it is) counts as using it, and so does a condition.
+
+    When measure_all() added bits of its own, the declared ones are where the results
+    were meant to go: a warning at the measure_all(). Otherwise the bits are only spare
+    (a register sized for a device, say): information, at the circuit. Not judged when
+    a measurement is made by a function handed its circuit: the caller declared the
+    bits (``_lines_given_a_circuit``).
+    """
+    from .. import quick_checks as lint
+    measures = [i for i in range(len(program)) if program[i].name == "measure"]
+    if not measures or not program.num_clbits:
+        return []
+    given = _lines_given_a_circuit(source)
+    if any(_line(program[i]) in given for i in measures):
+        return []
+    used: Set[int] = set()
+    for idx in range(len(program)):
+        used.update(program[idx].clbits)
+        used.update(program[idx].metadata.get("condition_clbits") or [])
+    unwritten = sorted(set(range(program.num_clbits)) - used)
+    if not unwritten:
+        return []
+    circuit = lint.circuit_line(source) or _line(program[measures[0]])
+    added = [i for i in measures if _line(program[i]) in _measure_all_lines(source)]
+    if added:
+        line = _line(program[added[0]])
+        bits = sorted({c for i in added for c in program[i].clbits})
+        finding = _finding(
+            "QD12", line,
+            f"measure_all() adds its own {len(bits)} classical bit(s) and measures into those, "
+            f"so the declared classical bit(s) {unwritten} are never written and stay 0.",
+            "Pass add_bits=False to measure into the bits the circuit declares, or use "
+            "measure(qc.qubits, qc.clbits); or declare the circuit without classical bits.",
+            nodes=added,
+        )
+        finding["lines"] = sorted({line, circuit})
+        return [finding]
+    finding = _finding(
+        "QD12", circuit,
+        f"Classical bit(s) {unwritten} are declared, but nothing writes them: they read 0 in "
+        "every result.",
+        "Shrink the classical register if they are spare, or check that every qubit you want "
+        "is measured into its own bit.",
+    )
+    finding["severity"] = "info"
+    return [finding]
+
+
 def _merge(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """One finding per (code, line): a gate inside a loop is reported once, with a count."""
     merged: Dict[tuple, Dict[str, Any]] = {}
@@ -548,7 +791,9 @@ def run(context: LintContext) -> List[Dict[str, Any]]:
                   + _constant_measurements(program, context.source) + _unset_controls(program, context.source)
                   + _no_measurement(program, context.source)
                   + _idle_qubits(program, context.source) + _cancelling_pairs(program, context.source)
-                  + _conditions_never_set(program) + _no_effect_gates(program))
+                  + _conditions_never_set(program) + _no_effect_gates(program)
+                  + _measured_state_reads(program, context.source)
+                  + _unwritten_clbits(program, context.source))
 
 
 LINTER = Linter(
@@ -557,7 +802,8 @@ LINTER = Linter(
     description="Quantum mistakes in the circuit the static front end rebuilds (loops "
                 "unrolled, helpers followed) and its dependence graph: dead gates, overwritten "
                 "or constant measurements, controls never set, missing measurements, idle "
-                "qubits, cancelling pairs.",
+                "qubits, cancelling pairs, conditions never set, gates with no effect, states "
+                "read from circuits that measure, classical bits never written.",
     rules=RULES,
     run=run,
     languages=("python", "qasm"),

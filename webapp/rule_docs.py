@@ -59,8 +59,9 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
         "fixed": _HEAD + "qc = QuantumCircuit(2)\nqc.h(0)\nqc.cx(0, 1)\n",
     },
     "QS004": {
-        "explain": "measure() writes into a classical bit the circuit does not declare. "
-                   "QuantumCircuit(2, 1) has one classical bit, numbered 0.",
+        "explain": "measure() writes into, or qc.clbits[i] reads, a classical bit the circuit "
+                   "does not declare. QuantumCircuit(2, 1) has one classical bit, numbered 0; "
+                   "QuantumCircuit(2) has none.",
         "limits": "Literal indices on a circuit with a literal number of classical bits.",
         "example": _HEAD + "qc = QuantumCircuit(2, 1)\nqc.h(0)\nqc.cx(0, 1)\nqc.measure(1, 1)\n",
         "fixed": _HEAD + "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.cx(0, 1)\nqc.measure(1, 1)\n",
@@ -225,6 +226,23 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
                          "    qc.cx(0, 1)\n    qc.measure_all()\n"
                          "    return AerSimulator().run(qc).result().get_counts()\n",
     },
+    "QS017": {
+        "explain": "A gate, measurement, append or compose(..., inplace=True) on a circuit after "
+                   "the last line that runs it (execute, a backend's or sampler's run, assemble, "
+                   "or transpile and then run), and nothing runs it again. The results were "
+                   "taken from the circuit as it was, so the change never reaches them: a "
+                   "measurement added after execute() is the usual case, and its bit reads 0.",
+        "limits": "Only the syntax tree, in one block of straight-line statements: a circuit "
+                  "run or changed inside a loop, or rebound after the run, is not judged, nor "
+                  "one used in any other way afterwards (returned, passed on). Drawing or "
+                  "printing it afterwards is fine. A barrier is not a change.",
+        "example": _HEAD + "from qiskit_aer import AerSimulator\n\nqc = QuantumCircuit(2, 2)\n"
+                           "qc.h(0)\nqc.cx(0, 1)\njob = AerSimulator().run(qc)\n"
+                           "qc.measure([0, 1], [0, 1])\nprint(job.result().get_counts())\n",
+        "fixed": _HEAD + "from qiskit_aer import AerSimulator\n\nqc = QuantumCircuit(2, 2)\n"
+                         "qc.h(0)\nqc.cx(0, 1)\nqc.measure([0, 1], [0, 1])\n"
+                         "job = AerSimulator().run(qc)\nprint(job.result().get_counts())\n",
+    },
     # ----------------------------------------------------------- dependence
     "QD01": {
         "explain": "No classical bit the circuit writes depends on this gate: the dependence "
@@ -274,10 +292,14 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
     "QD06": {
         "explain": "The rebuilt circuit (helpers and loops included) is never measured, yet it is sampled (run on a backend, "
                    "execute, a Sampler): the counts come back empty. Students often build the "
-                   "gates and forget measure_all().",
+                   "gates and forget measure_all(). It is reported where the counts are read "
+                   "(the first get_counts() after the circuit is sampled, else the sampling "
+                   "call), and marks the circuit's line too; a circuit nothing samples is "
+                   "reported at the line that builds it.",
         "limits": "Quiet when the state is read without measuring (Statevector, Operator, an "
                   "Estimator, a simulator's get_statevector()) or the circuit goes into a "
-                  "function of the file that may measure it.",
+                  "function of the file that may measure it. A read inside a function QS016 "
+                  "reports is left to QS016.",
         "example": _HEAD + "from qiskit_aer import AerSimulator\n\nqc = QuantumCircuit(2)\n"
                            "qc.h(0)\nqc.cx(0, 1)\ncounts = AerSimulator().run(qc).result()"
                            ".get_counts()\n",
@@ -331,6 +353,39 @@ DOCS: Dict[str, Dict[str, Optional[str]]] = {
                   "x ... x around a control, nor a loop line that acts on other iterations.",
         "example": _HEAD + "qc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.x(0)\nqc.measure(0, 0)\n",
         "fixed": _HEAD + "qc = QuantumCircuit(1, 1)\nqc.x(0)\nqc.h(0)\nqc.measure(0, 0)\n",
+    },
+    "QD11": {
+        "explain": "A circuit measures (or resets) a qubit and is then handed to something that "
+                   "reads its quantum state. Statevector(qc), Operator(qc), DensityMatrix(qc) "
+                   "and evolve(qc) cannot apply a measurement: Qiskit raises QiskitError "
+                   "'Cannot apply instruction with classical bits: measure' (an error; Operator "
+                   "rejects a reset too). An old statevector or unitary simulator does apply "
+                   "it, so get_statevector() returns one collapsed outcome instead of the "
+                   "superposition (a warning), as does a reset under Statevector.",
+        "limits": "The measurement must be written on the same circuit variable the reader is "
+                  "given, earlier and in the same function, with no rebinding in between; one "
+                  "made inside a helper is not judged. Quiet when that circuit is also sampled "
+                  "for counts (its measurements are wanted), has its final measurements "
+                  "removed, or the file calls save_statevector() (Aer saves the state where it "
+                  "is asked to). A conditional measurement is not judged.",
+        "example": _HEAD + "from qiskit.quantum_info import Statevector\n\nqc = QuantumCircuit(2)\n"
+                           "qc.h(0)\nqc.cx(0, 1)\nqc.measure_all()\nstate = Statevector(qc)\n",
+        "fixed": _HEAD + "from qiskit.quantum_info import Statevector\n\nqc = QuantumCircuit(2)\n"
+                         "qc.h(0)\nqc.cx(0, 1)\nstate = Statevector(qc)\nqc.measure_all()\n",
+    },
+    "QD12": {
+        "explain": "A circuit that measures declares classical bits that nothing writes, so they "
+                   "read 0 in every result. The usual cause is measure_all() on a circuit that "
+                   "already has classical bits: it adds a register of its own and measures into "
+                   "that, and the declared register stays 0 (a warning, at the measure_all()). "
+                   "Spare bits otherwise, such as a register sized for a device, are reported "
+                   "as information at the circuit.",
+        "limits": "Any instruction naming a bit, and any condition reading it, counts as using "
+                  "it. measure_all(add_bits=False) adds no bits. Not judged when a function "
+                  "handed its circuit measures it: the caller declared the bits.",
+        "example": _HEAD + "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.cx(0, 1)\nqc.measure_all()\n",
+        "fixed": _HEAD + "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.cx(0, 1)\n"
+                         "qc.measure([0, 1], [0, 1])\n",
     },
     # ---------------------------------------------------------------- LintQ
     "LQ00": {

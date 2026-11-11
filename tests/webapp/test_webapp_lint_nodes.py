@@ -60,6 +60,21 @@ def test_findings_without_a_node_get_none(client):
     assert by_code(data, "QD07")[0]["qubits"] == [1, 2]   # its wires instead
 
 
+def test_state_read_marks_the_measurements(client):
+    data = analyze(client, "from qiskit.quantum_info import Statevector\nqc = QuantumCircuit(2, 2)\n"
+                           "qc.h(0)\nqc.measure([0, 1], [0, 1])\nstate = Statevector(qc)\n",
+                   ["dependence/QD11"])
+    (finding,) = by_code(data, "QD11")
+    assert names(data, finding["nodes"]) == [("measure", 5), ("measure", 5)]
+
+
+def test_unwritten_bits_mark_what_measure_all_added(client):
+    data = analyze(client, "qc = QuantumCircuit(2, 2)\nqc.h(0)\nqc.measure_all()\n",
+                   ["dependence/QD12"])
+    (finding,) = by_code(data, "QD12")
+    assert names(data, finding["nodes"]) == [("measure", 4), ("measure", 4)]
+
+
 def test_node_ids_that_do_not_match_the_line_fall_back_to_the_line():
     nodes = [{"id": 0, "source": {"line": 3, "end_line": 3}},
              {"id": 1, "source": {"line": 4, "end_line": 4}}]
