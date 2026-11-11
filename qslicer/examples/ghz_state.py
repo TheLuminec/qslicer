@@ -1,11 +1,11 @@
 """GHZ state: entanglement spread across three qubits.
 
-The chain of CNOTs grows one entangled group outwards from q0. Measuring any
-one qubit collapses all three, which is why the entanglement analyzer closes
-the whole group on the first measurement it sees.
+The chain of CNOTs spreads the entanglement outwards from q0, so each
+measurement's outcome is correlated with the other two qubits.
 
-What to look for: the group in the Entanglement tab picks up a qubit at each
-CNOT, and the def-use chain through q0 is what carries the dependency.
+What to look for: a backward slice from any measurement marks the other two
+qubits as possibly correlated, and the def-use chain through q0 is what
+carries the dependency.
 """
 
 from qiskit import QuantumCircuit

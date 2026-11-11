@@ -4,15 +4,15 @@ q2 is scratch space. The first Toffoli writes q0 AND q1 into it and the
 second, identical Toffoli erases it again, which is the standard way to
 return borrowed scratch space to |0) so it carries no leftover entanglement.
 
-What to look for: the analyzer does NOT currently see this as uncomputation.
-Its cancellation check only compares a gate against the last gate recorded in
-a group, and entangling gates are never recorded there -- they open a new
-group instead. So you get two nested entangled groups over q0, q1 and q2, and
-nothing in any uncomputed list.
+What to look for: the two Toffolis are linked as mirrors and QD08 is reported
+on the second one, but a backward slice from a measurement still contains
+both. The slicer follows dependences and does not yet drop a pair that
+cancels.
 
-That is a known limit rather than a bug in this circuit: uncomputation across
-entangling gates is exactly the case the analysis still has to grow into.
-uncomputation.py shows the single-qubit case, which is detected today.
+That is a known limit rather than a bug in this circuit: removing
+uncomputed work from a slice is what the analysis still has to grow into.
+
+uncomputation.py shows the same thing with single-qubit gates.
 """
 
 from qiskit import QuantumCircuit
