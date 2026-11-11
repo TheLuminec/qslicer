@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Quantum Program Slicer -- mock-up styles
+   Quantum Program Slicer -- site styles
    The desktop viewer (qslicer viz, qslicer/viz/model.py) uses the same palette.
    ========================================================================== */
 
@@ -150,7 +150,6 @@ h3 { font-size: 1.05rem; }
   text-align: center;
 }
 .site-footer p { margin: 0.3rem 0; }
-.footnote { font-size: 0.78rem; }
 
 /* --------------------------------------------------------------- shared -- */
 
@@ -258,7 +257,9 @@ input:focus-visible, select:focus-visible, button:focus-visible, textarea:focus-
   fill: var(--text-faint); font-size: 10.5px; font-family: var(--mono); text-anchor: middle;
 }
 .hero-node .hero-span { stroke: #c6a0f6; stroke-width: 2; opacity: 0.55; }
-.hero-node .hero-tick { fill: #c6a0f6; opacity: 0.8; }
+.hero-node .hero-tick { fill: #c6a0f6; }
+.hero-node .hero-target circle { fill: var(--bg-sunken); stroke: #c6a0f6; stroke-width: 1.8; }
+.hero-node .hero-target path { stroke: #c6a0f6; stroke-width: 1.6; }
 
 /* Category fills, for the instructions the slice did not reach. */
 .hero-node.cat-single .hero-shape { fill: #9aa6cf; }
@@ -340,13 +341,6 @@ input:focus-visible, select:focus-visible, button:focus-visible, textarea:focus-
 @media (max-width: 900px) {
   .explainer-grid { grid-template-columns: minmax(0, 1fr); }
 }
-
-.strip { background: var(--bg-sunken); border-block: 1px solid var(--line); }
-.strip-inner {
-  max-width: 1120px; margin: 0 auto; padding: 3rem 1.5rem;
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 2.5rem;
-}
-.strip p { color: var(--text-dim); }
 
 .cards { max-width: 1120px; margin: 0 auto; padding: 3.5rem 1.5rem; }
 .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; }
@@ -876,8 +870,9 @@ a.diag-code:hover { color: var(--accent); }
 #graph .lod-far .insight-mark, #graph .lod-far .slice-more,
 #graph .lod-far .chop-tag text, #graph .lod-far .slice-num text { display: none; }
 
-/* Mirror links: a dotted arc above a gate and its later inverse on the same
-   qubits. Drawn for the hovered node and the criteria, or for everything in
+/* Mirror links: a dotted arc between a gate and its later inverse on the same
+   qubits, above the nodes on the top half of the wires and below them on the
+   bottom half. Drawn for the hovered node and the criteria, or for everything in
    view with the Mirrors chip on. A visual aid, not a proof. */
 #graph .mirror-arc {
   fill: none; stroke: var(--mirror); stroke-width: 1.3; stroke-dasharray: 2 3; opacity: 0.7;
@@ -973,25 +968,6 @@ a.diag-code:hover { color: var(--accent); }
 .instr-table tr.marked td { background: rgba(137, 180, 250, 0.12); }
 
 .qubit-filter .chip { font-family: var(--mono); }
-
-.group-card {
-  border: 1px solid var(--line); border-radius: var(--radius);
-  background: var(--surface); padding: 0.7rem 0.85rem; margin-bottom: 0.6rem;
-}
-.group-card h4 { margin: 0 0 0.35rem; font-size: 0.9rem; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
-.group-kind {
-  font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.07em;
-  padding: 0.1rem 0.45rem; border-radius: 999px; border: 1px solid currentColor;
-}
-.group-kind.kind-init { color: var(--text-faint); }
-.group-kind.kind-entangled { color: var(--dep-entanglement); }
-.group-kind.kind-measurement { color: var(--ok); }
-.group-kind.kind-classical { color: var(--dep-data-classical); }
-.group-card dl { display: grid; grid-template-columns: auto 1fr; gap: 0.15rem 0.7rem; margin: 0; font-size: 0.8rem; }
-.group-card dt { color: var(--text-faint); }
-.group-card dd { margin: 0; font-family: var(--mono); }
-.group-card .idx-link { color: var(--accent); cursor: pointer; }
-.group-card .idx-link:hover { text-decoration: underline; }
 
 .console-title { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.09em; color: var(--text-faint); margin-top: 1rem; }
 .console-note { font-size: 0.82rem; color: var(--text-dim); }
@@ -1249,7 +1225,8 @@ figcaption { font-size: 0.85rem; color: var(--text-faint); margin-top: 0.6rem; m
 .lint-code.sev-info { color: var(--info); }
 .lint-actions { display: flex; gap: 0.35rem; grid-column: 1 / -1; }
 
-/* Each rule's "?" opens its explanation, with a worked example, below the tree. */
+/* Each rule's "?" opens its explanation, with a worked example: below the tree
+   in a dropdown, right under the rule on the Lint page. */
 .lint-rules li { display: flex; align-items: baseline; gap: 0.3rem; }
 .lint-rules li > label { flex: 1; min-width: 0; }
 .lint-more {
@@ -1372,29 +1349,11 @@ figcaption { font-size: 0.85rem; color: var(--text-faint); margin-top: 0.6rem; m
 
 .lintpage { max-width: 1120px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
 .lintpage h2 { margin-top: 2.2rem; }
-.lint-try h2, .lint-reference h2 { margin-top: 0; }
-.lint-try, .lint-reference {
+.lint-reference h2 { margin-top: 0; }
+.lint-reference {
   background: var(--bg-sunken); border: 1px solid var(--line);
   border-radius: var(--radius); padding: 1.1rem 1.2rem; margin-top: 1.5rem;
 }
-.lint-try-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem;
-}
-.lint-try-input textarea {
-  width: 100%; min-height: 18rem; resize: vertical; box-sizing: border-box;
-  background: var(--bg); color: var(--text); border: 1px solid var(--line);
-  border-radius: var(--radius-sm); padding: 0.6rem 0.7rem;
-  font-family: var(--mono); font-size: 0.8rem; line-height: 1.5; tab-size: 4;
-}
-.lint-try-input textarea:focus { outline: none; border-color: var(--accent); }
-.lint-try-output { display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
-.lint-try-bar { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; }
-.lint-try-bar .bench-status { padding-bottom: 0; }
-.lint-result .source-view { max-height: 30rem; }
-.lint-loose { margin: 0 0 0.5rem; padding-left: 1.1rem; font-size: 0.82rem; }
-.lint-loose .sev-error strong { color: var(--err); }
-.lint-loose .sev-warning strong { color: var(--warn); }
-.lint-loose .sev-info strong { color: var(--info); }
 
 /* The Lint page's picker is the rule reference: one linter per row, its rules
    in columns, and a rule's explanation opening right under it. */

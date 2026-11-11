@@ -103,14 +103,26 @@
       if (line > 0) pickLine(line);
     });
     code.addEventListener('keydown', function (event) {
-      if (event.key === 'Tab') {
-        event.preventDefault();
-        insertAtCursor(code, '    ');
-        scheduleEditorRender();
-      } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
         event.preventDefault();
         analyze();
+        return;
       }
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      // Tab and Shift+Tab indent the selected lines; a bracket or quote typed
+      // over a selection wraps it (editkeys.js).
+      var keys = window.EditKeys;
+      var start = code.selectionStart;
+      var end = code.selectionEnd;
+      var change;
+      if (event.key === 'Tab') {
+        event.preventDefault();
+        change = (event.shiftKey ? keys.outdent : keys.indent)(code.value, start, end);
+      } else {
+        change = keys.wrap(code.value, start, end, event.key);
+        if (change) event.preventDefault();
+      }
+      if (change) applyEdit(code, change);
     });
 
     $('btn-analyze').addEventListener('click', analyze);
@@ -279,17 +291,29 @@
     setSide((switched ? 'Interpreter switched to ' : 'Interpreter: ') + label);
   }
 
-  function insertAtCursor(field, text) {
-    var start = field.selectionStart;
-    var end = field.selectionEnd;
-    field.value = field.value.slice(0, start) + text + field.value.slice(end);
-    field.selectionStart = field.selectionEnd = start + text.length;
+  /* Replace [start, end) of the field with the change's text and select what
+     it says. Done as an insertion the browser made, so Ctrl+Z undoes it like
+     typing; where that is not offered the text is set directly, and the
+     `input` listeners are told by hand. */
+  function applyEdit(field, change) {
+    field.focus();
+    field.setSelectionRange(change.start, change.end);
+    var done = false;
+    try {
+      done = change.text
+        ? document.execCommand('insertText', false, change.text)
+        : document.execCommand('delete', false);
+    } catch (error) { done = false; }
+    if (!done) {
+      field.setRangeText(change.text, change.start, change.end, 'end');
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    field.setSelectionRange(change.selStart, change.selEnd);
   }
 
   /* Rebuild the highlighted copy of the source and the line numbers.
      ``errorLine`` marks one gutter number red, for a reported syntax error. */
   var HIGHLIGHT_LIMIT = 120000;   // characters; past this, skip the tokenizer
-  var LINE_LIMIT = 800;           // lines; past this, skip the per-line sync
   var INSTANT_LIMIT = 20000;      // characters; past this, re-render on a pause
 
   /* Re-rendering is one DOM element per line, and laying out a few thousand of
@@ -342,15 +366,48 @@
       rendered = window.highlightCode(text, highlightLanguage());
     }
 
-    highlight.innerHTML = rendered
-      .map(function (line) { return '<div class="hl-line">' + line + '</div>'; })
-      .join('');
+    patchHighlight(highlight, rendered);
 
     applySourceMarks();
     syncGutterHeights(sourceLines.length);
     syncEditorScroll();
     $('editor-meta').textContent =
       sourceLines.length + (sourceLines.length === 1 ? ' line' : ' lines');
+  }
+
+  /* Put the colored lines into the layer, replacing only the run of lines
+     that changed since the last render. Typing changes one line, and laying
+     out one new element costs a fraction of laying out the whole file again
+     (12 ms for 360 lines, on every keystroke). */
+  var shownLines = [];            // the markup of each line now in #highlight
+
+  function lineMarkup(lines) {
+    return lines.map(function (line) { return '<div class="hl-line">' + line + '</div>'; }).join('');
+  }
+
+  function patchHighlight(highlight, rendered) {
+    var rows = highlight.children;
+    var before = shownLines;
+    shownLines = rendered;
+    if (rows.length !== before.length) {          // out of step: start over
+      highlight.innerHTML = lineMarkup(rendered);
+      return;
+    }
+    var head = 0;
+    var shorter = Math.min(before.length, rendered.length);
+    while (head < shorter && before[head] === rendered[head]) head++;
+    var tail = 0;
+    while (tail < shorter - head &&
+           before[before.length - 1 - tail] === rendered[rendered.length - 1 - tail]) tail++;
+    if (head + tail >= Math.max(before.length, rendered.length) / 2 || !before.length) {
+      for (var i = before.length - tail - 1; i >= head; i--) rows[i].remove();
+      var fresh = lineMarkup(rendered.slice(head, rendered.length - tail));
+      if (!fresh) return;
+      if (head < rows.length) rows[head].insertAdjacentHTML('beforebegin', fresh);
+      else highlight.insertAdjacentHTML('beforeend', fresh);
+    } else {
+      highlight.innerHTML = lineMarkup(rendered);  // mostly new text: one parse is cheaper
+    }
   }
 
   /* Typing inside a line does not change the numbers, and rebuilding a few
@@ -380,9 +437,11 @@
   /* A line that wraps is taller than one line, so its number has to be too --
      otherwise the gutter drifts out of step further down the file.
 
-     Measuring every line is expensive, so first ask one question: does the
-     whole block come to exactly one line-height per line? If it does, nothing
-     wrapped and there is nothing to do. */
+     First ask one question: does the whole block come to exactly one
+     line-height per line? If it does, nothing wrapped and there is nothing to
+     do. Otherwise every line is measured in one pass (one layout, however
+     long the file) and only the numbers of the lines that wrapped, or no
+     longer do, are touched. */
   function syncGutterHeights(count) {
     var highlightLines = $('highlight').children;
     var gutterLines = $('gutter').children;
@@ -393,22 +452,21 @@
     var padding = 2 * parseFloat(getComputedStyle($('highlight')).paddingTop || 0);
     var nothingWrapped = Math.abs((total - padding) - first * count) < 1;
 
-    if (nothingWrapped || count > LINE_LIMIT) {
-      if (gutterLines.length && gutterLines[0].style.height) {
-        for (var k = 0; k < gutterLines.length; k++) gutterLines[k].style.height = '';
-      }
-      return;
-    }
-
     // Fractional heights, not offsetHeight: a line box is rarely a whole
     // number of pixels, and rounding each one drifts the gutter further out of
     // step with every line down the file.
     var heights = [];
-    for (var i = 0; i < highlightLines.length; i++) {
-      heights.push(highlightLines[i].getBoundingClientRect().height);
+    var single = Infinity;
+    if (!nothingWrapped) {
+      for (var i = 0; i < highlightLines.length; i++) {
+        var height = highlightLines[i].getBoundingClientRect().height;
+        heights.push(height);
+        if (height && height < single) single = height;
+      }
     }
     for (var j = 0; j < gutterLines.length; j++) {
-      gutterLines[j].style.height = heights[j] ? heights[j].toFixed(3) + 'px' : '';
+      var wanted = heights[j] > single + 0.5 ? heights[j].toFixed(3) + 'px' : '';
+      if (gutterLines[j].style.height !== wanted) gutterLines[j].style.height = wanted;
     }
   }
 
@@ -516,9 +574,7 @@
   }
 
   /* The chips are whatever the rules that ran can emit -- nothing else. They
-     are rebuilt on every analysis, and deliberately not when the Rules
-     dropdown changes: the dropdown says what the next run will use, the chips
-     say what the last run produced. */
+     are rebuilt on every analysis: they say what the last run produced. */
   function renderDepFilter(data) {
     var container = $('dep-filter');
     container.textContent = '';
@@ -682,7 +738,7 @@
     var key = JSON.stringify({
       source: source,
       filename: state.filename || defaultFilename(),
-      profile: $('profile-select').value || 'baseline',
+      profile: 'baseline',
       language: interpreter(),
       // Sorted, so the same selection makes the same cache key whether it came
       // from the Lint picker or, before that has loaded, from storage.
@@ -780,7 +836,8 @@
     renderQubitSlicePicker(data);
 
     var program = data.program;
-    setStatus(program.num_instructions + ' instructions, ' + program.num_qubits + ' qubits, ' +
+    setStatus(program.num_instructions + (program.num_instructions === 1 ? ' instruction, ' : ' instructions, ') +
+      program.num_qubits + ' qubits, ' +
       program.num_clbits + ' classical bits, ' + data.edges.length + ' dependency edges. ' +
       (state.direction === 'chop' ? chopPrompt()
         : 'Click a gate to slice from it, or "slice" under a wire name for its last measurement.') +

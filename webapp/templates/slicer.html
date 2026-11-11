@@ -41,19 +41,11 @@
           {% endfor %}
         </select>
       </label>
-      <label class="field field-narrow">
-        <span>Rules</span>
-        <select id="profile-select">
-          {% for profile in profiles %}
-            <option value="{{ profile }}">{{ profile }}</option>
-          {% endfor %}
-        </select>
-      </label>
       <div class="field lint-field">
         <span>Lint</span>
         <details class="lint-dropdown" id="lint-dropdown">
           <summary id="lint-summary"
-                   title="Which linters and rules run on Analyze. The Benchmark page grades the same selection.">Default rules</summary>
+                   title="Which linters and rules run on Analyze.{% if benchmark_enabled %} The Benchmark page grades the same selection.{% endif %}">Default rules</summary>
           <div class="lint-panel" id="lint-picker"><p class="placeholder">Loading the linters&hellip;</p></div>
         </details>
       </div>
@@ -76,7 +68,7 @@
           </div>
           <textarea id="code" spellcheck="false" autocomplete="off" autocapitalize="off"
                     aria-label="Circuit source code"
-                    placeholder="Paste a Qiskit circuit or an OpenQASM 3 program here, drop a .py or .qasm file anywhere on this panel, or load an example above."></textarea>
+                    placeholder="Paste a Qiskit circuit or an OpenQASM 2 or 3 program here, drop a .py or .qasm file anywhere on this panel, or load an example above."></textarea>
         </div>
       </div>
       <div class="drop-overlay" id="drop-overlay" hidden>
@@ -95,10 +87,11 @@
       </div>
       <ul class="diagnostics-list" id="diagnostics-list">
         <li class="placeholder">The linters picked under <strong>Lint</strong> run on every
-          analysis. The quick checks catch out-of-range qubits,
-          missing measurements, classical bits written twice, and APIs that Qiskit has removed;
-          they read Python only. Add-ons such as the dependence checks read the circuit itself.
-          The <a href="/benchmark">Benchmark</a> page grades the same selection on real bugs.</li>
+          analysis. The quick checks catch out-of-range qubits and bits, and Qiskit APIs that
+          are removed or do not exist; they read Python only. The dependence checks read the
+          rebuilt circuit, for missing measurements, classical bits written twice, gates no
+          measurement depends on, and more.
+          {% if benchmark_enabled %}The <a href="/benchmark">Benchmark</a> page grades the same selection on real bugs.{% endif %}</li>
       </ul>
     </div>
   </section>
@@ -210,7 +203,7 @@
         </div>
 
         <div class="tooltip" id="tooltip" hidden></div>
-        <div class="graph-hint">drag to pan &middot; scroll to zoom &middot; drag a node to move it &middot; click a node to slice &middot; Ctrl/Shift-click to add a slice</div>
+        <div class="graph-hint">drag to pan &middot; scroll to zoom &middot; drag a node to move it &middot; click a node to slice &middot; Ctrl/Shift-click to add a slice &middot; &#9679; control, &#8853; target</div>
       </div>
 
       <div class="graph-status" id="graph-status">
@@ -231,7 +224,7 @@
             <tr><th>#</th><th>Gate</th><th>Qubits</th><th>Clbits</th><th>Params</th><th>Line</th><th>In slice</th></tr>
           </thead>
           <tbody id="instr-body">
-            <tr><td colspan="6" class="placeholder">No instructions yet.</td></tr>
+            <tr><td colspan="7" class="placeholder">No instructions yet.</td></tr>
           </tbody>
         </table>
       </div>
@@ -257,6 +250,7 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/swatches.js') }}"></script>
 <script src="{{ url_for('static', filename='js/highlight.js') }}"></script>
+<script src="{{ url_for('static', filename='js/editkeys.js') }}"></script>
 <script src="{{ url_for('static', filename='js/mathfmt.js') }}"></script>
 <script src="{{ url_for('static', filename='js/graph.js') }}"></script>
 <script src="{{ url_for('static', filename='js/lintrules.js') }}"></script>

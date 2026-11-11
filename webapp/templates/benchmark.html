@@ -44,14 +44,6 @@
           <div class="lint-panel" id="lint-picker"><p class="placeholder">Loading the linters&hellip;</p></div>
         </details>
       </div>
-      <label class="field field-narrow">
-        <span>QDG rules</span>
-        <select id="profile-select" title="The dependence-graph rules linters that read the QDG use.">
-          {% for profile in profiles %}
-            <option value="{{ profile }}">{{ profile }}</option>
-          {% endfor %}
-        </select>
-      </label>
       <button class="btn btn-primary" id="btn-run" type="button">Run benchmark</button>
       <span class="bench-status" id="bench-status" role="status">Not run yet.</span>
     </div>

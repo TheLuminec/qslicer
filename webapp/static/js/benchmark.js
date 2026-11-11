@@ -71,8 +71,7 @@
     fetch('/api/benchmark', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lint_rules: selection, profile: $('profile-select').value,
-        dataset: state.dataset })
+      body: JSON.stringify({ lint_rules: selection, dataset: state.dataset })
     })
       .then(function (response) {
         return response.json().then(function (body) {

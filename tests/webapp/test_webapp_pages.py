@@ -94,7 +94,7 @@ def test_slicer_page_offers_all_three_input_methods(client):
 
 
 @pytest.mark.requirement("FR-02")
-def test_slicer_page_offers_both_interpreters_and_profiles(client):
+def test_slicer_page_offers_both_interpreters(client):
     body = _text(client.get("/slicer"))
     for option in analysis.interpreters():
         assert f'<option value="{option["id"]}"' in body
@@ -102,8 +102,9 @@ def test_slicer_page_offers_both_interpreters_and_profiles(client):
         "the static Qiskit interpreter should be the default"
     # The executing and qiskit.qasm3 routes are no longer offered.
     assert '<option value="qiskit"' not in body and '<option value="qasm"' not in body
-    for profile in analysis.rule_profiles():
-        assert f'<option value="{profile}">' in body
+    # No rule profile to pick: the page always analyzes with baseline.
+    assert 'id="profile-select"' not in body
+    assert "editkeys.js" in body
 
 
 @pytest.mark.requirement("FR-21")
