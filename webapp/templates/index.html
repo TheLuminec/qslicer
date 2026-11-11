@@ -67,8 +67,8 @@
             </g>
             <g class="hero-node in-slice cat-multi" transform="translate(149.0,79.0)">
               <line class="hero-span" x1="0" y1="-33.0" x2="0" y2="33.0"></line>
-              <circle class="hero-tick" cx="0" cy="-33.0" r="3.2"></circle>
-              <circle class="hero-tick" cx="0" cy="33.0" r="3.2"></circle>
+              <circle class="hero-tick" cx="0" cy="-33.0" r="4.4"></circle>
+              <g class="hero-target" transform="translate(0,33.0)"><circle r="6"></circle><path d="M -6 0 L 6 0 M 0 -6 L 0 6"></path></g>
               <rect class="hero-shape" x="-30.0" y="-13.0" width="60" height="26" rx="6"></rect>
               <text class="hero-label" x="0" y="4">cx q0,1</text>
               <text class="hero-index" x="0" y="-18">#1</text>
@@ -80,8 +80,8 @@
             </g>
             <g class="hero-node in-slice cat-multi" transform="translate(286.0,79.0)">
               <line class="hero-span" x1="0" y1="-33.0" x2="0" y2="33.0"></line>
-              <circle class="hero-tick" cx="0" cy="-33.0" r="3.2"></circle>
-              <circle class="hero-tick" cx="0" cy="33.0" r="3.2"></circle>
+              <circle class="hero-tick" cx="0" cy="-33.0" r="4.4"></circle>
+              <g class="hero-target" transform="translate(0,33.0)"><circle r="6"></circle><path d="M -6 0 L 6 0 M 0 -6 L 0 6"></path></g>
               <rect class="hero-shape" x="-30.0" y="-13.0" width="60" height="26" rx="6"></rect>
               <text class="hero-label" x="0" y="4">cx q0,1</text>
               <text class="hero-index" x="0" y="-18">#3</text>
@@ -256,9 +256,10 @@
         combination &mdash; each kind is a separate rule in the graph.</p>
     </div>
     <div class="card">
-      <h3>Read the entanglement</h3>
-      <p>See which qubits have been pulled into the same group, how deep the nesting goes, and
-        where uncomputation undid it again.</p>
+      <h3>See what each gate does</h3>
+      <p>Hover a gate for what it does, its matrix, and which wires are controls and which are
+        targets. Tags mark phase-only gates, phase kickback and measurements whose result is
+        fixed; a slice from a measurement marks the qubits it may be correlated with.</p>
     </div>
     <div class="card">
       <h3>Catch mistakes early</h3>

@@ -111,6 +111,16 @@ MIRROR = TEXT_DIM
 ARC_BASE, ARC_STEP, ARC_MAX_DEPTH = 14.0, 9.0, 6
 ARC_POINTS = 24
 
+# What each wire of a multi-qubit gate is to it, as a circuit diagram marks it
+# (``qubitRoles`` and ``roleMark`` in graph.js): a solid dot on a control, a
+# ring on a target (a circled plus for an X), a cross on a swapped wire, and
+# the small dot of a gate with no controls on every wire. ROLE_RADIUS is the
+# mark's radius in content pixels.
+ROLES = ("plain", "control", "target", "target-x", "target-swap")
+ROLE_PLAIN, ROLE_CONTROL, ROLE_TARGET, ROLE_TARGET_X, ROLE_SWAP = range(len(ROLES))
+ROLE_RADIUS = np.array([3.2, 4.4, 6.0, 6.0, 4.6])
+TARGET_SYMBOL = {"x": "⊕", "swap": "×"}   # anything else: a plain ring, "○"
+
 _EMPTY_INSIGHTS: Dict[str, Any] = {"measurements": {}, "mirrors": [], "kickback": {},
                                    "no_effect": {}, "predetermined": {}, "correlations": {},
                                    "guards": {}}
@@ -130,6 +140,20 @@ def short_label(name: str, qubits: Sequence[int]) -> str:
             wires = "q" + str(qubits[0]) + "+" + str(len(qubits) - 1)
         label += " " + wires
     return label
+
+
+def qubit_roles(name: str, count: int) -> Tuple[int, ...]:
+    """The role (an index into ROLES) of each of a gate's ``count`` qubits, in
+    argument order: the leading ``gates.controlled`` ones are controls, the
+    rest targets of its kind (``qubitRoles`` in graph.js)."""
+    controls, kind = gates.controlled(name)
+    if controls < 0:
+        controls = count - 1
+    if controls >= count:
+        controls = 0
+    rest = (ROLE_SWAP if kind == "swap" else ROLE_PLAIN if not controls
+            else ROLE_TARGET_X if kind == "x" else ROLE_TARGET)
+    return (ROLE_CONTROL,) * controls + (rest,) * (count - controls)
 
 
 def node_width(label: str) -> float:
@@ -232,6 +256,7 @@ class Graph:
         self.content_height = (self.clbit_y(self.num_clbits - 1) + CL_H if self.num_clbits
                                else TOP_PAD + self.num_qubits * LANE_H)
 
+        self._prepare_roles()
         self.phase_only = np.fromiter((name in gates.PHASE for name in self.names),
                                       dtype=bool, count=n)
         self._insights: Optional[Dict[str, Any]] = None
@@ -249,6 +274,54 @@ class Graph:
 
     def clbit_y(self, clbit: int) -> float:
         return TOP_PAD + (self.num_qubits - 1) * LANE_H + CL_GAP + clbit * CL_H
+
+    # ---------------------------------------------------------------- roles --
+
+    def _prepare_roles(self) -> None:
+        """A mark per wire of each multi-qubit gate, as flat arrays: the marks
+        of nodes ``a..b`` are ``role_start[a]:role_start[b]``. ``role_x`` and
+        ``role_y`` are where each sits: on the wire under the node's centre,
+        or on the box's left edge when the wire runs through the box."""
+        start = np.zeros(self.n + 1, dtype=np.int64)
+        node: List[int] = []
+        kind: List[int] = []
+        lane: List[float] = []
+        cache: Dict[Tuple[str, int], Tuple[int, ...]] = {}
+        for idx, qubits in enumerate(self.qubits):
+            if len(qubits) > 1:
+                key = (self.names[idx], len(qubits))
+                roles = cache.get(key)
+                if roles is None:
+                    roles = cache[key] = qubit_roles(*key)
+                node.extend([idx] * len(qubits))
+                kind.extend(roles)
+                lane.extend(self.lane_y(q) for q in qubits)
+            start[idx + 1] = len(node)
+        self.role_start = start
+        self.role_node = np.asarray(node, dtype=np.int64)
+        self.role_kind = np.asarray(kind, dtype=np.int8)
+        self.role_y = np.asarray(lane, dtype=float)
+        radius = ROLE_RADIUS[self.role_kind]
+        owner = self.role_node
+        inside = np.abs(self.role_y - self.y[owner]) < NODE_H / 2 + radius
+        self.role_x = self.x[owner] - np.where(inside, self.w[owner] / 2 + radius, 0.0)
+
+    def roles(self, idx: int) -> List[str]:
+        """What each of the node's qubits is to its gate, in argument order
+        (empty for a node on fewer than two qubits)."""
+        return [ROLES[k] for k in self.role_kind[self.role_start[idx]:self.role_start[idx + 1]]]
+
+    def control_lines(self, idx: int) -> List[str]:
+        """The hover card's ``control ● q0, q1`` and ``target ⊕ q2``, for a
+        gate with controls."""
+        roles = self.roles(idx)
+        if "control" not in roles:
+            return []
+        qubits = self.qubits[idx]
+        held = [q for q, role in zip(qubits, roles) if role == "control"]
+        rest = [q for q, role in zip(qubits, roles) if role != "control"]
+        symbol = TARGET_SYMBOL.get(gates.controlled(self.names[idx])[1], "○")
+        return [f"control ● {_qubit_list(held)}", f"target {symbol} {_qubit_list(rest)}"]
 
     # ---------------------------------------------------------------- edges --
 

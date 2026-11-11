@@ -200,6 +200,9 @@ def test_shor_draws_only_what_is_in_view(shor):
     g = view.graph
     assert (g.n, len(g.edge_source)) == (12821, 24154)
     assert 0 < view.drawn_nodes < 300 and view.drawn_edges < 1000
+    window = g.nodes_in(*view.window[:2])
+    assert view.drawn_roles == g.role_start[window.stop] - g.role_start[window.start]
+    assert 0 < view.drawn_roles < 4 * view.drawn_nodes
     view.set_criterion(g.n // 2, reveal=True)
     assert view.slice_mask[g.n // 2]
     lo, hi = view.ax.get_xlim()
@@ -453,6 +456,65 @@ def test_control_dependence_of_an_if_test_has_a_chip_and_can_be_ignored():
     assert view.slice_mask[8]
     view.toggle_dependency(control)
     assert not view.slice_mask[8]
+
+
+ROLES = """from qiskit import QuantumCircuit
+qc = QuantumCircuit(4)
+qc.cx(0, 1)
+qc.ccx(0, 1, 2)
+qc.mcx([0, 1, 2], 3)
+qc.cswap(0, 1, 2)
+qc.swap(1, 3)
+qc.cz(0, 3)
+qc.rzz(0.5, 2, 3)
+qc.h(0)
+"""
+
+
+def test_each_wire_of_a_gate_gets_its_role(tmp_path):
+    """A dot on a control, a circled plus on an X target, a ring on another
+    target, a cross on a swapped wire, the small dot when nothing controls."""
+    path = tmp_path / "roles.py"
+    path.write_text(ROLES, encoding="utf-8")
+    g = model.Document(str(path), lint=False).graph()
+    assert [g.roles(i) for i in range(g.n)] == [
+        ["control", "target-x"],                                  # cx
+        ["control", "control", "target-x"],                       # ccx
+        ["control", "control", "control", "target-x"],            # mcx: all but the last
+        ["control", "target-swap", "target-swap"],                # cswap
+        ["target-swap", "target-swap"],                           # swap
+        ["control", "target"],                                    # cz
+        ["plain", "plain"],                                       # rzz: no controls
+        [],                                                       # h: one wire, no marks
+    ]
+    assert g.control_lines(1) == ["control ● q0, q1", "target ⊕ q2"]
+    assert g.control_lines(3) == ["control ● q0", "target × q1, q2"]
+    assert g.control_lines(5) == ["control ● q0", "target ○ q3"]
+    assert g.control_lines(4) == g.control_lines(6) == []
+    # q1 runs through the ccx's box: its mark sits on the box's left edge.
+    first = g.role_start[1]
+    assert g.role_x[first + 1] == pytest.approx(g.left[1] - 4.4)
+    assert g.role_x[first] == g.role_x[first + 2] == g.x[1]
+
+
+def test_role_marks_come_from_two_collections(tmp_path):
+    path = tmp_path / "roles.py"
+    path.write_text(ROLES, encoding="utf-8")
+    view = _view(model.Document(str(path), lint=False))
+    g = view.graph
+    assert view.drawn_roles == len(g.role_kind) == 18
+    # Every mark but the four crosses is a circle; a ring is hollow, in the gate's colour.
+    assert len(view.dots.get_offsets()) == 14
+    faces, edges = view.dots.get_facecolor(), view.dots.get_edgecolor()
+    rings = [i for i, kind in enumerate(k for k in g.role_kind if k != model.ROLE_SWAP)
+             if kind in (model.ROLE_TARGET, model.ROLE_TARGET_X)]
+    assert len(rings) == 4                                        # cx, ccx, mcx, cz
+    for i in rings:
+        assert np.allclose(faces[i], to_rgba(model.BG_SUNKEN))
+        assert np.allclose(edges[i], to_rgba(model.CATEGORY_FILL[model.gates.MULTI]))
+    # Two strokes per plus (cx, ccx, mcx) and per cross (cswap twice, swap twice).
+    assert len(view.role_lines.get_segments()) == 2 * (3 + 4)
+    assert "control ● q0, q1, q2\ntarget ⊕ q3" in view._card(2)
 
 
 def test_insights_failing_means_nothing_found(monkeypatch):

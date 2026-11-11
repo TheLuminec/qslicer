@@ -2,11 +2,14 @@
 QDG Visualizer - an interactive matplotlib window for exploring slices.
 
 Usage (needs matplotlib: pip install qslicer[viz]):
-    qslicer viz path/to/circuit.py [--profile PROFILE] [--circuit N] [--no-lint]
+    qslicer viz path/to/circuit.py [--circuit N] [--set NAME=VALUE] [--no-lint]
+                [--select RULE ...] [--criterion INDEX | --line LINE] [--forward]
+                [--save PNG]                (qslicer viz --help for all of them)
 
 The file is read with the static front ends, so nothing in it runs. The view
 follows the web page's graph (webapp/static/js/graph.js): instructions left to
 right, one wire per qubit and per classical bit, gate boxes colored by kind,
+control dots and target marks on the wires of controlled gates,
 classical edges routed along their bit, lint markers on the instructions a
 finding is about, and an overview strip of the whole circuit underneath.
 
@@ -79,6 +82,7 @@ DIM_NODE, DIM_EDGE, BASE_EDGE = 0.22, 0.08, 0.55
 MONO = "monospace"
 
 _CATEGORY_RGBA = to_rgba_array([CATEGORY_FILL[c] for c in CATEGORIES])
+_BG_SUNKEN_RGBA = to_rgba(BG_SUNKEN)   # the inside of a target ring
 _DEP_RGBA = to_rgba_array([DEP_COLORS[d] for d in DEPENDENCIES])
 _SEVERITY_RGBA = {rank: to_rgba(SEVERITY_COLORS[name]) for rank, name in SEVERITY_NAME.items()}
 _PALETTE_RGBA = to_rgba_array(SLICE_PALETTE)
@@ -282,12 +286,16 @@ class QDGVisualizer:
         self.ticks = LineCollection([], colors=TEXT_FAINT, linewidths=1.1,
                                     linestyles=(0, (2, 3)), zorder=1.2)
         self.spans = LineCollection([], zorder=2)
+        # The plus of a CNOT's target and the cross of a swapped wire, over
+        # the dots and rings (``self.dots``) a gate has on its wires.
+        self.role_lines = LineCollection([], zorder=2.2, capstyle="round")
         self.boxes = PolyCollection([], zorder=3, joinstyle="round")
         self.arcs = LineCollection([], zorder=2.5, capstyle="round")
         self.stripes = PolyCollection([], zorder=3.2, linewidths=0)
         self.pills = PolyCollection([], zorder=4.2, joinstyle="round")
         for artist in (self.lanes, self.cwires, self.marked_lanes, self.edges, self.arrows,
-                       self.ticks, self.spans, self.boxes, self.arcs, self.stripes, self.pills):
+                       self.ticks, self.spans, self.role_lines, self.boxes, self.arcs,
+                       self.stripes, self.pills):
             ax.add_collection(artist, autolim=False)
         self.dots = self.badges = self.tick_dots = None   # EllipseCollections, rebuilt
         self.glyphs = _Glyphs()
@@ -298,7 +306,7 @@ class QDGVisualizer:
         ax.add_collection(self.badge_text, autolim=False)
         ax.add_collection(self.pill_text, autolim=False)
         self.drawn_nodes = self.drawn_edges = self.drawn_labels = 0
-        self.drawn_arcs = self.drawn_marks = self.drawn_stripes = 0
+        self.drawn_arcs = self.drawn_marks = self.drawn_stripes = self.drawn_roles = 0
         # The criteria of several slices, kept at the top right of the view.
         self.legend_boxes = PolyCollection([], linewidths=0, zorder=6.5)
         self.legend_text = PathCollection([], linewidths=0, edgecolors="none", zorder=6.6)
@@ -1064,7 +1072,7 @@ class QDGVisualizer:
         self.boxes.set_edgecolor(edge)
         _set_lines(self.boxes, _pt(1, k, dpi) * lw, dashed)
 
-        # ---- spans of multi-qubit gates, and a dot on every wire ---------
+        # ---- spans of multi-qubit gates, and a mark on every wire --------
         multi = [j for j, idx in enumerate(ids) if len(g.qubits[idx]) > 1]
         span_rgba = _CATEGORY_RGBA[g.category[ids[multi]]].copy() if multi else np.zeros((0, 4))
         if multi:
@@ -1073,14 +1081,7 @@ class QDGVisualizer:
                                  for j in multi])
         self.spans.set_color(span_rgba)
         self.spans.set_linewidth(_pt(2, k, dpi))
-        dot_xy, dot_rgba = [], []
-        for j in multi:
-            rgba = list(_CATEGORY_RGBA[g.category[ids[j]]])
-            rgba[3] = 0.8 * alpha[j]
-            for q in g.qubits[ids[j]]:
-                dot_xy.append((xs[j], g.lane_y(q)))
-                dot_rgba.append(rgba)
-        self.dots = self._ellipses(self.dots, dot_xy, 6.4, dot_rgba, zorder=2.1)
+        self._rebuild_roles(span, alpha, k, dpi)
 
         # ---- edges --------------------------------------------------------
         self._rebuild_edges(g.edges_in(x0, x1), k, dpi)
@@ -1224,6 +1225,52 @@ class QDGVisualizer:
         self.drawn_nodes = len(ids)
         self.timings["rebuild"] = time.perf_counter() - start
 
+    def _rebuild_roles(self, span: range, alpha: np.ndarray, k: float, dpi: float) -> None:
+        """What each wire is to a multi-qubit gate (``Graph.role_kind``): a
+        solid dot on a control, a ring on a target with a plus for an X, a
+        cross on a swapped wire, a small dot for a gate with no controls.
+        The circles are one EllipseCollection, the plus and cross strokes one
+        LineCollection; both come straight from the model's arrays."""
+        g = self.graph
+        lo, hi = g.role_start[span.start], g.role_start[span.stop]
+        kind = g.role_kind[lo:hi]
+        rx, ry = g.role_x[lo:hi], g.role_y[lo:hi]
+        rgba = _CATEGORY_RGBA[g.category[g.role_node[lo:hi]]].copy()
+        rgba[:, 3] = alpha[g.role_node[lo:hi] - span.start]
+        self.drawn_roles = len(kind)
+
+        ring = (kind == model.ROLE_TARGET) | (kind == model.ROLE_TARGET_X)
+        round_ = kind != model.ROLE_SWAP
+        face = rgba.copy()
+        face[kind == model.ROLE_PLAIN, 3] *= 0.8
+        face[ring] = _BG_SUNKEN_RGBA
+        face[ring, 3] = rgba[ring, 3]
+        edge = np.where(ring[:, None], rgba, 0.0)
+        self.dots = self._ellipses(self.dots, np.stack([rx, ry], axis=1)[round_],
+                                   2 * model.ROLE_RADIUS[kind[round_]], face[round_],
+                                   zorder=2.1, edgecolors=edge[round_],
+                                   linewidths=np.where(ring[round_], _pt(1.8, k, dpi), 0.0))
+
+        # Strokes: the plus inside a ring (stopping where its round caps meet
+        # the ring) and the two arms of a cross, two segments a mark.
+        plus = kind == model.ROLE_TARGET_X
+        cross = kind == model.ROLE_SWAP
+        a = model.ROLE_RADIUS[model.ROLE_TARGET_X] - 0.8
+        s = model.ROLE_RADIUS[model.ROLE_SWAP]
+        arms = np.concatenate([
+            np.array([[[-a, 0], [a, 0]], [[0, -a], [0, a]]])[None].repeat(plus.sum(), 0),
+            np.array([[[-s, -s], [s, s]], [[-s, s], [s, -s]]])[None].repeat(cross.sum(), 0),
+        ]).reshape(-1, 2, 2)
+        centres = np.concatenate([np.stack([rx[plus], ry[plus]], 1),
+                                  np.stack([rx[cross], ry[cross]], 1)]).repeat(2, 0)
+        self.role_lines.set_segments(arms + centres[:, None, :])
+        self.role_lines.set_color(np.concatenate([rgba[plus], rgba[cross]]).repeat(2, 0)
+                                  if len(centres) else "none")
+        self.role_lines.set_linewidth(
+            np.concatenate([np.full(2 * plus.sum(), _pt(1.6, k, dpi)),
+                            np.full(2 * cross.sum(), _pt(2, k, dpi))])
+            if len(centres) else _pt(1.6, k, dpi))
+
     def _rebuild_edges(self, idx: np.ndarray, k: float, dpi: float) -> None:
         """Curves for quantum edges, routed polylines for edges along a bit."""
         g = self.graph
@@ -1292,9 +1339,9 @@ class QDGVisualizer:
         """An EllipseCollection of circles ``diameter`` content pixels across."""
         if old is not None:
             old.remove()
-        if not xy:
-            return None
         n = len(xy)
+        if not n:
+            return None
         coll = EllipseCollection(np.full(n, diameter), np.full(n, diameter), np.zeros(n),
                                  units="xy", offsets=np.asarray(xy),
                                  offset_transform=self.ax.transData, facecolors=facecolors,
@@ -1499,6 +1546,7 @@ class QDGVisualizer:
         lines = [f"#{idx}  {g.label(idx)}"]
         if info.get("known"):
             lines.append(info["title"])
+        lines += g.control_lines(idx)
         where = g.where(idx)
         if where:
             lines.append(where)

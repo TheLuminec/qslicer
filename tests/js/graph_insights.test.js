@@ -190,3 +190,23 @@ test('insights missing from an older response read as nothing found', () => {
   ]);
   assert.strictEqual(found.mirrors.length, 0);
 });
+
+/* -------------------------------------------------- controls and targets -- */
+
+test('roles: leading qubits are controls, the rest get the target the card names', () => {
+  const roles = (qubits, gate) => [...QGraph.roles.of({ qubits }, gate)];
+  assert.deepStrictEqual(roles([0, 1], { controls: 1, target: 'x' }), ['control', 'target-x']);
+  assert.deepStrictEqual(roles([2, 0, 1], { controls: 2, target: 'x' }),
+    ['control', 'control', 'target-x']);
+  // -1: every qubit but the last is a control (mcx, mcphase).
+  assert.deepStrictEqual(roles([0, 1, 2, 3], { controls: -1, target: 'gate' }),
+    ['control', 'control', 'control', 'target']);
+  assert.deepStrictEqual(roles([0, 1, 2], { controls: 1, target: 'swap' }),
+    ['control', 'target-swap', 'target-swap']);
+  // No controls: a swap still crosses its wires, anything else is plain.
+  assert.deepStrictEqual(roles([0, 1], { controls: 0, target: 'swap' }), ['target-swap', 'target-swap']);
+  assert.deepStrictEqual(roles([0, 1], { controls: 0, target: null }), ['plain', 'plain']);
+  assert.deepStrictEqual(roles([0, 1], undefined), ['plain', 'plain']);
+  // A card that claims more controls than the node has qubits is not believed.
+  assert.deepStrictEqual(roles([0], { controls: 1, target: 'x' }), ['plain']);
+});

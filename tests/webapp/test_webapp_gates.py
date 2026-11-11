@@ -270,7 +270,7 @@ def test_flag_sets_match_describe():
 # ---------------------------------------------------- describe/glossary --
 
 REQUIRED = {"name", "title", "category", "qubits", "summary", "detail", "matrix",
-            "entangling", "phase", "self_inverse", "known"}
+            "entangling", "phase", "self_inverse", "known", "controls", "target"}
 CATEGORIES = {gates.SINGLE, gates.MULTI, gates.MEASURE, gates.BARRIER, gates.CLASSICAL}
 
 
@@ -308,3 +308,28 @@ def test_glossary_order():
     assert entries[0]["category"] == gates.SINGLE
     assert entries[-1]["category"] == gates.BARRIER
     assert all(e["known"] for e in entries)
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("cx", (1, "x")), ("ccx", (2, "x")), ("mcx", (gates.ALL_BUT_LAST, "x")),
+    ("mcphase", (gates.ALL_BUT_LAST, "gate")), ("cswap", (1, "swap")),
+    ("swap", (0, "swap")), ("h", (0, None)), ("my_custom_gate", (0, None)),
+    ("cch", (2, "gate")),          # HGate().control(2): a "c" per control
+])
+def test_controlled(name, expected):
+    assert tuple(gates.controlled(name)) == expected
+    card = gates.describe(name)
+    assert (card["controls"], card["target"]) == expected
+
+
+def test_control_qubits():
+    assert gates.control_qubits("cx", [3, 1]) == [3]
+    assert gates.control_qubits("ccx", (0, 1, 2)) == [0, 1]
+    assert gates.control_qubits("mcx", [4, 2, 0, 1]) == [4, 2, 0]
+    assert gates.control_qubits("mcphase", [0, 1, 2]) == [0, 1]
+    assert gates.control_qubits("cswap", [0, 1, 2]) == [0]
+    assert gates.control_qubits("swap", [0, 1]) == []
+    assert gates.control_qubits("h", [0]) == []
+    assert gates.control_qubits("my_custom_gate", [0, 1]) == []
+    assert gates.control_qubits("cch", [5, 6, 7]) == [5, 6]
+    assert gates.control_qubits("ccx", [0, 1]) == []     # too few qubits for its controls

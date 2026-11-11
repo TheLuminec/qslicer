@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import analysis          # noqa: E402
 import examples          # noqa: E402
+from qslicer import gates  # noqa: E402
 
 # Constants copied from static/js/graph.js.
 LANE_H = 66
@@ -144,8 +145,20 @@ def main():
                 '          <line class="hero-span" x1="0" y1="%.1f" x2="0" y2="%.1f"></line>'
                 % (min(lanes), max(lanes))
             )
-            for lane in lanes:
-                out.append('          <circle class="hero-tick" cx="0" cy="%.1f" r="3.2"></circle>' % lane)
+            # A solid dot on each control and a circled plus on an X target, as
+            # graph.js draws them (qubitRoles, roleMark).
+            controls = gates.control_qubits(node["name"], node["qubits"])
+            x_target = gates.controlled(node["name"])[1] == "x"
+            for qubit, lane in zip(node["qubits"], lanes):
+                if qubit in controls:
+                    out.append('          <circle class="hero-tick" cx="0" cy="%.1f" r="4.4"></circle>' % lane)
+                elif controls and x_target:
+                    out.append(
+                        '          <g class="hero-target" transform="translate(0,%.1f)"><circle r="6">'
+                        '</circle><path d="M -6 0 L 6 0 M 0 -6 L 0 6"></path></g>' % lane
+                    )
+                else:
+                    out.append('          <circle class="hero-tick" cx="0" cy="%.1f" r="3.2"></circle>' % lane)
 
         out.append(
             '          <rect class="hero-shape" x="%.1f" y="%.1f" width="%d" height="%d" rx="6"></rect>'

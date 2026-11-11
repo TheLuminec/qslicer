@@ -381,7 +381,12 @@
   /* The two ends of a chop, either still unpicked (null); or null for none. */
   QGraph.prototype.setChop = function (from, to) {
     var none = (from === null || from === undefined) && (to === null || to === undefined);
-    this.chop = none ? null : { from: from === undefined ? null : from, to: to === undefined ? null : to };
+    var next = none ? null : { from: from === undefined ? null : from, to: to === undefined ? null : to };
+    var was = this.chop;
+    // Every slice clears the chop first; with none to clear, nothing changed
+    // and nothing (the overview's image least of all) needs drawing again.
+    if (was === next || (was && next && was.from === next.from && was.to === next.to)) return;
+    this.chop = next;
     this._sliceChanged();
   };
 
@@ -1048,6 +1053,44 @@
     return d + ' L ' + last[0] + ' ' + last[1];
   }
 
+  /* What each of a node's qubits is to its gate, in argument order: 'control',
+     'target' (a plain ring), 'target-x', 'target-swap', or 'plain' for a gate
+     with no controls. The gate's card says how many leading qubits are
+     controls (-1: all but the last) and what the rest get. */
+  function qubitRoles(node, gate) {
+    var qubits = node.qubits || [];
+    var count = gate && gate.controls ? gate.controls : 0;
+    if (count < 0) count = qubits.length - 1;
+    if (count >= qubits.length) count = 0;
+    var kind = gate && gate.target;
+    var rest = kind === 'swap' ? 'target-swap' : !count ? 'plain'
+      : kind === 'x' ? 'target-x' : 'target';
+    return qubits.map(function (q, i) { return i < count ? 'control' : rest; });
+  }
+
+  /* The mark for one wire of a multi-qubit gate, drawn around (0, 0). */
+  function roleMark(role, color) {
+    var g = el('g', { class: 'node-tick role-' + role });
+    var r = 3.2;
+    if (role === 'control') {
+      r = 4.4;
+      g.appendChild(el('circle', { r: r, fill: color }));
+    } else if (role === 'target-swap') {
+      r = 4.6;
+      g.appendChild(el('path', { d: 'M -4.6 -4.6 L 4.6 4.6 M -4.6 4.6 L 4.6 -4.6',
+                                 stroke: color, 'stroke-width': 2, 'stroke-linecap': 'round' }));
+    } else if (role === 'target' || role === 'target-x') {
+      r = 6;
+      g.appendChild(el('circle', { r: r, fill: '#181825', stroke: color, 'stroke-width': 1.8 }));
+      if (role === 'target-x') {
+        g.appendChild(el('path', { d: 'M -6 0 L 6 0 M 0 -6 L 0 6', stroke: color, 'stroke-width': 1.6 }));
+      }
+    } else {
+      g.appendChild(el('circle', { r: r, fill: color, opacity: 0.8 }));
+    }
+    return { el: g, r: r };
+  }
+
   QGraph.prototype._nodeClass = function (node) {
     var classes = 'node cat-' + node.category.replace('-qubit', '');
     if (this.slice) classes += this.slice.has(node.id) ? ' in-slice' : ' dimmed';
@@ -1092,11 +1135,17 @@
         stroke: CATEGORY_FILL[node.category] || '#9AA6CF',
         'stroke-width': 2, opacity: 0.55
       }));
-      lanes.forEach(function (ly) {
-        g.appendChild(el('circle', {
-          class: 'node-tick', cx: 0, cy: ly, r: 3.2,
-          fill: CATEGORY_FILL[node.category] || '#9AA6CF', opacity: 0.8
-        }));
+      // What each wire is to the gate, as a circuit diagram draws it: a solid
+      // dot on a control, a ring on a target (a circled plus for an X, a
+      // cross for a swap). A wire that runs through the node's box has its
+      // mark on the box's left edge, where the box would hide it.
+      var roles = qubitRoles(node, this._gateInfo(node));
+      var color = CATEGORY_FILL[node.category] || '#9AA6CF';
+      lanes.forEach(function (ly, i) {
+        var mark = roleMark(roles[i], color);
+        var cx = Math.abs(ly) < pos.h / 2 + mark.r ? -pos.w / 2 - mark.r : 0;
+        mark.el.setAttribute('transform', 'translate(' + cx + ',' + ly + ')');
+        g.appendChild(mark.el);
       });
     }
 
@@ -1404,6 +1453,15 @@
     if (gate.matrix) {
       rows += '<dt>matrix</dt><dd class="tip-matrix">' + mathExpr(gate.matrix) + '</dd>';
     }
+    var roles = qubitRoles(node, gate);
+    if (roles.indexOf('control') !== -1) {
+      var held = function (want) {
+        return node.qubits.filter(function (q, i) { return (roles[i] === 'control') === want; });
+      };
+      rows += '<dt>control</dt><dd>&#9679; ' + qubitList(held(true)) + '</dd>' +
+        '<dt>target</dt><dd>' + (gate.target === 'x' ? '&oplus; ' : gate.target === 'swap' ? '&times; ' : '&#9675; ') +
+        qubitList(held(false)) + '</dd>';
+    }
     if (node.params.length) rows += '<dt>params</dt><dd>' + escapeHtml(node.params.join(', ')) + '</dd>';
     if (node.clbits.length) rows += '<dt>clbits</dt><dd>' + node.clbits.join(', ') + '</dd>';
     if (node.condition_clbits.length) {
@@ -1598,7 +1656,7 @@
   /* --------------------------------------------------- overview strip --- */
 
   /* The whole circuit in one canvas, under the graph: every instruction as a
-     bar across the wires it touches, the slice and marks in their colors, and
+     mark on each wire it touches, the slice and marks in their colors, and
      the part the view shows outlined. Click or drag it to move the view. It
      appears only when the circuit is wider than the view. */
   QGraph.prototype._installOverview = function () {
@@ -1937,6 +1995,7 @@
   QGraph.routing = { classicalRoute: classicalRoute, roundedPath: roundedPath,
                      sharedClbits: sharedClbits, classicalOnly: classicalOnly,
                      prepareEdges: prepareEdges };
+  QGraph.roles = { of: qubitRoles };
   QGraph.culling = { drawWindow: drawWindow, contains: contains, overlaps: overlaps,
                      OVERSCAN: OVERSCAN };
   QGraph.slices = { COLORS: SLICE_COLORS, MAX_STRIPES: MAX_STRIPES, membership: sliceMembership,

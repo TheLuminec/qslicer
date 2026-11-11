@@ -1,13 +1,15 @@
-"""Reference information for the gates the mock-up knows how to describe.
+"""Reference information for the gates qslicer knows how to describe.
 
-Used for the hover cards in the graph view and for the gate glossary on the
-quantum info page. Anything not listed here falls back to a generic entry.
+Used for the hover cards in the web app's graph view and in ``qslicer viz``,
+for the gate glossary on the quantum info page, and (``controlled``,
+``control_qubits``) for drawing control dots and target marks. Anything not
+listed here falls back to a generic entry.
 
 Math notation
 -------------
 ``summary`` and ``detail`` are prose with inline math between dollar signs;
-``matrix`` is a bare expression. Both are rendered by
-``static/js/mathfmt.js``, whose docstring lists the markup it understands:
+``matrix`` is a bare expression. Both are rendered by the web app's
+``webapp/static/js/mathfmt.js``, whose docstring lists the markup it understands:
 
     |0>                  ket
     \\sqrt{2}             radical with the bar over the radicand
@@ -432,8 +434,65 @@ PHASE = frozenset(name for name, info in _GATES.items() if info.get("phase"))
 SELF_INVERSE = frozenset(name for name, info in _GATES.items() if info.get("self_inverse"))
 
 
+# Controlled gates: how many leading qubit arguments are controls (ALL_BUT_LAST
+# for the multi-controlled ones, whose count the name does not give) and what
+# the rest get. The target kind picks the symbol a drawing puts on the target
+# wire: "x" the circled plus of a CNOT, "swap" a cross on each swapped wire,
+# "gate" a plain hollow ring.
+ALL_BUT_LAST = -1
+_CONTROLLED: Dict[str, Any] = {
+    "cx": (1, "x"), "ccx": (2, "x"), "rccx": (2, "x"), "c3x": (3, "x"), "rc3x": (3, "x"),
+    "c4x": (4, "x"), "mcx": (ALL_BUT_LAST, "x"), "mcx_gray": (ALL_BUT_LAST, "x"),
+    "mcx_recursive": (ALL_BUT_LAST, "x"), "mcx_vchain": (ALL_BUT_LAST, "x"),
+    "cy": (1, "gate"), "cz": (1, "gate"), "ccz": (2, "gate"), "ch": (1, "gate"),
+    "cs": (1, "gate"), "csdg": (1, "gate"), "csx": (1, "gate"), "c3sx": (3, "gate"),
+    "cp": (1, "gate"), "cu1": (1, "gate"), "cu": (1, "gate"), "cu3": (1, "gate"),
+    "crx": (1, "gate"), "cry": (1, "gate"), "crz": (1, "gate"),
+    "mcp": (ALL_BUT_LAST, "gate"), "mcphase": (ALL_BUT_LAST, "gate"),
+    "mcrx": (ALL_BUT_LAST, "gate"), "mcry": (ALL_BUT_LAST, "gate"),
+    "mcrz": (ALL_BUT_LAST, "gate"),
+    "cswap": (1, "swap"),
+}
+_SWAPS = frozenset({"swap", "iswap"})
+
+
+def controlled(name: str) -> Any:
+    """``(controls, target)`` for a controlled gate's name, else ``(0, None)``.
+
+    ``controls`` counts the leading qubit arguments that are controls, or is
+    ALL_BUT_LAST. A name the table lacks but that is ``c``s in front of a gate
+    it knows (``cch``, what ``HGate().control(2)`` is called) counts its ``c``s.
+    """
+    if name in _CONTROLLED:
+        return _CONTROLLED[name]
+    if name in _SWAPS:
+        return (0, "swap")
+    if name in _GATES:
+        return (0, None)
+    base = name.lstrip("c")
+    count = len(name) - len(base)
+    if count and base in _GATES and _GATES[base]["category"] in (SINGLE, MULTI):
+        return (count, "x" if base == "x" else "swap" if base in _SWAPS else "gate")
+    return (0, None)
+
+
+def control_qubits(name: str, qubits: Any) -> list:
+    """The qubits of an instruction that are its controls, in argument order."""
+    count = controlled(name)[0]
+    qubits = list(qubits)
+    if count == ALL_BUT_LAST:
+        return qubits[:-1]
+    return qubits[:count] if count < len(qubits) else []
+
+
 def describe(name: str) -> Dict[str, Any]:
     """Return a hover-card description for a gate name, with a sane fallback."""
+    card = _describe(name)
+    card["controls"], card["target"] = controlled(name)
+    return card
+
+
+def _describe(name: str) -> Dict[str, Any]:
     info = _GATES.get(name)
     if info is None:
         return {
