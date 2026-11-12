@@ -132,7 +132,7 @@
       state.filename = '';
       forgetProgramChoices();
       $('example-select').value = '';
-      $('example-blurb').textContent = '';
+      benchNote('');
       updateGutter();
       resetOutput();
     });
@@ -158,7 +158,8 @@
 
     $('example-select').addEventListener('change', function (event) {
       var key = event.target.value;
-      if (!key) { $('example-blurb').textContent = ''; return; }
+      if (!key) return;
+      benchNote('');
       loadExample(key);
     });
 
@@ -194,7 +195,7 @@
       forgetProgramChoices();
       setInterpreter(interpreterForFilename(file.name));
       $('example-select').value = '';
-      $('example-blurb').textContent = 'Loaded from ' + file.name + '.';
+      benchNote('');
       updateGutter();
       analyze();
     };
@@ -215,9 +216,6 @@
         state.filename = data.filename;
         forgetProgramChoices();
         setInterpreter(data.interpreter || interpreterForFilename(data.filename));
-        var blurb = data.blurb || '';
-        $('example-blurb').innerHTML = escapeHtml(blurb) +
-          (data.highlight ? ' <span class="highlight">' + escapeHtml(data.highlight) + '</span>' : '');
         updateGutter();
         analyze();
       })
@@ -248,12 +246,12 @@
         var faults = bug.truth.lines.length
           ? ' Fault lines (from the fix): ' + bug.truth.lines.join(', ') + '.' : '';
         var query = '?dataset=' + encodeURIComponent(dataset);
-        $('example-blurb').innerHTML = escapeHtml(bug.key) +
+        benchNote(escapeHtml(bug.key) +
           (bug.source || bug.reference ? ' (' + escapeHtml([bug.source, bug.reference].filter(Boolean).join(' ')) + ')' : '') +
           ', ' + version + ' program' +
           (version === 'buggy' ? escapeHtml(faults) : '') + ' <a href="' + query + '&bug=' +
           encodeURIComponent(key) + '&version=' + other + '">Open the ' + other + ' program</a> · ' +
-          '<a href="/benchmark' + query + '#bug-' + encodeURIComponent(key) + '">Back to the benchmark</a>';
+          '<a href="/benchmark' + query + '#bug-' + encodeURIComponent(key) + '">Back to the benchmark</a>');
         updateGutter();
         analyze();
       })
@@ -262,6 +260,20 @@
 
   /* The Interpreter dropdown is the single source of truth for the front end.
      Uploads and examples set it; nothing else changes it behind the user. */
+  /* One line above the editor for a program the Benchmark page opened; it is
+     made only then, and removed when another program replaces that one. */
+  function benchNote(html) {
+    var note = $('bench-note');
+    if (!html) { if (note) note.remove(); return; }
+    if (!note) {
+      note = document.createElement('p');
+      note.id = note.className = 'bench-note';
+      var shell = $('editor-shell');
+      shell.parentNode.insertBefore(note, shell);
+    }
+    note.innerHTML = html;
+  }
+
   function interpreter() {
     return $('interpreter-select').value || 'qiskit-static';
   }
@@ -494,6 +506,20 @@
       event.target.value = '';      // an action, not a setting: ready to pick again
       if (value !== '') sliceOnQubit(Number(value), null);
     });
+    $('slice-only').addEventListener('click', function () {
+      var on = !this.classList.contains('active');
+      this.classList.toggle('active', on);
+      this.setAttribute('aria-pressed', String(on));
+      graph.setSliceOnly(on);
+      if (on && !hasSlice()) setStatus('Only the slice will show once there is one. Click a gate to slice from it.');
+    });
+    // A node number in the status line or a finding: bring the graph to it.
+    document.addEventListener('click', function (event) {
+      var link = event.target.closest ? event.target.closest('.node-link') : null;
+      if (!link) return;
+      event.preventDefault();
+      jumpToNode(Number(link.dataset.node));
+    });
     $('mirror-links').addEventListener('click', function () {
       var on = !this.classList.contains('active');
       this.classList.toggle('active', on);
@@ -573,6 +599,12 @@
       : 'showing instructions ' + from + '–' + to + ' of ' + last);
   }
 
+  /* One word per dependency type on its chip; the tooltip has the rest. */
+  var DEP_SHORT = {
+    DATA_QUBIT: 'Qubit', MEASUREMENT: 'Measure', DATA_CLASSICAL: 'Classical',
+    CONTROL_CLASSICAL: 'Control', ENTANGLEMENT: 'Entangle', PHASE: 'Phase'
+  };
+
   /* The chips are whatever the rules that ran can emit -- nothing else. They
      are rebuilt on every analysis: they say what the last run produced. */
   function renderDepFilter(data) {
@@ -582,43 +614,31 @@
     var label = document.createElement('span');
     label.className = 'tool-label';
     label.textContent = 'Follow';
+    label.title = 'Which dependency types a slice follows. Click one to turn it off.';
     container.appendChild(label);
 
     var offered = data && data.dependency_types ? data.dependency_types : [];
-    if (!offered.length) {
-      var placeholder = document.createElement('span');
-      placeholder.className = 'placeholder';
-      placeholder.textContent = data
-        ? 'this rule set emits no dependency types'
-        : 'the dependency types the rules produce appear here';
-      container.appendChild(placeholder);
-      return;
-    }
+    container.classList.toggle('has-chips', offered.length > 0);
+    if (!offered.length) return;
 
     offered.forEach(function (dep) {
       var chip = document.createElement('button');
       chip.type = 'button';
       chip.className = 'chip chip-dep active' + (dep.count ? '' : ' chip-empty');
       chip.dataset.dep = dep.name;
-      chip.title = dep.description +
-        '\n\nRule: ' + (dep.rules || []).join(', ') +
-        '\n' + dep.count + ' edge' + (dep.count === 1 ? '' : 's') + ' in this circuit';
+      var full = dep.name.toLowerCase().replace(/_/g, ' ');
+      chip.title = full.charAt(0).toUpperCase() + full.slice(1) + ' dependence: ' +
+        dep.count + ' edge' + (dep.count === 1 ? '' : 's') + ' in this circuit.\n' +
+        dep.description + '\n\nRule: ' + (dep.rules || []).join(', ') +
+        '\nClick to stop (or start) following it in slices.';
+      chip.setAttribute('aria-label', full + ' dependence, ' + dep.count + ' edges');
 
       var swatch = document.createElement('span');
       swatch.className = 'swatch';
       swatch.style.background = window.depColor(dep.name);
       chip.appendChild(swatch);
 
-      chip.appendChild(document.createTextNode(
-        dep.name.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, function (c) {
-          return c.toUpperCase();
-        })
-      ));
-
-      var count = document.createElement('span');
-      count.className = 'chip-count';
-      count.textContent = dep.count;
-      chip.appendChild(count);
+      chip.appendChild(document.createTextNode(DEP_SHORT[dep.name] || full));
 
       chip.addEventListener('click', function () {
         chip.classList.toggle('active');
@@ -788,6 +808,8 @@
 
   function handleAnalysis(data, fromCache) {
     state.lintMark = null;
+    // How many nodes there are to link to, known before the payload is kept.
+    state.nodeCount = data.ok ? data.nodes.length : 0;
     renderDiagnostics(data.diagnostics || [], data.error);
     renderCircuitBar(data);
     $('console-out').textContent = data.stdout ? data.stdout : '(no output)';
@@ -928,8 +950,8 @@
           : '<span class="diag-code">' + escapeHtml(item.code) + '</span>') +
         (item.line ? '<span class="diag-loc">line ' + item.line +
           (item.column ? ':' + item.column : '') + '</span>' : '') +
-        (item.nodes && item.nodes.length ? '<span class="diag-nodes" title="Graph nodes this is about">#' +
-          item.nodes.join(', #') + '</span>' : '') +
+        (item.nodes && item.nodes.length ? '<span class="diag-nodes" title="Graph nodes this is about">' +
+          linkNodes(nodeList(item.nodes, 12)) + '</span>' : '') +
         '<span class="diag-message">' + escapeHtml(item.message) + '</span>';
       li.appendChild(head);
       var ruleLink = head.querySelector('a.diag-code');
@@ -1100,8 +1122,8 @@
     var code = $('code');
     state.lintMark = { start: code.selectionStart, end: code.selectionEnd };
     setStatus(nodes.length
-      ? item.code + ' is about node' + (nodes.length === 1 ? '' : 's') + ' #' +
-        nodes.join(', #') + ', marked in the graph. Click a gate to slice from it.'
+      ? item.code + ' is about node' + (nodes.length === 1 ? ' ' : 's ') +
+        nodeList(nodes) + ', marked in the graph. Click a number to go to it.'
       : item.code + ' is about wire' + (qubits.length === 1 ? '' : 's') + ' q' +
         qubits.join(', q') + ', marked red in the graph.');
   }
@@ -1208,7 +1230,7 @@
     applySourceMarks();
     setStatus(ids.length
       ? 'Line ' + line + ' produced ' + ids.length + ' instruction' + (ids.length === 1 ? '' : 's') +
-        ': #' + ids.join(', #') + '. Click one to slice from it; click the line number again to clear.'
+        ': ' + nodeList(ids) + '. Click a number to go to that node; click the line number again to clear.'
       : 'Line ' + line + ' produced no instructions.');
   }
 
@@ -2162,7 +2184,36 @@
     setSide('');
   }
 
-  function setStatus(text) { $('status-main').textContent = text; }
+  /* The status line. Every node number in it (#12) is a link that brings the
+     graph to that node. */
+  function setStatus(text) { $('status-main').innerHTML = linkNodes(escapeHtml(text)); }
+
+  function linkNodes(html) {
+    var count = state.nodeCount || 0;
+    return html.replace(/#(\d+)\b/g, function (match, id) {
+      if (Number(id) >= count) return match;
+      return '<button type="button" class="node-link" data-node="' + id +
+        '" title="Show #' + id + ' in the graph">' + match + '</button>';
+    });
+  }
+
+  /* "#3, #4, #9" for a list of node ids, cut short when it is long. */
+  function nodeList(ids, limit) {
+    limit = limit || 30;
+    var shown = ids.slice(0, limit);
+    return '#' + shown.join(', #') +
+      (ids.length > limit ? ' and ' + (ids.length - limit) + ' more' : '');
+  }
+
+  function jumpToNode(id) {
+    if (!state.payload) return;
+    var tab = document.querySelector('.tab[data-tab="graph"]');
+    if (tab && !tab.classList.contains('active')) tab.click();
+    if (!graph.jumpTo(id)) {
+      setStatus('#' + id + ' is not drawn right now: it is outside the range' +
+        ($('slice-only').classList.contains('active') ? ' or the slice' : '') + '.');
+    }
+  }
   function setSide(text) { $('status-side').textContent = text; }
 
   function clamp(value, low, high) { return Math.min(high, Math.max(low, value)); }

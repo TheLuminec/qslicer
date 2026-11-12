@@ -122,7 +122,11 @@ On the slicer page:
 - **Click a node** to slice from it. Toggle backward or forward in the toolbar.
 - **Follow chips** choose which dependency types the traversal may use. They
   are passed straight to the slicer, so they are a real filter, and they are
-  built from the rules that actually ran, with the edge count each contributed.
+  built from the rules that actually ran; hover one for its edge count.
+- **Only slice** hides everything outside the slice, wires included, and
+  closes the rest up.
+- **Node numbers are links.** Click a `#12` in the status line or a lint
+  finding to bring the graph to that node.
 - **Source links, both directions.** Hover a node or table row to highlight its
   line. A slice highlights every source line it covers and scrolls to the
   criterion. Click a gutter line number to see which nodes that line produced.

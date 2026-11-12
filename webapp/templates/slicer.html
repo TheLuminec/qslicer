@@ -52,7 +52,6 @@
       <button class="btn btn-primary" id="btn-analyze" type="button">Analyze</button>
     </div>
 
-    <p class="example-blurb" id="example-blurb"></p>
     <!-- Values picked for what only a run could decide (a random draw, a
          required command-line argument), each removable. -->
     <div class="bindings" id="bindings" hidden></div>
@@ -139,6 +138,15 @@
           </select>
           <button class="chip" id="slice-clear" type="button" disabled
                   title="Clear the slice (Esc, or click the criterion again)">Clear</button>
+          <button class="chip chip-toggle" id="slice-only" type="button" aria-pressed="false"
+                  title="Show only the slice: nodes outside it and wires it does not touch are left out, and the rest closes up. With no slice, everything shows.">Only slice</button>
+        </div>
+
+        <!-- Filled in from the analysis: only the dependency types the rules
+             that actually ran can emit. Empty until a circuit is analyzed. -->
+        <div class="tool-group dep-filter" id="dep-filter" role="group"
+             aria-label="Dependency types the slice follows">
+          <span class="tool-label" title="Which dependency types a slice follows">Follow</span>
         </div>
 
         <div class="tool-group" role="group" aria-label="Instruction range">
@@ -157,15 +165,6 @@
           <button class="chip" id="download-png" type="button"
                   title="Download a PNG of the current view">PNG</button>
         </div>
-      </div>
-
-      <!-- Filled in from the analysis: only the dependency types the rules that
-           actually ran can emit. Empty until a circuit has been analyzed. -->
-      <div class="dep-filter" id="dep-filter" aria-label="Dependency types">
-        <span class="tool-label">Follow</span>
-        <span class="placeholder" id="dep-filter-empty">
-          the dependency types the rules produce appear here
-        </span>
       </div>
 
       <!-- Several backward slices at once: one entry per criterion, with its
