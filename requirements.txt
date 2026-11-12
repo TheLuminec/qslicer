@@ -6,6 +6,8 @@
 qiskit==2.6.0
 qiskit-aer==0.17.2
 qiskit-qasm3-import==0.6.0
+# The OpenQASM reference parser the static OpenQASM front end reads with.
+openqasm3[parser]==1.0.2
 networkx
 matplotlib
 # The web app (webapp/); not a dependency of the qslicer package.

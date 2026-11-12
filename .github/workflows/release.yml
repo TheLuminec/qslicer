@@ -34,6 +34,10 @@ jobs:
       - name: Install the pinned dependencies and qslicer
         run: pip install -r requirements.txt -e . pytest
       - name: Run the test suite
+        # More room for libraries that need static TLS when loaded late, such
+        # as qiskit_aer's libgomp (see tests/conftest.py).
+        env:
+          GLIBC_TUNABLES: glibc.rtld.optional_static_tls=16384
         run: pytest
 
   build:
