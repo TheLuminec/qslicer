@@ -56,11 +56,21 @@ from .staticqiskitparser import (
     _mcx_name, _negate, _symbolic_binop, _symbolic_call, broadcast, circuit_to_program, SWITCH_HAS_DEFAULT)
 
 try:
+    import inspect
+
     import openqasm3
     from openqasm3 import ast as qasm_ast
+
+    # openqasm3 1.0.2 refuses a program that declares a version other than
+    # 3.0 or 3.1 unless told to ignore it; 1.0.1 never checked and has no such
+    # argument. OpenQASM 2 is read with the OpenQASM 3 grammar on purpose.
+    _PARSE_OPTIONS = ({"ignore_version": True}
+                      if "ignore_version" in inspect.signature(openqasm3.parse).parameters
+                      else {})
 except ImportError:  # pragma: no cover - installed with qiskit-qasm3-import
     openqasm3 = None
     qasm_ast = None
+    _PARSE_OPTIONS = {}
 
 
 MAX_REGISTER = 100_000
@@ -1550,7 +1560,7 @@ class StaticOpenQASMParser(AbstractParser):
 def _parse_syntax(source):
     """The reference parser's syntax tree, or a StaticParseError with the line."""
     try:
-        return openqasm3.parse(source)
+        return openqasm3.parse(source, **_PARSE_OPTIONS)
     except Exception as exc:          # QASM3ParsingError, and antlr's own errors
         message, lineno = str(exc), None
         found = re.match(r"L(\d+):C\d+: (.*)", message)
