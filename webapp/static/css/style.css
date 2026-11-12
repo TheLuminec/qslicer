@@ -188,13 +188,7 @@ h3 { font-size: 1.05rem; }
 .chip-dep.active .swatch { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2); }
 .chip-dep:not(.active) { opacity: 0.5; }
 
-/* How many edges this rule contributed to the circuit on screen. Zero means
-   the rule ran and found nothing, which is worth showing rather than hiding. */
-.chip-count {
-  font-family: var(--mono); font-size: 0.7rem;
-  color: var(--text-faint); margin-left: 0.1rem;
-}
-.chip-dep.active .chip-count { color: var(--text-dim); }
+/* A rule that ran and produced no edges here: worth showing rather than hiding. */
 .chip-empty { border-style: dashed; }
 .chip-empty .swatch { opacity: 0.45; }
 
@@ -412,14 +406,13 @@ body.page-slicer main { overflow: hidden; }
 }
 .source-toolbar .field { flex: 1 1 10rem; min-width: 0; }
 
-.example-blurb {
-  margin: 0; padding: 0.5rem 0.9rem;
-  font-size: 0.82rem; color: var(--text-faint);
+/* A program opened from the Benchmark page: which bug it is, and the way back. */
+.bench-note {
+  margin: 0; padding: 0.4rem 0.9rem;
+  font-size: 0.8rem; color: var(--text-faint);
   border-bottom: 1px solid var(--line);
-  min-height: 2.1rem;
   flex: none;
 }
-.example-blurb .highlight { color: var(--accent-2); }
 
 /* Values the user picked for what only a run could decide. */
 .bindings {
@@ -652,14 +645,15 @@ a.diag-code:hover { color: var(--accent); }
 
 /* graph toolbar */
 
-.graph-toolbar, .dep-filter, .qubit-filter {
+.graph-toolbar, .qubit-filter {
   display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
   padding: 0.5rem 0.9rem;
   border-bottom: 1px solid var(--line);
   flex: none;
 }
-.dep-filter { padding-top: 0.35rem; padding-bottom: 0.45rem; min-height: 2.4rem; }
-.dep-filter .placeholder { font-size: 0.78rem; }
+/* The Follow chips: a swatch and one word each; the rest is in the tooltip. */
+.dep-filter .chip { padding-left: 0.45rem; padding-right: 0.5rem; }
+.dep-filter:not(.has-chips) { display: none; }
 .tool-group { display: flex; align-items: center; gap: 0.3rem; }
 .tool-group-right { margin-left: auto; }
 .tool-label {
@@ -817,6 +811,18 @@ a.diag-code:hover { color: var(--accent); }
 .tooltip .tip-lint .sev-warning strong { color: var(--warn); }
 .tooltip .tip-lint .sev-info strong { color: var(--info); }
 .diag-nodes { font-family: var(--mono); font-size: 0.74rem; color: var(--text-faint); }
+
+/* A node number anywhere in the page's text: click to bring the graph to it. */
+.node-link {
+  font: inherit; font-family: var(--mono); color: var(--accent);
+  background: none; border: 0; padding: 0; cursor: pointer;
+}
+.node-link:hover, .node-link:focus-visible { text-decoration: underline; color: #fff; }
+#graph .node.jumped .node-shape { animation: node-jumped 1.5s ease-out; }
+@keyframes node-jumped {
+  0%, 60% { stroke: #fff; stroke-width: 5; }
+  100% { stroke-width: 1; }
+}
 #graph .node.marked .node-shape { stroke: var(--accent); stroke-width: 3; }
 #graph .node.marked .node-line { fill: var(--accent); font-weight: 700; }
 

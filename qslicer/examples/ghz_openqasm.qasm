@@ -1,5 +1,5 @@
-// GHZ, exported with qiskit.qasm3.dumps().
-// Parsed as text -- nothing in this file is executed.
+// GHZ, exported with qiskit.qasm3.dumps(). Parsed as text -- nothing in this
+// file is executed. Same instructions and graph as ghz_state.py.
 
 OPENQASM 3.0;
 include "stdgates.inc";

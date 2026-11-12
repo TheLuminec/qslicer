@@ -160,6 +160,7 @@
     var peak = far + side * (rise + 2);
     return {
       d: 'M ' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + cy + ' ' + x2 + ' ' + cy + ' ' + x2 + ' ' + y2,
+      curve: [[x1, y1], [x1, cy], [x2, cy], [x2, y2]],
       rise: rise,
       box: { x0: x1 - 2, x1: x2 + 2,
              y0: Math.min(y1, y2, peak), y1: Math.max(y1, y2, peak) }
@@ -411,10 +412,56 @@
   };
 
   QGraph.prototype._sliceChanged = function () {
+    if (this.sliceOnly && this.data) { this._relayout(); return; }
     this._refreshClasses();
     this._refreshDecorations();
     this._syncMirrors();
     this._overviewChanged();
+  };
+
+  /* Show only the slice: everything outside it, and every wire it does not
+     touch, is left out and the rest closes up. With no slice, all of it shows. */
+  QGraph.prototype.setSliceOnly = function (on) {
+    on = !!on;
+    if (on === !!this.sliceOnly) return;
+    this.sliceOnly = on;
+    if (this.data) this._relayout();
+  };
+
+  /* Lay everything out again and keep the criterion (else the slice's start)
+     where the eye is. */
+  QGraph.prototype._relayout = function () {
+    this._computeLayout();
+    this._computeRouted();
+    this._overviewDirty = true;
+    this.render();
+    var anchor = this.criterion;
+    if (anchor === null || anchor === undefined) {
+      anchor = this.criteria && this.criteria.length ? this.criteria[0]
+        : (this.chop && this.chop.from !== null ? this.chop.from : null);
+    }
+    if (anchor !== null && anchor !== undefined && this._inRange(anchor)) this.reveal([anchor]);
+    else if (this.slice && this.sliceOnly) this.fit(READABLE_SCALE);
+  };
+
+  /* Whether a node is drawn (in the range, and in the slice when only it shows). */
+  QGraph.prototype.isShown = function (id) {
+    return !!(this.data && this.byId[id] && this._inRange(id));
+  };
+
+  /* Bring one node to the middle of the view and ring it for a moment. */
+  QGraph.prototype.jumpTo = function (id) {
+    if (!this.isShown(id)) return false;
+    if (this.transform.k < READABLE_SCALE) this.transform.k = READABLE_SCALE;
+    this.reveal([id]);
+    var g = this.mountedNodes.get(id);
+    if (g) {
+      g.classList.remove('jumped');
+      g.getBoundingClientRect();          // restart the animation
+      g.classList.add('jumped');
+      setTimeout(function () { g.classList.remove('jumped'); }, 1600);
+    }
+    return true;
   };
 
   /* Nodes that came from the source line the user picked in the editor, and
@@ -482,31 +529,72 @@
     var x = LEFT_PAD;
     this.layout = {};
     this.byId = {};
+    this.laneRow = this._sliceLanes();
     this.data.nodes.forEach(function (node) {
+      self.byId[node.id] = node;
+      // Showing only the slice: the rest take no room, so the slice closes up.
+      if (self._outsideSlice(node.id)) {
+        self.layout[node.id] = { x: x, y: TOP_PAD, w: 0, h: NODE_H };
+        return;
+      }
       var w = nodeWidth(node.short || node.label);
       var bits = classicalOnly(node);
-      self.byId[node.id] = node;
-      self.layout[node.id] = {
-        x: x + w / 2,
-        y: bits.length
-          ? bits.reduce(function (sum, c) { return sum + self._clbitY(c); }, 0) / bits.length
-          : TOP_PAD + node.lane * LANE_H,
-        w: w,
-        h: NODE_H
-      };
+      var y;
+      if (bits.length) {
+        y = bits.reduce(function (sum, c) { return sum + self._clbitY(c); }, 0) / bits.length;
+      } else if (self.laneRow) {
+        var on = node.qubits || [];
+        y = on.reduce(function (sum, q) { return sum + self._laneY(q); }, 0) / Math.max(1, on.length);
+      } else {
+        y = TOP_PAD + node.lane * LANE_H;
+      }
+      self.layout[node.id] = { x: x + w / 2, y: y, w: w, h: NODE_H };
       x += w + NODE_GAP;
     });
     this.contentWidth = x + LEFT_PAD;
     var clbits = this.data.program.num_clbits || 0;
     this.contentHeight = clbits
       ? this._clbitY(clbits - 1) + CL_H
-      : TOP_PAD + Math.max(1, this.data.program.num_qubits) * LANE_H;
+      : TOP_PAD + this._laneCount() * LANE_H;
+  };
+
+  /* Showing only the slice: the row of each qubit a slice node touches, in
+     qubit order, so wires the slice leaves out close up too. Otherwise null,
+     and every qubit has its own row. */
+  QGraph.prototype._sliceLanes = function () {
+    if (!this.sliceOnly || !this.slice) return null;
+    var self = this;
+    var used = new Set();
+    this.data.nodes.forEach(function (node) {
+      if (self.slice.has(node.id)) (node.qubits || []).forEach(function (q) { used.add(q); });
+    });
+    var rows = new Map();
+    Array.from(used).sort(function (a, b) { return a - b; })
+      .forEach(function (q, row) { rows.set(q, row); });
+    return rows;
+  };
+
+  QGraph.prototype._laneCount = function () {
+    return Math.max(1, this.laneRow ? this.laneRow.size : this.data.program.num_qubits);
+  };
+
+  /* The y of a qubit's wire; a wire that is not shown sits on the first row. */
+  QGraph.prototype._laneY = function (qubit) {
+    var row = this.laneRow ? (this.laneRow.get(qubit) || 0) : qubit;
+    return TOP_PAD + row * LANE_H;
+  };
+
+  QGraph.prototype._laneShown = function (qubit) {
+    return !this.laneRow || this.laneRow.has(qubit);
+  };
+
+  QGraph.prototype._outsideSlice = function (id) {
+    return !!(this.sliceOnly && this.slice && !this.slice.has(id));
   };
 
   /* The classical wires sit below the last qubit wire, one per clbit. */
   QGraph.prototype._clbitY = function (clbit) {
-    var qubits = Math.max(1, this.data.program.num_qubits);
-    return TOP_PAD + (qubits - 1) * LANE_H + CL_GAP + clbit * CL_H;
+    return TOP_PAD + (this._laneCount() - 1) * LANE_H + CL_GAP + clbit * CL_H;
   };
 
   /* The clbits of an instruction that touches no qubit, else none. */
@@ -523,7 +611,10 @@
     return { x: base.x + offset.dx, y: base.y + offset.dy, w: base.w, h: base.h };
   };
 
+  /* Whether a node is drawn at all: inside the range, and inside the slice
+     while only the slice is shown. */
   QGraph.prototype._inRange = function (id) {
+    if (this._outsideSlice(id)) return false;
     if (!this.range) return true;
     return id >= this.range[0] && id <= this.range[1];
   };
@@ -638,7 +729,7 @@
     var y1 = pos.y + pos.h / 2 + 16;
     var qubits = node.qubits || [];
     for (var i = 0; i < qubits.length; i++) {
-      var ly = TOP_PAD + qubits[i] * LANE_H;
+      var ly = this._laneY(qubits[i]);
       if (ly < y0) y0 = ly;
       if (ly > y1) y1 = ly;
     }
@@ -711,10 +802,16 @@
       }
     });
     wantEdges.forEach(function (index) {
-      if (!self.mountedEdges.has(index)) self._mountEdge(index);
+      var path = self.mountedEdges.get(index);
+      // A routed edge kept from the last window is cut to this one.
+      if (path && self.edgeMeta[index].clbit !== null) self._setEdgePath(path, self.edgeMeta[index]);
+      if (!path) self._mountEdge(index);
     });
 
     this._scanMirrors();
+    this.mountedMirrors.forEach(function (path, index) {
+      path.setAttribute('d', self._mirrorArc(index).d);
+    });
     this._syncMirrors();
   };
 
@@ -735,8 +832,13 @@
     var pair = this.mirrorPairs[index];
     var a = this._pos(pair[0]);
     var b = this._pos(pair[1]);
-    var middle = TOP_PAD + (Math.max(1, this.data.program.num_qubits) - 1) * LANE_H / 2;
-    return mirrorArc(a, b, pair[2], mirrorHangs(a, b, middle));
+    var middle = TOP_PAD + (this._laneCount() - 1) * LANE_H / 2;
+    var arc = mirrorArc(a, b, pair[2], mirrorHangs(a, b, middle));
+    // Dashed, so only the part in the drawn window (see clipRoute).
+    var cut = this.window && arc.curve[0][0] < arc.curve[3][0]
+      ? clipCubic(arc.curve, this.window.x0, this.window.x1) : null;
+    if (cut) arc.d = cut;
+    return arc;
   };
 
   QGraph.prototype._mirrorDrawable = function (index) {
@@ -851,7 +953,8 @@
     var qubits = this.data.program.num_qubits;
 
     for (var q = 0; q < qubits; q++) {
-      var y = TOP_PAD + q * LANE_H;
+      if (!this._laneShown(q)) continue;
+      var y = this._laneY(q);
       var marked = this.markedQubits && this.markedQubits.has(q) ? ' lint-marked' : '';
       var lint = this.showLint ? this.lintQubits[q] : null;
       group.appendChild(el('line', {
@@ -935,9 +1038,13 @@
     var a = this._pos(edge.source);
     var b = this._pos(edge.target);
     if (edge.clbit !== null) {
-      return roundedPath(classicalRoute(a, b, this._clbitY(edge.clbit) + edge.side * 2.5,
-                                        edge.side * CL_SHIFT), CL_CORNER);
+      var points = classicalRoute(a, b, this._clbitY(edge.clbit) + edge.side * 2.5,
+                                  edge.side * CL_SHIFT);
+      var cut = this.window ? clipRoute(points, this.window.x0, this.window.x1) : null;
+      this._cutEnd = !!(cut && cut.cutEnd);
+      return roundedPath(cut ? cut.points : points, CL_CORNER);
     }
+    this._cutEnd = false;
     var x1 = a.x + a.w / 2;
     var y1 = a.y;
     var x2 = b.x - b.w / 2;
@@ -946,6 +1053,14 @@
     var mx = (x1 + x2) / 2;
     var my = (y1 + y2) / 2 - bow;
     return 'M ' + x1 + ' ' + y1 + ' Q ' + mx + ' ' + my + ' ' + x2 + ' ' + y2;
+  };
+
+  /* Draw (or redraw) an edge's path. An end cut off by the window has no
+     arrowhead: the arrow belongs at the node, which is out of sight. */
+  QGraph.prototype._setEdgePath = function (path, edge) {
+    path.setAttribute('d', this._edgePath(edge));
+    if (this._cutEnd) path.removeAttribute('marker-end');
+    else path.setAttribute('marker-end', 'url(#arrow-' + edge.dependency + ')');
   };
 
   QGraph.prototype._edgeClass = function (edge) {
@@ -963,10 +1078,9 @@
     var edge = this.edgeMeta[index];
     var path = el('path', {
       class: this._edgeClass(edge),
-      d: this._edgePath(edge),
-      stroke: window.depColor(edge.dependency),
-      'marker-end': 'url(#arrow-' + edge.dependency + ')'
+      stroke: window.depColor(edge.dependency)
     });
+    this._setEdgePath(path, edge);
     path.appendChild(el('title')).textContent =
       edge.dependency + '  ' + edge.source + ' → ' + edge.target +
       (edge.clbit !== null ? '  via c' + edge.clbit : '') +
@@ -1030,6 +1144,68 @@
     return points.filter(function (p, i) {
       return i === 0 || p[0] !== points[i - 1][0] || p[1] !== points[i - 1][1];
     });
+  }
+
+  /* A dashed stroke costs time for its whole length, drawn or not, so an edge
+     far longer than the view is cut down to the drawn window before it becomes
+     a path. DASH_PERIOD is the classical-data dash (5 3): a cut made on a
+     multiple of it leaves the dashes where they were. */
+  var DASH_PERIOD = 8;
+
+  /* ``points`` (a classical route) with its long run along the wire kept only
+     between ``lo`` and ``hi``. Returns null when nothing needs cutting, else
+     the points and which ends were cut off. */
+  function clipRoute(points, lo, hi) {
+    var run = -1;
+    var longest = 0;
+    for (var i = 0; i < points.length - 1; i++) {
+      var length = points[i + 1][0] - points[i][0];
+      if (points[i][1] === points[i + 1][1] && length > longest) { run = i; longest = length; }
+    }
+    if (run < 0) return null;
+    var xa = points[run][0];
+    var xb = points[run + 1][0];
+    var y = points[run][1];
+    lo = Math.floor(lo / DASH_PERIOD) * DASH_PERIOD;
+    var cutStart = xa < lo && lo < xb;
+    var cutEnd = xb > hi && hi > xa;
+    if (!cutStart && !cutEnd) return null;
+    var head = cutStart ? [[lo, y]] : points.slice(0, run + 1);
+    var tail = cutEnd ? [[hi, y]] : points.slice(run + 1);
+    return { points: head.concat(tail), cutStart: cutStart, cutEnd: cutEnd };
+  }
+
+  /* The part of a cubic (four [x, y] points, x never decreasing along it)
+     between x = ``lo`` and x = ``hi``, as a path; null when it is all inside. */
+  function clipCubic(curve, lo, hi) {
+    function at(points, t) {
+      var out = [];
+      for (var i = 0; i < points.length - 1; i++) {
+        out.push([points[i][0] + (points[i + 1][0] - points[i][0]) * t,
+                  points[i][1] + (points[i + 1][1] - points[i][1]) * t]);
+      }
+      return out;
+    }
+    // de Casteljau: the two halves of ``points`` at ``t``.
+    function split(points, t) {
+      var a = at(points, t), b = at(a, t), c = at(b, t);
+      return [[points[0], a[0], b[0], c[0]], [c[0], b[1], a[2], points[3]]];
+    }
+    function solve(x) {
+      var t0 = 0, t1 = 1;
+      for (var i = 0; i < 40; i++) {
+        var t = (t0 + t1) / 2;
+        if (split(curve, t)[0][3][0] < x) t0 = t; else t1 = t;
+      }
+      return (t0 + t1) / 2;
+    }
+    var from = curve[0][0] < lo ? solve(lo) : 0;
+    var to = curve[3][0] > hi ? solve(hi) : 1;
+    if (from === 0 && to === 1) return null;
+    var part = split(curve, to)[0];
+    if (from > 0) part = split(part, from / to)[1];
+    return 'M ' + part[0][0] + ' ' + part[0][1] + ' C ' + part[1][0] + ' ' + part[1][1] + ' ' +
+      part[2][0] + ' ' + part[2][1] + ' ' + part[3][0] + ' ' + part[3][1];
   }
 
   /* An SVG path through ``points`` with each corner rounded to ``radius``. */
@@ -1127,7 +1303,8 @@
     /* Vertical tick through every wire the instruction touches, so a
        multi-qubit gate reads like a circuit diagram. */
     if (node.qubits.length > 1) {
-      var lanes = node.qubits.map(function (q) { return TOP_PAD + q * LANE_H - pos.y; });
+      var graph = this;
+      var lanes = node.qubits.map(function (q) { return graph._laneY(q) - pos.y; });
       var lo = Math.min.apply(null, lanes);
       var hi = Math.max.apply(null, lanes);
       g.appendChild(el('line', {
@@ -1329,7 +1506,7 @@
     if (g) this.mountedTicks.set(id, this._createTicks(this.byId[id]));
     (this.edgesByNode[id] || []).forEach(function (index) {
       var path = self.mountedEdges.get(index);
-      if (path) path.setAttribute('d', self._edgePath(self.edgeMeta[index]));
+      if (path) self._setEdgePath(path, self.edgeMeta[index]);
     });
     (this.mirrorsByNode.get(id) || []).forEach(function (index) {
       var path = self.mountedMirrors.get(index);
@@ -1623,7 +1800,7 @@
     }
     if (!any) return;
     minY = Math.min(minY, TOP_PAD - 30);
-    maxY = Math.max(maxY, TOP_PAD + (this.data.program.num_qubits - 1) * LANE_H + 30);
+    maxY = Math.max(maxY, TOP_PAD + (this._laneCount() - 1) * LANE_H + 30);
     if (this.data.program.num_clbits) {
       maxY = Math.max(maxY, this._clbitY(this.data.program.num_clbits - 1) + 18);
     }
@@ -1808,6 +1985,7 @@
       var end = self.criterion === node.id ||
         (self.criteria && self.criteria.indexOf(node.id) !== -1) ||
         (self.chop && (self.chop.from === node.id || self.chop.to === node.id));
+      if (self._outsideSlice(node.id)) return;
       if (!self._inRange(node.id)) alpha = 0.12;
       else if (end) { color = OVERVIEW.criterion; alpha = 1; }
       else if (self.marked && self.marked.has(node.id)) { color = OVERVIEW.marked; alpha = 1; }
@@ -1993,6 +2171,7 @@
   QGraph.READABLE_SCALE = READABLE_SCALE;
   QGraph.MIN_SCALE = MIN_SCALE;
   QGraph.routing = { classicalRoute: classicalRoute, roundedPath: roundedPath,
+                     clipRoute: clipRoute, clipCubic: clipCubic,
                      sharedClbits: sharedClbits, classicalOnly: classicalOnly,
                      prepareEdges: prepareEdges };
   QGraph.roles = { of: qubitRoles };

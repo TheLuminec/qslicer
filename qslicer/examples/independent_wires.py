@@ -4,7 +4,7 @@ There is no two-qubit gate here, so nothing entangles: q0 is a coin flip and
 q1 is deterministically 1. This is the control case for slicing -- a slice
 from one measurement must never reach the other wire.
 
-What to look for: slicing backward from the q1 measurement gives two
+What to look for: slicing backward from the q1 measurement (#3) gives two
 instructions, not four. If it ever gives four, a dependency rule is too eager.
 """
 

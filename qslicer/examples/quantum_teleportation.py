@@ -5,10 +5,10 @@ the other half on q2. Alice measures her two qubits and sends the results;
 Bob applies X and Z corrections based on them. No qubit travels -- only the
 two classical bits do.
 
-What to look for: the single best example of a measurement dependency. Bob's
-corrections read classical bits that Alice's measurements wrote, and no
-data-qubit edge could ever connect them, because the corrections are on q2 and
-the measurements are on q0 and q1.
+What to look for: the single best example of a measurement dependency. Under
+Follow keep only the Measure and Control chips, then slice backward from
+Bob's X correction (#9): you get Alice's q1 measurement and the if_else that
+reads it, nothing else. No data-qubit edge links them; they are on other wires.
 """
 
 import numpy as np

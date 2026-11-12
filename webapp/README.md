@@ -333,16 +333,24 @@ visible instead of silent.
   once, and Chop takes two clicks, the operation and then the measurement.
 * **Click a wire label** (`q0`, `q1`, …) or a chip on the Instructions tab to
   highlight everything touching that qubit.
-* **Follow** chips choose which dependency kinds the traversal may use. They are
-  passed to `SlicingCriterion.dep_types`, so this is the real filter, not a
-  display effect. The bar is empty until you analyze something, and is then
-  built from the rules that actually ran: the `baseline` profile offers four
-  chips, not six, because it never runs the entanglement or phase rules. Each
-  chip carries the number of edges its rule
-  contributed, and a rule that ran and produced nothing shows a dashed chip
-  with a zero rather than being hidden.
-
-  The bar is rebuilt per analysis: the chips say what the last run produced.
+* **Follow** chips, in the toolbar, choose which dependency kinds the traversal
+  may use. They are passed to `SlicingCriterion.dep_types`, so this is the real
+  filter, not a display effect. There are none until you analyze something;
+  they are then built from the rules that actually ran: the `baseline` profile
+  offers four chips, not six, because it never runs the entanglement or phase
+  rules. A chip is a color and one word (Qubit, Measure, Classical, Control);
+  hover it for the full name, what the dependence means, its rule and how many
+  edges it contributed. A rule that ran and produced nothing shows a dashed
+  chip rather than being hidden.
+* **Only slice** leaves out every node outside the slice and every wire the
+  slice does not touch, and closes the rest up (`QGraph.setSliceOnly`). It is a
+  drawing choice: the analysis, the node numbers and the Instructions tab do
+  not change. With no slice, everything shows.
+* **Node numbers are links.** A `#12` in the status line or beside a lint
+  finding brings the graph to that node and rings it for a moment
+  (`QGraph.jumpTo`), so a source line that produced many nodes, or a finding
+  about a few, is one click from each of them. Long lists are cut to the first
+  30.
 * **Range** narrows the drawing to a window of instruction indices, which is how
   you make a large circuit readable.
 * **Drag** a node to pull it out of a pile; **Relayout** puts everything back.

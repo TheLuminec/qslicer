@@ -148,7 +148,7 @@
       "category": "protocols",
       "title": "Quantum teleportation",
       "blurb": "Mid-circuit measurement and classical feed-forward. The clearest measurement dependency in the set.",
-      "highlight": "Try: keep only Measurement edges, then slice backward from the first correction."
+      "highlight": "Try: under Follow keep only Measure and Control, then slice backward from the first correction (#9)."
     },
     {
       "key": "superdense_coding",
@@ -164,7 +164,7 @@
       "category": "protocols",
       "title": "Entanglement swapping",
       "blurb": "Entangles two qubits that no gate ever touched together.",
-      "highlight": "Try: slice from #11 with all edges, then with Data Qubit only."
+      "highlight": "Try: slice from the q3 measurement (#13) with all edges, then with only Qubit under Follow."
     },
     {
       "key": "uncomputation",

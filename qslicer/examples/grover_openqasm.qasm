@@ -1,5 +1,5 @@
-// Grover, exported with qiskit.qasm3.dumps().
-// Parsed as text -- nothing in this file is executed.
+// Grover, exported with qiskit.qasm3.dumps(). Parsed as text -- nothing here
+// runs. Lint skips the quick checks (Python only); the dependence checks run.
 
 OPENQASM 3.0;
 include "stdgates.inc";
