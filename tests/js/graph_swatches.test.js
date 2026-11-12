@@ -83,6 +83,29 @@ test('layout runs left to right and places nodes on their lane', () => {
   assert.ok(g.contentWidth > c.x && g.contentHeight > c.y);
 });
 
+test('showing only the slice closes up the nodes and the wires it leaves out', () => {
+  const wires = [[0], [0, 1], [1]];
+  const nodes = DATA.nodes.map((node, i) => ({ ...node, qubits: wires[i] }));
+  const g = bareGraph({ data: { ...DATA, nodes } });
+  g._computeLayout();
+  const full = { width: g.contentWidth, c: { ...g.layout[2] } };
+  // Nodes 0 and 2 sit on the first and last wire; node 1 spans them.
+  g.sliceOnly = true;
+  g.slice = new Set([2]);
+  g._computeLayout();
+  assert.ok(g.contentWidth < full.width);
+  assert.ok(g.layout[2].x < full.c.x, 'the node moves left into the room the others gave up');
+  assert.strictEqual(g.layout[2].y, 46, 'its wire is now the first row');
+  assert.strictEqual(g.layout[0].w, 0, 'a node outside the slice takes no room');
+  assert.ok(!g._inRange(0) && !g._inRange(1) && g._inRange(2));
+  assert.strictEqual(g._laneCount(), 1);
+  // With no slice, or the toggle off, everything is back.
+  g.slice = null;
+  g._computeLayout();
+  assert.strictEqual(g.contentWidth, full.width);
+  assert.ok(g._inRange(0));
+});
+
 test('classical wires sit below the qubits and grow the content height', () => {
   const g = bareGraph({ data: { ...DATA, program: { num_qubits: 2, num_clbits: 3 } } });
   g._computeLayout();
@@ -126,6 +149,44 @@ test('classicalRoute joins a box on the wire from its side', () => {
   const reader = { x: 300, y: 46, w: 34, h: 26 };
   const points = classicalRoute(store, reader, 251, 12);
   assert.deepStrictEqual(Array.from(points, (p) => [...p]), [[120, 251], [312, 251], [312, 59]]);
+});
+
+test('clipRoute keeps only the part of a long run inside the window', () => {
+  const { clipRoute } = loadPage(['swatches.js', 'graph.js']).window.QGraph.routing;
+  const route = [[88, 59], [88, 250], [500088, 250], [500088, 125]];
+  const plain = (cut) => cut && { points: Array.from(cut.points, (p) => [...p]),
+                                  cutStart: cut.cutStart, cutEnd: cut.cutEnd };
+  // The window holds the whole edge: nothing to cut.
+  assert.strictEqual(clipRoute(route, 0, 600000), null);
+  // The middle of the run: both legs go, and the start sits on a dash boundary.
+  assert.deepStrictEqual(plain(clipRoute(route, 200003, 201000)),
+    { points: [[200000, 250], [201000, 250]], cutStart: true, cutEnd: true });
+  // Either end in the window keeps its leg.
+  assert.deepStrictEqual(plain(clipRoute(route, -500, 1000)),
+    { points: [[88, 59], [88, 250], [1000, 250]], cutStart: false, cutEnd: true });
+  assert.deepStrictEqual(plain(clipRoute(route, 499000, 501000)),
+    { points: [[499000, 250], [500088, 250], [500088, 125]], cutStart: true, cutEnd: false });
+  // A route with no run along a wire is left alone.
+  assert.strictEqual(clipRoute([[5, 0], [5, 90]], 100, 200), null);
+});
+
+test('clipCubic returns the same curve, only between the two x bounds', () => {
+  const { clipCubic } = loadPage(['swatches.js', 'graph.js']).window.QGraph.routing;
+  const curve = [[0, 0], [0, -80], [400000, -80], [400000, 0]];
+  assert.strictEqual(clipCubic(curve, -10, 400010), null);
+  const numbers = clipCubic(curve, 100000, 101000).match(/-?[\d.]+(?:e-?\d+)?/g).map(Number);
+  assert.strictEqual(numbers.length, 8);
+  assert.ok(Math.abs(numbers[0] - 100000) < 0.01 && Math.abs(numbers[6] - 101000) < 0.01);
+  // Its ends lie on the original curve: x(t) = 400000 (3t^2 - 2t^3), y(t) = -240 t (1 - t).
+  const onCurve = (x, y) => {
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 60; i++) {
+      const t = (lo + hi) / 2;
+      if (400000 * (3 * t * t - 2 * t * t * t) < x) lo = t; else hi = t;
+    }
+    return Math.abs(-240 * lo * (1 - lo) - y) < 0.01;
+  };
+  assert.ok(onCurve(numbers[0], numbers[1]) && onCurve(numbers[6], numbers[7]));
 });
 
 test('roundedPath rounds each corner and keeps the end points', () => {
