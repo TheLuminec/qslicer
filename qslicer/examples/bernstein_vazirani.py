@@ -5,8 +5,8 @@ the final measurement reads back s directly, where a classical algorithm would
 need one query per bit.
 
 What to look for: only the qubits whose bit of s is 1 are touched by the
-oracle, so a backward slice from those measurements is visibly larger than a
-slice from the measurement of the untouched wire.
+oracle. A backward slice from the untouched wire's measurement (q2, #15) is 3
+instructions; one from q3's measurement (#16) is 10.
 """
 
 from qiskit import QuantumCircuit

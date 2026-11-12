@@ -6,7 +6,7 @@ phase difference into amplitude.
 
 What to look for: the smallest complete algorithm in this collection, which
 makes it a good place to read every edge in the graph. A backward slice from
-either measurement is 11 of the 14 instructions: the diffuser's closing gates
+either measurement (#12, #13) is 11 of 14: the diffuser's closing gates
 on the *other* wire cannot affect the bit you sliced from, so they drop out.
 """
 

@@ -6,8 +6,8 @@ states always read 0; orthogonal states read 0 or 1 with equal probability.
 
 Here the two states are deliberately different, so the control is biased.
 
-What to look for: a three-qubit entangling gate in the graph, and an
-entanglement group that spans all three wires from one instruction.
+What to look for: the cswap (#3), a three-qubit gate drawn as one node across
+all three wires. The slice from the measurement reaches every instruction.
 """
 
 from qiskit import QuantumCircuit

@@ -5,10 +5,10 @@ on the middle pair (q1, q2) leaves q0 and q3 entangled with each other, even
 though no gate ever acted on both.
 
 What to look for: the strongest argument for an entanglement-aware dependence
-rule. Slice backward from the q3 measurement following every dependency and
-you reach q0's gates through the Bell measurement's classical bits. Now keep
-only Data Qubit edges: the slice drops to five instructions and q0 disappears
-entirely, because no wire ever carried q0 to q3.
+rule. Slice backward from the q3 measurement (#13) following every dependency
+and you reach q0's gates through the Bell measurement's classical bits. Now
+keep only the Qubit chip under Follow: the slice drops to five
+instructions and q0 disappears, because no wire ever carried q0 to q3.
 """
 
 from qiskit import QuantumCircuit

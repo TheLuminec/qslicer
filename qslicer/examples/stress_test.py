@@ -1,7 +1,7 @@
 """A deliberately large circuit, for testing the viewer rather than the physics.
 
 Six qubits, a full QFT, an entangling ladder and a second rotation layer --
-around sixty instructions and a dense edge set. Nothing here computes anything
+44 instructions and 58 dependency edges. Nothing here computes anything
 meaningful; it exists so the graph has enough in it to be awkward.
 
 What to look for: the Range control. At full width the graph is a strip; narrow
