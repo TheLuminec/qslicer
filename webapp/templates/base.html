@@ -10,10 +10,11 @@
       var theme = null;
       try {
         var asked = new URLSearchParams(window.location.search).get('theme');
-        if (asked === 'light' || asked === 'dark') { theme = asked; localStorage.setItem('qslicer-theme', asked); }
+        if (asked === 'light' || asked === 'dark' || asked === 'grey') { theme = asked; localStorage.setItem('qslicer-theme', asked); }
         else { theme = localStorage.getItem('qslicer-theme'); }
       } catch (e) { /* storage blocked: stay dark */ }
-      if (theme === 'light') { document.documentElement.setAttribute('data-theme', 'light'); }
+      if (theme === 'light' || theme === 'grey') { document.documentElement.setAttribute('data-theme', 'light'); }
+      if (theme === 'grey') { document.documentElement.setAttribute('data-palette', 'grey'); }
     })();
   </script>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
@@ -67,7 +68,7 @@
       button.addEventListener('click', function () {
         var light = document.documentElement.getAttribute('data-theme') !== 'light';
         if (light) { document.documentElement.setAttribute('data-theme', 'light'); }
-        else { document.documentElement.removeAttribute('data-theme'); }
+        else { document.documentElement.removeAttribute('data-theme'); document.documentElement.removeAttribute('data-palette'); }
         try { localStorage.setItem('qslicer-theme', light ? 'light' : 'dark'); } catch (e) { /* ignore */ }
         label();
         // The graph and its overview draw some colors in script: redraw them.

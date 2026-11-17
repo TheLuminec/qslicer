@@ -1502,3 +1502,37 @@ figcaption { font-size: 0.85rem; color: var(--text-faint); margin-top: 0.6rem; m
   border-radius: var(--radius-sm); padding: 0.25rem 0.55rem; font: inherit; font-size: 0.85rem; cursor: pointer;
 }
 .theme-toggle:hover { color: var(--text); border-color: var(--accent); }
+
+/* ==========================================================================
+   Grey palette (?theme=grey): the light theme with a classic desktop look,
+   grey chrome around white work areas, square corners, blue only for the
+   selection. Applied on top of data-theme="light" via data-palette="grey".
+   ========================================================================== */
+
+:root[data-palette="grey"] {
+  --bg:          #ececec;
+  --bg-sunken:   #ffffff;
+  --surface:     #f5f5f5;
+  --surface-2:   #e2e2e2;
+  --surface-3:   #cfcfcf;
+  --line:        #b9b9b9;
+  --text:        #202020;
+  --text-dim:    #3c3c3c;
+  --text-faint:  #6a6a6a;
+  --accent:      #3d7cc9;
+  --accent-2:    #2f68ad;
+  --in-slice:    #4a8bd6;
+  --radius: 3px;
+  --radius-sm: 2px;
+}
+:root[data-palette="grey"] .site-header { background: linear-gradient(#f4f4f4, #dcdcdc); }
+:root[data-palette="grey"] .pane-head { background: linear-gradient(#f2f2f2, #e0e0e0); border-bottom: 1px solid var(--line); }
+:root[data-palette="grey"] .pane-head h2 { color: var(--text-dim); letter-spacing: 0.04em; }
+:root[data-palette="grey"] .chip { border-radius: 2px; background: linear-gradient(#fbfbfb, #e6e6e6); border-color: #a9a9a9; color: var(--text); }
+:root[data-palette="grey"] .chip.active { background: linear-gradient(#d7e5f6, #b9d0ec); border-color: #6f97c8; color: #102a4c; }
+:root[data-palette="grey"] .btn { background: linear-gradient(#fbfbfb, #e3e3e3); border-color: #a9a9a9; }
+:root[data-palette="grey"] .btn-primary { background: linear-gradient(#5b95db, #3d7cc9); border-color: #2f68ad; color: #ffffff; }
+:root[data-palette="grey"] select, :root[data-palette="grey"] input { border-radius: 2px; }
+:root[data-palette="grey"] .hl-line.src-slice { background: rgba(61, 124, 201, 0.15); }
+:root[data-palette="grey"] .hl-line.src-criterion { background: rgba(232, 89, 12, 0.20); }
+:root[data-palette="grey"] .site-nav a.active { background: #c9c9c9; }
