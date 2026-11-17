@@ -120,8 +120,36 @@ _ARITHMETIC = ("+", "-", "*", "/", "**")
 
 # OpenQASM 2's `opaque name(params) args;` declares a gate with no body. The
 # OpenQASM 3 grammar has no such statement, so it is read as an empty `gate`.
-_OPAQUE = re.compile(r"^([ \t]*)opaque\b([^;{]*);", re.MULTILINE)
-_VERSION_2 = re.compile(r"\A(?:\s|//[^\n]*\n|/\*.*?\*/)*OPENQASM\s+2", re.DOTALL)
+# One line only: `[^;{]*` over many unterminated `opaque` lines was quadratic
+# (each line start rescanned to the end of the file).
+_OPAQUE = re.compile(r"^([ \t]*)opaque\b([^;{\n]*);", re.MULTILINE)
+_VERSION_DIGIT = re.compile(r"OPENQASM\s+2")
+
+
+def _is_version_2(source: str) -> bool:
+    """True when the program starts (after whitespace and comments) with ``OPENQASM 2``.
+
+    A hand-written scan, not a regex: ``(?:\\s|//...|/\\*.*?\\*/)*`` backtracked
+    exponentially on runs of empty comments (``/**/`` repeated), freezing the
+    process on a 161-byte upload. This is linear in the length of the source.
+    """
+    i, n = 0, len(source)
+    while i < n:
+        if source[i].isspace():
+            i += 1
+        elif source.startswith("//", i):
+            end = source.find("\n", i + 2)
+            if end < 0:
+                return False
+            i = end + 1
+        elif source.startswith("/*", i):
+            end = source.find("*/", i + 2)
+            if end < 0:
+                return False
+            i = end + 2
+        else:
+            break
+    return _VERSION_DIGIT.match(source, i) is not None
 
 
 class _Bits:
@@ -1530,7 +1558,7 @@ class StaticOpenQASMParser(AbstractParser):
         if not isinstance(self.source, str):
             raise ValueError("StaticOpenQASMParser expects OpenQASM source as a string")
         source = self.source
-        if _VERSION_2.match(source):
+        if _is_version_2(source):
             source = _OPAQUE.sub(r"\1gate\2 { }", source)
         tree = _parse_syntax(source)
         interpreter = _QasmInterpreter(_physical_count(tree), self.time_limit)
