@@ -1405,3 +1405,100 @@ figcaption { font-size: 0.85rem; color: var(--text-faint); margin-top: 0.6rem; m
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ==========================================================================
+   Light theme: <html data-theme="light">, set by base.html from ?theme=light
+   or the header toggle (remembered in localStorage). Dark stays the default.
+   Tokens first, then the few rules that hard-code a dark-theme color.
+   ========================================================================== */
+
+:root[data-theme="light"] {
+  --bg:          #f7f7fa;
+  --bg-sunken:   #ffffff;
+  --surface:     #ffffff;
+  --surface-2:   #eceef3;
+  --surface-3:   #dfe2ea;
+  --line:        #d3d6e0;
+  --text:        #1f2330;
+  --text-dim:    #464c5e;
+  --text-faint:  #6b7186;
+  --accent:      #1e66f5;
+  --accent-2:    #3b5bdb;
+  --criterion:   #e8590c;
+  --in-slice:    #3a7bd5;
+  --ok:          #2b8a3e;
+  --warn:        #a86a00;
+  --err:         #c92a4b;
+  --info:        #0b7285;
+
+  --dep-data-qubit:        #1976d2;
+  --dep-entanglement:      #c2185b;
+  --dep-measurement:       #2e7d32;
+  --dep-data-classical:    #e65100;
+  --dep-control-classical: #5d4037;
+  --dep-phase:             #7b1fa2;
+
+  --mark-phase:    #7b4fc9;
+  --mark-kickback: #b83280;
+  --mirror:        #138a7e;
+  color-scheme: light;
+}
+
+:root[data-theme="light"] .site-nav a.active,
+:root[data-theme="light"] .chip.active,
+:root[data-theme="light"] .tab.active,
+:root[data-theme="light"] .graph-btn:hover,
+:root[data-theme="light"] .node-link:hover,
+:root[data-theme="light"] .node-link:focus-visible { color: var(--text); }
+:root[data-theme="light"] .btn-primary { color: #ffffff; }
+:root[data-theme="light"] .banner-warning { background: #fff4d6; }
+:root[data-theme="light"] .chip-dep.active .swatch { box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.15); }
+
+/* source highlighting (Catppuccin Latte) */
+:root[data-theme="light"] .tok-comment   { color: #7c7f93; }
+:root[data-theme="light"] .tok-string    { color: #40a02b; }
+:root[data-theme="light"] .tok-number    { color: #d55a0b; }
+:root[data-theme="light"] .tok-keyword   { color: #8839ef; }
+:root[data-theme="light"] .tok-constant  { color: #b06f00; }
+:root[data-theme="light"] .tok-builtin   { color: #04a5e5; }
+:root[data-theme="light"] .tok-def       { color: #1e66f5; }
+:root[data-theme="light"] .tok-call      { color: #3b5bdb; }
+:root[data-theme="light"] .tok-gate      { color: #d20f39; }
+:root[data-theme="light"] .tok-decorator { color: #ea76cb; }
+:root[data-theme="light"] .tok-op        { color: #6b7186; }
+:root[data-theme="light"] .hl-line.src-slice { background: rgba(58, 123, 213, 0.16); }
+:root[data-theme="light"] .hl-line.src-criterion { background: rgba(232, 89, 12, 0.18); }
+:root[data-theme="light"] .hl-line.src-hover { background: rgba(0, 0, 0, 0.05); }
+:root[data-theme="light"] #code::selection { background: rgba(30, 102, 245, 0.22); }
+
+/* graph overlays and popovers */
+:root[data-theme="light"] .graph-btn { background: rgba(255, 255, 255, 0.92); }
+:root[data-theme="light"] .graph-hint { background: rgba(255, 255, 255, 0.85); }
+:root[data-theme="light"] .instr-table tr.criterion td { color: var(--text); }
+
+/* graph: outlines that were white on dark become dark on light */
+:root[data-theme="light"] #graph .node .node-shape { stroke: #3c4150; }
+:root[data-theme="light"] #graph .node.cat-structural .node-shape { fill: #b8bccb; }
+:root[data-theme="light"] #graph .node.in-slice .node-shape { stroke: #1f2330; }
+:root[data-theme="light"] #graph .node.criterion .node-shape,
+:root[data-theme="light"] #graph .node.chop-from .node-shape,
+:root[data-theme="light"] #graph .node.chop-to .node-shape,
+:root[data-theme="light"] #graph .node.hovered .node-shape { stroke: #1f2330; }
+:root[data-theme="light"] #graph .node.in-slice .node-text,
+:root[data-theme="light"] #graph .node.criterion .node-text { fill: #ffffff; }
+:root[data-theme="light"] #graph .slice-num circle { stroke: #1f2330; }
+:root[data-theme="light"] #graph .edge { opacity: 0.7; }
+:root[data-theme="light"] #graph .edge.dimmed { opacity: 0.12; }
+:root[data-theme="light"] #graph .chop-tag rect,
+:root[data-theme="light"] #graph .insight-mark rect { fill: #ffffff; }
+:root[data-theme="light"] #graph .chop-tag text { fill: var(--text); }
+:root[data-theme="light"] .hero-node .hero-shape { stroke: #3c4150; }
+:root[data-theme="light"] .hero-node.in-slice .hero-shape,
+:root[data-theme="light"] .hero-node.criterion .hero-shape { stroke: #1f2330; }
+
+/* header toggle */
+.theme-toggle {
+  margin-left: 0.5rem; background: transparent; border: 1px solid var(--line); color: var(--text-dim);
+  border-radius: var(--radius-sm); padding: 0.25rem 0.55rem; font: inherit; font-size: 0.85rem; cursor: pointer;
+}
+.theme-toggle:hover { color: var(--text); border-color: var(--accent); }

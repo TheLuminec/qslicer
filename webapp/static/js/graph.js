@@ -73,8 +73,10 @@
     'structural': '#6C7086'
   };
   // The overview strip draws in the same colors as the graph's CSS.
+  function isLight() { return document.documentElement.getAttribute('data-theme') === 'light'; }
   var OVERVIEW = {
     background: 'rgba(24, 24, 37, 0.9)',
+    backgroundLight: 'rgba(255, 255, 255, 0.92)',
     slice: '#4a90d9',
     criterion: '#ff6b35',
     marked: '#89b4fa',
@@ -1257,7 +1259,7 @@
                                  stroke: color, 'stroke-width': 2, 'stroke-linecap': 'round' }));
     } else if (role === 'target' || role === 'target-x') {
       r = 6;
-      g.appendChild(el('circle', { r: r, fill: '#181825', stroke: color, 'stroke-width': 1.8 }));
+      g.appendChild(el('circle', { r: r, fill: isLight() ? '#ffffff' : '#181825', stroke: color, 'stroke-width': 1.8 }));
       if (role === 'target-x') {
         g.appendChild(el('path', { d: 'M -6 0 L 6 0 M 0 -6 L 0 6', stroke: color, 'stroke-width': 1.6 }));
       }
@@ -1944,7 +1946,7 @@
     base.width = width;
     base.height = height;
     var ctx = base.getContext('2d');
-    ctx.fillStyle = OVERVIEW.background;
+    ctx.fillStyle = isLight() ? OVERVIEW.backgroundLight : OVERVIEW.background;
     ctx.fillRect(0, 0, width, height);
 
     var self = this;
@@ -2116,6 +2118,24 @@
       '.slice-stripe.sl-' + k + ', .slice-num.sl-' + k + ' circle { fill: ' + color + '; }';
   })).join('\n');
 
+  // Light theme: what differs from EXPORT_CSS (later rules win).
+  var EXPORT_CSS_LIGHT = [
+    '.lane-line { stroke: #dfe2ea; }',
+    '.lane-label, .cwire-label, .node .node-index, .node .node-line { fill: #6b7186; }',
+    '.cwire-line { stroke: #b8bccb; }',
+    '.clbit-tick line { stroke: #6b7186; } .clbit-tick.write circle { fill: #6b7186; }',
+    '.clbit-tick.read circle { fill: #ffffff; stroke: #6b7186; }',
+    '.node .node-shape { stroke: #3c4150; }',
+    '.node.cat-structural .node-shape { fill: #b8bccb; }',
+    '.node.in-slice .node-shape { fill: #3a7bd5; stroke: #1f2330; }',
+    '.node.criterion .node-shape, .node.chop-from .node-shape { fill: #e8590c; stroke: #1f2330; }',
+    '.node.chop-to .node-shape { stroke: #1f2330; }',
+    '.node.in-slice .node-text, .node.criterion .node-text { fill: #ffffff; }',
+    '.slice-num circle { stroke: #1f2330; }',
+    '.chop-tag rect, .insight-mark rect { fill: #ffffff; } .chop-tag text { fill: #1f2330; }',
+    '.lane-slice rect { fill: #eceef3; stroke: #d3d6e0; } .lane-slice text { fill: #464c5e; }'
+  ].join('\n');
+
   QGraph.prototype.toPngBlob = function (filename, callback) {
     var rect = this.svg.getBoundingClientRect();
     var width = Math.max(320, Math.round(rect.width));
@@ -2129,10 +2149,10 @@
     clone.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
 
     var style = document.createElementNS(SVG_NS, 'style');
-    style.textContent = EXPORT_CSS;
+    style.textContent = EXPORT_CSS + (isLight() ? '\n' + EXPORT_CSS_LIGHT : '');
     clone.insertBefore(style, clone.firstChild);
 
-    var background = el('rect', { x: 0, y: 0, width: width, height: height, fill: '#181825' });
+    var background = el('rect', { x: 0, y: 0, width: width, height: height, fill: isLight() ? '#ffffff' : '#181825' });
     clone.insertBefore(background, style.nextSibling);
 
     var markup = new XMLSerializer().serializeToString(clone);
