@@ -32,14 +32,21 @@ from __future__ import annotations
 import multiprocessing
 import os
 import pickle
-import resource
 import signal
 import threading
 from typing import Any, Dict, Optional
 
+try:
+    import resource
+except ImportError:  # Windows: no rlimits, so no sandbox
+    resource = None
+
 import analysis
 
-ENABLED = os.environ.get("QSLICER_SANDBOX", "1").strip() not in ("0", "false", "no", "")
+# The sandbox needs rlimits and a forkserver, which only Unix has; elsewhere
+# (a Windows laptop) analysis runs in the request thread, as with QSLICER_SANDBOX=0.
+SUPPORTED = resource is not None and "forkserver" in multiprocessing.get_all_start_methods()
+ENABLED = SUPPORTED and os.environ.get("QSLICER_SANDBOX", "1").strip() not in ("0", "false", "no", "")
 MEM_MB = int(os.environ.get("QSLICER_SANDBOX_MEM_MB", "768"))
 WALL_SECONDS = float(os.environ.get("QSLICER_SANDBOX_TIMEOUT", str(analysis.PARSE_TIMEOUT + 15)))
 JOBS = max(1, int(os.environ.get("QSLICER_SANDBOX_JOBS", "2")))

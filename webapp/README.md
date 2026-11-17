@@ -210,7 +210,7 @@ package, so the command line and the site share them.
 
 ## Example circuits
 
-`qslicer/examples/` holds 23 Qiskit circuits and 2 OpenQASM files, described by
+`qslicer/examples/` holds 24 Qiskit circuits and 2 OpenQASM files, described by
 `manifest.json` alongside them. They are grouped in the dropdown as Basics,
 Algorithms, Communication protocols, Analysis showcases, and OpenQASM.
 

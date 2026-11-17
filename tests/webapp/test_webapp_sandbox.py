@@ -12,6 +12,8 @@ import sandbox
 
 from webapp_helpers import GHZ_QASM, post_analyze, post_slice
 
+pytestmark = pytest.mark.skipif(not sandbox.SUPPORTED, reason="the sandbox needs Unix rlimits and a forkserver")
+
 
 @pytest.fixture
 def boxed(monkeypatch):

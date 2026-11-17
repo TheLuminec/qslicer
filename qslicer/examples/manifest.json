@@ -127,6 +127,14 @@
       "highlight": ""
     },
     {
+      "key": "iterative_phase_estimation",
+      "file": "iterative_phase_estimation.py",
+      "category": "algorithms",
+      "title": "Iterative phase estimation",
+      "blurb": "A dynamic circuit: one ancilla, reset and reused for four rounds, each fed the bits already read.",
+      "highlight": "Try: slice backward from the last phase bit (#33), then again with only Qubit under Follow."
+    },
+    {
       "key": "qaoa_maxcut",
       "file": "qaoa_maxcut.py",
       "category": "algorithms",

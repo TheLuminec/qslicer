@@ -34,7 +34,10 @@ def _original(rel):
 # Programs added since reference.json was last recorded. Recording needs CodeQL
 # and a LintQ checkout (see record_reference.py), so a new program can land
 # first; running the script records it, and it then comes off this list.
-AWAITING_RECORDING = {"qslicer/examples/shors_algorithm.py"}
+AWAITING_RECORDING = {
+    "qslicer/examples/shors_algorithm.py",
+    "qslicer/examples/iterative_phase_estimation.py",
+}
 
 
 def test_reference_covers_every_fixture_example_and_bugs4q_program():

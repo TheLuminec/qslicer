@@ -116,7 +116,7 @@ navigation. `benchmarks/run_benchmark.py` works either way.
 
 On the slicer page:
 
-- **Example, upload or paste.** 25 bundled circuits (23 Qiskit, 2 OpenQASM)
+- **Example, upload or paste.** 26 bundled circuits (24 Qiskit, 2 OpenQASM)
   are grouped as Basics, Algorithms, Communication protocols, Analysis
   showcases and OpenQASM.
 - **Click a node** to slice from it. Toggle backward or forward in the toolbar.
