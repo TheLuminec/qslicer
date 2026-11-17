@@ -30,6 +30,26 @@ in depth:
 4. **An `allow` / `deny` block in the nginx `server {}`**, if the site should
    only be reachable from campus or the VPN.
 
+## Public deployments
+
+For a site open to the internet (rather than a campus network), two more
+things matter:
+
+- **Each analysis runs in a limited child process** (`webapp/sandbox.py`, on by
+  default). The parsers bound their own Python loops, but not work outside them:
+  a regular expression, building the dependence graph, one huge allocation. The
+  child gets an address-space cap (`QSLICER_SANDBOX_MEM_MB`, default 768 MB above
+  its starting size), a CPU limit and a wall-clock deadline
+  (`QSLICER_SANDBOX_TIMEOUT`, default the parse timeout plus 15 s), and at most
+  `QSLICER_SANDBOX_JOBS` (default 2) run at once. Size `MemoryMax` for the parent
+  plus that many children. `QSLICER_SANDBOX=0` turns it off. The qiskit.qasm3
+  route is off unless `QSLICER_QASM_IMPORT=1`, because it has neither limit.
+- **Behind a tunnel or CDN, rate-limit the real client.** If nginx sees every
+  request from 127.0.0.1 (cloudflared, for example), `$binary_remote_addr` is
+  one bucket for the whole internet. Listen on loopback only and set
+  `set_real_ip_from 127.0.0.1; real_ip_header CF-Connecting-IP;` (or the
+  equivalent header for your proxy).
+
 ## Install
 
 ```bash

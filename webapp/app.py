@@ -59,6 +59,7 @@ import examples  # noqa: E402
 from qslicer import gates  # noqa: E402
 from qslicer.lint import registry as linters  # noqa: E402
 import rule_docs  # noqa: E402
+import sandbox  # noqa: E402
 from team import (  # noqa: E402
     COURSE, MEMBERS, MISSION, PROJECT_BLURB, VISION,
 )
@@ -284,7 +285,8 @@ def api_analyze():
     if record is not None:
         return _json_bytes_response(record["body"], record["gzip"], cache="hit")
     with analysis.no_full_gc():
-        result = analysis.analyze_source(source, **request_args)
+        # In a child process with memory, CPU and wall-clock limits (see sandbox.py).
+        result = sandbox.analyze(source, **request_args)
         body = _json_bytes(result)
     # Compressed now for a response that is kept (browsers ask for gzip), so a
     # hit never compresses; a failure only for a client that wants it.
@@ -474,6 +476,17 @@ def api_benchmark_run():
         return _bad_request(f"Unknown benchmark {name!r}.", stage="benchmark")
     report = benchmark.run(chosen, profile=profile, dataset=dataset)
     return jsonify(dict(report, ok=True))
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    """No traceback or HTML error page leaves the server; API callers get JSON."""
+    if request.path.startswith("/api/"):
+        return jsonify({"ok": False, "diagnostics": [], "error": {
+            "kind": "internal_error", "message": "Something went wrong on the server.",
+            "detail": "", "hint": "Try again; if it keeps happening, report the input."}}), 500
+    return render_template("error.html", page="", code=500,
+                           message="Something went wrong on the server."), 500
 
 
 @app.errorhandler(404)

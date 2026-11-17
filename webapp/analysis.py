@@ -707,6 +707,13 @@ _ALIASES = {
 }
 
 
+# The qiskit.qasm3 route ("qasm") has no parse timeout or instruction cap, and
+# qiskit's importer resolves `include` itself. Off unless QSLICER_QASM_IMPORT=1:
+# without it the names that pick that route go to the bounded static OpenQASM
+# front end. The test suite turns it on to keep testing the route.
+QASM_IMPORT_ROUTE = os.environ.get("QSLICER_QASM_IMPORT", "").strip() == "1"
+
+
 # Names of the removed route that executed submitted Python. Refused outright,
 # never mapped to another route.
 _EXECUTING = frozenset({"qiskit", "python", "py"})
@@ -762,6 +769,8 @@ def source_kind(filename: str = "", language: Optional[str] = None) -> str:
     """
     if language:
         resolved = _ALIASES.get(str(language).strip().lower())
+        if resolved == "qasm" and not QASM_IMPORT_ROUTE:
+            return "qasm-static"
         if resolved:
             return resolved
     return ("qasm-static" if os.path.splitext(filename)[1].lower() in QASM_SUFFIXES
@@ -895,6 +904,15 @@ def _parse_static_source(source: str, filename: str,
             program = parser.parse()
         except StaticParseError as exc:
             raise _ParseFailure(_static_error_payload(exc), cause=exc)
+        except (RecursionError, MemoryError) as exc:
+            raise _ParseFailure({
+                "kind": "too_deep" if isinstance(exc, RecursionError) else "too_expensive",
+                "message": ("The program nests too deeply to analyse."
+                            if isinstance(exc, RecursionError)
+                            else "The program needs more memory than one analysis may use."),
+                "detail": "",
+                "hint": "Slice a smaller or flatter piece of the program.",
+            }, cause=exc)
         except ValueError as exc:
             no_circuit = "No QuantumCircuit" in str(exc)
             hint = _HINTS["no_circuit"] if no_circuit else ""

@@ -975,7 +975,8 @@ _STATIC_TYPES = (StaticCircuit, StaticGate, StaticRegister, StaticInstruction, _
 # Exact types binop can apply directly (no subclasses: those may be anything).
 _PLAIN_NUMBERS = frozenset({int, float})
 # The operators _guard_binop limits when both sides are numbers.
-_GUARDED_NUMBER_OPS = frozenset({ast.Pow, ast.LShift})
+# Mult too: repeated squaring (x = x*x) of a big int otherwise ran unbounded in C.
+_GUARDED_NUMBER_OPS = frozenset({ast.Pow, ast.LShift, ast.Mult})
 
 # QuantumCircuit attributes and methods that read a circuit without changing it.
 _READ_ONLY_ATTRS = {
@@ -2113,6 +2114,9 @@ class _Interpreter:
             for seq, count in ((left, right), (right, left)):
                 if isinstance(seq, sequences) and isinstance(count, numbers.Integral):
                     too_big |= len(seq) * max(int(count), 0) > MAX_COLLECTION
+            if isinstance(left, numbers.Integral) and isinstance(right, numbers.Integral):
+                # The product has about this many bits; the same cap as ** and <<.
+                too_big |= abs(int(left)).bit_length() + abs(int(right)).bit_length() > 100_000
         elif isinstance(op, ast.Add):
             if isinstance(left, sequences) and isinstance(right, sequences):
                 too_big = len(left) + len(right) > MAX_COLLECTION

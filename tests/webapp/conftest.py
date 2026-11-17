@@ -33,6 +33,24 @@ def _roomy_cache():
     mp.undo()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _in_process_analysis():
+    """Analyse in the test process, with the qiskit.qasm3 route available.
+
+    Production runs each analysis in a limited child process (sandbox.py) and
+    leaves the qiskit.qasm3 route off (QSLICER_QASM_IMPORT). The tests here
+    patch analysis internals, which a child process would not see, and still
+    cover that route. tests/webapp/test_webapp_sandbox.py tests both
+    production defaults directly.
+    """
+    import sandbox
+    mp = pytest.MonkeyPatch()
+    mp.setattr(sandbox, "ENABLED", False)
+    mp.setattr(analysis, "QASM_IMPORT_ROUTE", True)
+    yield
+    mp.undo()
+
+
 @pytest.fixture(scope="session")
 def flask_app():
     app_module.app.config["TESTING"] = True
