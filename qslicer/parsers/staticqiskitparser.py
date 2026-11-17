@@ -834,6 +834,16 @@ class _IfContext:
         self.else_used = False
 
 
+class _ForContext:
+    """``qc.for_loop(indexset)``, waiting to be entered by a ``with``. The loop runs on
+    the device over a fixed index set, so its body is unrolled: run once per index,
+    with the loop parameter bound to it, as the OpenQASM front end unrolls ``for``."""
+
+    def __init__(self, circuit, values):
+        self.circuit = circuit
+        self.values = values
+
+
 class _ElseContext:
     """The ``as else_`` target of an if_test block."""
 
@@ -870,6 +880,22 @@ _GATE_METHODS = {
     "rccx": ("rccx", (), _CCT),
     "cswap": ("cswap", (), ("control_qubit", "target_qubit1", "target_qubit2")),
     "rcccx": ("rcccx", (), ("control_qubit1", "control_qubit2", "control_qubit3", "target_qubit")),
+}
+
+# QuantumCircuit methods that Qiskit removed (1.0 and earlier), with the instruction each
+# placed. Old programs still call them; they are read with a warning, and the quick
+# checks still report the removed API.
+_LEGACY_GATE_METHODS = {
+    "u1": ("u1", ("theta",), _ONE),
+    "u2": ("u2", ("phi", "lam"), _ONE),
+    "u3": ("u3", ("theta", "phi", "lam"), _ONE),
+    "iden": ("id", (), _ONE),
+    "i": ("id", (), _ONE),
+    "cnot": ("cx", (), _CT),
+    "cu1": ("cu1", ("theta",), _CT),
+    "cu3": ("cu3", ("theta", "phi", "lam"), _CT),
+    "toffoli": ("ccx", (), _CCT),
+    "fredkin": ("cswap", (), ("control_qubit", "target_qubit1", "target_qubit2")),
 }
 
 # qiskit.circuit.library class -> (instruction name, number of params, number of qubits)
@@ -1613,6 +1639,11 @@ class _Interpreter:
             self._with_if(context, node, index, item, frame)
         elif isinstance(context, _ElseContext):
             self._with_else(context.if_context, node, index, item, frame)
+        elif isinstance(context, _ForContext):
+            for value in context.values:
+                if item.optional_vars is not None:
+                    self.assign(item.optional_vars, value, frame)
+                self._with_items(node, index + 1, frame)
         else:
             if item.optional_vars is not None:
                 self.assign(item.optional_vars, Unknown(_text(item.context_expr)), frame)
@@ -1836,6 +1867,8 @@ class _Interpreter:
             return not truth
         if isinstance(value, Unknown):
             raise _NeedsUnknown(value)
+        if isinstance(value, _ModuleRef):
+            raise _NeedsUnknown(Unknown(_text(node)))
         if isinstance(value, Symbol):
             if isinstance(node.op, ast.USub):
                 return _negate(value)
@@ -2042,6 +2075,10 @@ class _Interpreter:
         for side in (left, right):
             if isinstance(side, Unknown):
                 raise _NeedsUnknown(side)
+            if isinstance(side, _ModuleRef):
+                # An operator on something from a module the parser does not model
+                # (``Z ^ I`` with qiskit.opflow, say) is only known by running it.
+                raise _NeedsUnknown(Unknown(f"an operator on {side.path}"))
         if isinstance(left, Symbol) or isinstance(right, Symbol):
             symbol = _SYMBOLIC_BINOPS.get(type(op))
             if (symbol and isinstance(left, (Symbol, numbers.Number))
@@ -2096,6 +2133,8 @@ class _Interpreter:
     def getitem(self, obj, key):
         if isinstance(obj, Unknown):
             raise _NeedsUnknown(obj)
+        if isinstance(obj, _ModuleRef):
+            raise _NeedsUnknown(Unknown(f"{obj.path}[...]"))
         if isinstance(key, Unknown):
             raise _NeedsUnknown(key)
         if isinstance(obj, StaticRegister):
@@ -2400,6 +2439,8 @@ class _Interpreter:
                 for instruction in obj.instructions:
                     instruction.operation = instruction.operation.inverse()
                 return obj
+            if name == "c_if":
+                return self._c_if(obj, args, kwargs)
             raise AttributeError(f"'InstructionSet' object has no attribute '{name}'")
         if isinstance(obj, StaticRegister):
             if name == "index":
@@ -2414,6 +2455,28 @@ class _Interpreter:
         if isinstance(obj, _ArgParser):
             return self.argparse_method(obj, name, args, kwargs)
         return self.plain_method(obj, name, args, kwargs)
+
+    def _c_if(self, instructions, args, kwargs):
+        # InstructionSet.c_if(), removed in Qiskit 2.0: the instructions run only when
+        # the classical bit or register holds the value, so they read its bits.
+        bound, _ = self.bind("c_if", ["classical", "val"], args, kwargs)
+        target = bound["classical"]
+        if isinstance(target, Unknown):
+            raise self.error(f"the condition `{target.text}` cannot be determined statically",
+                             cause=target)
+        if isinstance(target, StaticRegister) and target.kind == "clbit":
+            bits = list(target.bits)
+        elif isinstance(target, StaticBit) and target.kind == "clbit":
+            bits = [target]
+        else:
+            raise self.error("c_if on a bit index is not supported; name the classical bit "
+                             "or register")
+        self.warn("`c_if()` was removed in Qiskit 2.0; the instruction is read as conditioned "
+                  "on its bits")
+        for instruction in instructions.instructions:
+            instruction.condition = (target, bound["val"])
+            instruction.condition_bits = bits
+        return instructions
 
     # -- argparse -------------------------------------------------------------
 
@@ -2621,8 +2684,13 @@ class _Interpreter:
     # -- QuantumCircuit methods ---------------------------------------------
 
     def circuit_method(self, circuit, name, args, kwargs):
-        if name in _GATE_METHODS:
-            gate_name, param_names, qubit_names = _GATE_METHODS[name]
+        if name in _GATE_METHODS or name in _LEGACY_GATE_METHODS:
+            if name in _GATE_METHODS:
+                gate_name, param_names, qubit_names = _GATE_METHODS[name]
+            else:
+                gate_name, param_names, qubit_names = _LEGACY_GATE_METHODS[name]
+                self.warn(f"`QuantumCircuit.{name}()` was removed from Qiskit; it is read as "
+                          f"the `{gate_name}` gate it placed")
             bound, extra = self.bind(name, param_names + qubit_names, args, kwargs)
             gate = StaticGate(gate_name, len(qubit_names), 0,
                               [self.gate_param(bound[p]) for p in param_names],
@@ -2631,6 +2699,12 @@ class _Interpreter:
         handler = getattr(self, "_qc_" + name, None)
         if handler is not None:
             return handler(circuit, args, kwargs)
+        if name.startswith("save_"):
+            # Qiskit Aer's save instructions record the simulator's state and change
+            # nothing, so they add no dependence.
+            self.warn(f"`QuantumCircuit.{name}()` (Qiskit Aer) records the state and changes "
+                      "nothing; it is left out")
+            return None
         if name in _INFO_METHODS:
             return Unknown(self.call_text())
         raise self.error(f"`QuantumCircuit.{name}()` is not supported by the static parser")
@@ -2749,8 +2823,27 @@ class _Interpreter:
         if isinstance(operation, StaticCircuit):
             operation = operation.to_instruction()
         if not isinstance(operation, StaticGate):
-            raise self.error(f"cannot append `{_text(self._call_node.args[0]) if self._call_node.args else '?'}`: "
-                             "the static parser cannot see what instruction it is")
+            shown = _text(self._call_node.args[0]) if self._call_node.args else "?"
+            qargs = bound["qargs"]
+            if qargs is None or isinstance(qargs, Unknown):
+                raise self.error(f"cannot append `{shown}`: the static parser cannot see what "
+                                 "instruction it is")
+            # The qubits are given, so the unknown operation is kept as one opaque
+            # instruction on all of them: it may change every qubit it acts on.
+            # Flatten registers and lists, so the instruction spans every qubit at once
+            # instead of being broadcast one qubit at a time.
+            qspecs = [bit for spec in self._specs(qargs, "qargs")
+                      for bit in self.resolve_bits(circuit, spec, "qubit")]
+            cspecs = [bit for spec in self._specs(bound["cargs"], "cargs")
+                      for bit in self.resolve_bits(circuit, spec, "clbit")]
+            head = self._call_node.args[0] if self._call_node.args else None
+            label = (head.func.attr if isinstance(head, ast.Call) and isinstance(head.func, ast.Attribute)
+                     else head.func.id if isinstance(head, ast.Call) and isinstance(head.func, ast.Name)
+                     else "opaque")
+            self.warn(f"`{shown}` is not modelled; it is kept as one instruction on its "
+                      f"{len(qspecs)} qubit(s)")
+            operation = StaticGate(label.lower(), len(qspecs), len(cspecs))
+            return self.place(circuit, operation, qspecs, cspecs)
         return self.place(circuit, operation, self._specs(bound["qargs"], "qargs"),
                           self._specs(bound["cargs"], "cargs"))
 
@@ -2816,6 +2909,24 @@ class _Interpreter:
             target = bit
             bits = [bit]
         return _IfContext(circuit, (target, value), bits, self.here())
+
+    def _qc_control(self, circuit, args, kwargs):
+        # QuantumCircuit.control(): the circuit as one gate, with control qubits added.
+        return self.gate_method(circuit.to_gate(kwargs.get("label")), "control", args, kwargs)
+
+    def _qc_for_loop(self, circuit, args, kwargs):
+        bound, _ = self.bind("for_loop", ["indexset", "loop_parameter", "body", "qubits", "clbits"],
+                             args, kwargs, {"loop_parameter": None, "body": None, "qubits": None,
+                                            "clbits": None})
+        if bound["body"] is not None:
+            raise self.error("for_loop with an explicit body is not supported; "
+                             "use `with qc.for_loop(...):`")
+        indexset = bound["indexset"]
+        if isinstance(indexset, Unknown):
+            raise self.error(f"the index set `{indexset.text}` of this for_loop cannot be "
+                             "determined statically", cause=indexset)
+        values = self.bounded(self.iterable(indexset))
+        return _ForContext(circuit, list(values))
 
     def _qc_to_gate(self, circuit, args, kwargs):
         return circuit.to_gate(kwargs.get("label"))
