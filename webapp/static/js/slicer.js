@@ -812,7 +812,9 @@
     state.nodeCount = data.ok ? data.nodes.length : 0;
     renderDiagnostics(data.diagnostics || [], data.error);
     renderCircuitBar(data);
-    $('console-out').textContent = data.stdout ? data.stdout : '(no output)';
+    // What the qslicer command prints for this file; a slice adds its own below.
+    state.analysisConsole = data.console || '';
+    showConsole('');
     $('console-error').textContent = data.error
       ? formatErrorForConsole(data.error)
       : '(none)';
@@ -1471,8 +1473,15 @@
       : 'Slice cleared. Click a gate to slice from it.');
   }
 
+  /* The Console tab: what qslicer printed for the analysis, then for the slice. */
+  function showConsole(sliceText) {
+    var text = [state.analysisConsole, sliceText].filter(Boolean).join('\n\n');
+    $('console-out').textContent = text || '(no output)';
+  }
+
   /* The page's record of the slice, for a new analysis (the graph resets itself). */
   function forgetSlice() {
+    if (state.analysisConsole !== undefined) showConsole('');
     state.criteria = [];
     state.chop = { from: null, to: null };
     renderSliceLegend(null);
@@ -1529,6 +1538,7 @@
           return;
         }
         showSlice(data, note || '');
+        showConsole(data.console || '');
       })
       .catch(function (error) {
         if (seq === state.sliceSeq) setStatus('Slice request failed: ' + error);
@@ -2174,6 +2184,7 @@
     renderQubitSlicePicker(null);
     renderDepFilter(null);
     state.activeDeps = null;
+    state.analysisConsole = '';
     $('console-out').textContent = '(nothing yet)';
     $('console-error').textContent = '(none)';
     $('diagnostics-list').innerHTML =

@@ -274,7 +274,7 @@ def test_ghz_multi_selection_takes_precedence_and_filters(client, ghz_qasm_resul
 
 def test_plain_slice_has_no_new_fields(client, ghz_qasm_result):
     body = post_ok(client, ghz_qasm_result, node_idx=4)
-    assert set(body) == {"ok", "direction", "node_idx", "dep_types", "slice", "size", "total"}
+    assert set(body) == {"ok", "console", "direction", "node_idx", "dep_types", "slice", "size", "total"}
 
 
 @pytest.mark.parametrize("payload, message", [
