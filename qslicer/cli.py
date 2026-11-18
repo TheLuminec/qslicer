@@ -45,19 +45,81 @@ def _describe(program: QuantumProgram, indices) -> List[Dict[str, Any]]:
              "label": _label(program[i])} for i in sorted(indices)]
 
 
-def _print_instructions(rows: List[Dict[str, Any]]) -> None:
+# The text the commands print, as lists of lines. The web app's Console tab
+# builds its output from these too, so the two always say the same thing.
+
+def instruction_lines(rows: List[Dict[str, Any]]) -> List[str]:
+    lines = []
     for row in rows:
         line = row["line"] if row["line"] is not None else "-"
-        print(f"{row['index']:>5}  line {line:>4}  {row['label']}")
+        lines.append(f"{row['index']:>5}  line {line:>4}  {row['label']}")
+    return lines
+
+
+def list_lines(program: QuantumProgram) -> List[str]:
+    """What ``qslicer list`` prints."""
+    return ([f"{program.num_qubits} qubits, {program.num_clbits} clbits, "
+             f"{len(program)} instructions"]
+            + instruction_lines(_describe(program, range(len(program)))))
+
+
+def slice_lines(program: QuantumProgram, direction: str, node: int, indices) -> List[str]:
+    """What ``qslicer slice`` prints for a backward or forward slice."""
+    rows = _describe(program, indices)
+    return ([f"{direction} slice from instruction {node} "
+             f"({_label(program[node])}): {len(rows)} of {len(program)} instructions"]
+            + instruction_lines(rows))
+
+
+def chop_lines(program: QuantumProgram, node: int, target: int, indices) -> List[str]:
+    """What ``qslicer slice --chop`` prints."""
+    rows = _describe(program, indices)
+    if not rows:
+        return [f"instruction {node} ({_label(program[node])}) cannot affect "
+                f"instruction {target} ({_label(program[target])})"]
+    return ([f"chop from instruction {node} ({_label(program[node])}) to instruction "
+             f"{target} ({_label(program[target])}): {len(rows)} of {len(program)} "
+             "instructions"]
+            + instruction_lines(rows))
+
+
+def lint_lines(report: Dict[str, List[Dict[str, Any]]], hints: bool = False) -> List[str]:
+    """What ``qslicer lint`` prints, one line per finding (and hint)."""
+    lines = []
+    for path, findings in report.items():
+        for f in findings:
+            # Columns are 1-based already; 0 means the linter gave none.
+            lines.append(f"{path}:{f.get('line') or 0}:{f.get('column') or 1}: "
+                         f"{f.get('severity', 'warning')} {f['code']} {f['message']}")
+            if hints and f.get("hint"):
+                lines.append(f"    hint: {f['hint']}")
+    return lines
+
+
+def lint_summary(report: Dict[str, List[Dict[str, Any]]]) -> str:
+    """The count ``qslicer lint`` prints to stderr."""
+    total = sum(len(findings) for findings in report.values())
+    return (f"{total} finding{'s' if total != 1 else ''} in {len(report)} "
+            f"file{'s' if len(report) != 1 else ''}")
+
+
+def parse_error_message(path: str, exc: Exception) -> str:
+    """How the commands report a file the static front ends cannot read."""
+    if isinstance(exc, StaticParseError):
+        return f"{path}: cannot determine the circuit statically: {exc}"
+    return f"{path}: {getattr(exc, 'strerror', None) or exc}"
+
+
+def _print_lines(lines: List[str]) -> None:
+    for line in lines:
+        print(line)
 
 
 def _parse(path: str, language: Optional[str]) -> QuantumProgram:
     try:
         return parse_file(path, language)
-    except StaticParseError as exc:
-        raise SystemExit(f"{path}: cannot determine the circuit statically: {exc}")
-    except OSError as exc:
-        raise SystemExit(f"{path}: {exc.strerror or exc}")
+    except (StaticParseError, OSError) as exc:
+        raise SystemExit(parse_error_message(path, exc))
 
 
 def _cmd_lint(args) -> int:
@@ -76,30 +138,19 @@ def _cmd_lint(args) -> int:
     if args.format == "json":
         print(json.dumps(report, indent=2))
     else:
-        total = 0
-        for path, findings in report.items():
-            for f in findings:
-                total += 1
-                # Columns are 1-based already; 0 means the linter gave none.
-                print(f"{path}:{f.get('line') or 0}:{f.get('column') or 1}: "
-                      f"{f.get('severity', 'warning')} {f['code']} {f['message']}")
-                if args.hints and f.get("hint"):
-                    print(f"    hint: {f['hint']}")
-        print(f"{total} finding{'s' if total != 1 else ''} in {len(report)} "
-              f"file{'s' if len(report) != 1 else ''}", file=sys.stderr)
+        _print_lines(lint_lines(report, args.hints))
+        print(lint_summary(report), file=sys.stderr)
     return 1 if failed else 0
 
 
 def _cmd_list(args) -> int:
     program = _parse(args.file, args.language)
-    rows = _describe(program, range(len(program)))
     if args.format == "json":
+        rows = _describe(program, range(len(program)))
         print(json.dumps({"num_qubits": program.num_qubits, "num_clbits": program.num_clbits,
                           "instructions": rows}, indent=2))
     else:
-        print(f"{program.num_qubits} qubits, {program.num_clbits} clbits, "
-              f"{len(program)} instructions")
-        _print_instructions(rows)
+        _print_lines(list_lines(program))
     return 0
 
 
@@ -157,28 +208,20 @@ def _cmd_slice(args) -> int:
         if args.direction == "forward" or args.qubit is not None:
             raise SystemExit("a chop runs from an instruction (index or --line) to "
                              "--chop or --chop-qubit")
-        rows = _describe(program, chop(program, node, target, deps or None, args.profile))
+        indices = chop(program, node, target, deps or None, args.profile)
         if args.format == "json":
             print(json.dumps({"criterion": node, "target": target, "direction": "chop",
-                              "slice": rows}, indent=2))
-        elif not rows:
-            print(f"instruction {node} ({_label(program[node])}) cannot affect "
-                  f"instruction {target} ({_label(program[target])})")
+                              "slice": _describe(program, indices)}, indent=2))
         else:
-            print(f"chop from instruction {node} ({_label(program[node])}) to instruction "
-                  f"{target} ({_label(program[target])}): {len(rows)} of {len(program)} "
-                  "instructions")
-            _print_instructions(rows)
+            _print_lines(chop_lines(program, node, target, indices))
         return 0
     walk = forward_slice if args.direction == "forward" else backward_slice
-    rows = _describe(program, walk(program, node, deps or None, args.profile))
+    indices = walk(program, node, deps or None, args.profile)
     if args.format == "json":
-        print(json.dumps({"criterion": node, "direction": args.direction, "slice": rows},
-                         indent=2))
+        print(json.dumps({"criterion": node, "direction": args.direction,
+                          "slice": _describe(program, indices)}, indent=2))
     else:
-        print(f"{args.direction} slice from instruction {node} "
-              f"({_label(program[node])}): {len(rows)} of {len(program)} instructions")
-        _print_instructions(rows)
+        _print_lines(slice_lines(program, args.direction, node, indices))
     return 0
 
 
