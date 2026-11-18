@@ -1,4 +1,6 @@
-flask>=3.0
+# Exact versions for a public deployment; bump deliberately.
+flask==3.1.3
+werkzeug==3.1.9
 
 # Only needed to serve the site behind nginx; see deploy/README.md.
 # gunicorn is Linux-only -- on Windows use waitress instead.

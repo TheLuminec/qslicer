@@ -28,6 +28,7 @@ import io
 import json
 import math
 import os
+import shlex
 import shutil
 import tempfile
 import threading
@@ -55,6 +56,7 @@ try:
     from qslicer.parsers.staticqiskitparser import StaticParseError, StaticQiskitParser
     from qslicer.qdg import QDG, get_rule_profile, list_rule_profiles
     from qslicer.slicer import QuantumSlicer, SlicingCriterion
+    from qslicer import cli as qslicer_cli
 except Exception as exc:  # pragma: no cover - depends on the local environment
     _IMPORT_ERROR = f"{type(exc).__name__}: {exc}"
 
@@ -404,6 +406,40 @@ def _note_interpreter_mismatch(error: Dict[str, Any], source: str, kind: str) ->
 # Main entry points
 # --------------------------------------------------------------------------
 
+def _cli_args(filename: str, kind: str, profile: str = "baseline") -> Dict[str, str]:
+    """The file argument and flags the ``qslicer`` command would need for this input."""
+    wants = "qasm" if kind in QASM_KINDS else "python"
+    implied = "qasm" if filename.lower().endswith(QASM_SUFFIXES) else "python"
+    return {
+        "file": shlex.quote(filename),
+        "language": "" if wants == implied else f" --language {wants}",
+        "profile": "" if profile == "baseline" else f" --profile {shlex.quote(profile)}",
+    }
+
+
+def _analysis_console(cli: Dict[str, str], selection: List[str],
+                      findings: List[Dict[str, Any]], path: str,
+                      list_body: Optional[List[str]]) -> str:
+    """What ``qslicer lint`` and ``qslicer list`` print for this input, as the
+    Console tab shows it: each command after a ``$`` prompt, then its output."""
+    lines: List[str] = []
+    if selection:
+        select = ("" if selection == linters.default_selection()
+                  else " --select " + " ".join(selection))
+        report = {path: findings}
+        lines += [f"$ qslicer lint {cli['file']}{cli['language']}{select}{cli['profile']}"]
+        lines += qslicer_cli.lint_lines(report) + [qslicer_cli.lint_summary(report)]
+    if list_body is not None:
+        lines += [f"$ qslicer list {cli['file']}{cli['language']}"] + list_body
+    return "\n".join(lines)
+
+
+def _failure_lines(path: str, failure: "_ParseFailure") -> List[str]:
+    if failure.cause is not None:
+        return [qslicer_cli.parse_error_message(path, failure.cause)]
+    return [f"{path}: {failure.payload.get('message', 'parse failure')}"]
+
+
 def analyze_source(
     source: str,
     filename: str = "",
@@ -489,6 +525,12 @@ def analyze_source(
         context = linters.LintContext(source, filename, kind, profile, parse=parse_for_linters,
                                       qdg=qdg_once)
     diagnostics = linters.run(source, filename, kind, selection, profile, context=context)
+    # What `qslicer lint` reports: the linters' findings, before the notes below.
+    lint_findings = list(diagnostics)
+    cli = _cli_args(filename, kind, profile)
+
+    def console(list_body: Optional[List[str]]) -> str:
+        return _analysis_console(cli, selection, lint_findings, filename, list_body)
     # With QS000 deselected, a syntax error goes on to the parser, which
     # reports it in its own words.
     syntax = next((d for d in diagnostics if d.get("code") == "QS000"), None)
@@ -535,6 +577,9 @@ def analyze_source(
             "line": syntax["line"],
         }
         _note_interpreter_mismatch(result["error"], source, kind)
+        # `qslicer list` stops at the same place, in the parser's words.
+        _, _, failure = parse_once()
+        result["console"] = console(_failure_lines(filename, failure) if failure else None)
         return result
 
     if parsed_bindings is None:
@@ -545,6 +590,7 @@ def analyze_source(
             "hint": "Use a number, a string in quotes, True/False/None, or a list or tuple of those.",
             "line": 0,
         }
+        result["console"] = console(None)
         return result
 
     program, captured, failure = parse_once()
@@ -552,9 +598,11 @@ def analyze_source(
         result["error"] = failure.payload
         _note_interpreter_mismatch(result["error"], source, kind)
         result["stdout"] = failure.stdout
+        result["console"] = console(_failure_lines(filename, failure))
         return result
 
     result["stdout"] = captured
+    result["console"] = console(qslicer_cli.list_lines(program))
     # The circuits a Python file builds, for the page to switch between.
     result["circuits"] = getattr(program, "static_circuits", [])
     result["circuit"] = getattr(program, "static_circuit_index", 0)
@@ -581,7 +629,7 @@ def analyze_source(
     # The front end is part of the key: the two OpenQASM routes must not share an entry.
     token = sha256(f"{filename}\x00{profile}\x00{kind}\x00{result['circuit']}\x00"
                    f"{sorted(parsed_bindings.items())!r}\x00{source}".encode("utf-8")).hexdigest()[:32]
-    _cache_put(token, {"qdg": qdg, "program": program})
+    _cache_put(token, {"qdg": qdg, "program": program, "cli": cli})
 
     result.update({
         "ok": True,
@@ -707,6 +755,13 @@ _ALIASES = {
 }
 
 
+# The qiskit.qasm3 route ("qasm") has no parse timeout or instruction cap, and
+# qiskit's importer resolves `include` itself. Off unless QSLICER_QASM_IMPORT=1:
+# without it the names that pick that route go to the bounded static OpenQASM
+# front end. The test suite turns it on to keep testing the route.
+QASM_IMPORT_ROUTE = os.environ.get("QSLICER_QASM_IMPORT", "").strip() == "1"
+
+
 # Names of the removed route that executed submitted Python. Refused outright,
 # never mapped to another route.
 _EXECUTING = frozenset({"qiskit", "python", "py"})
@@ -762,6 +817,8 @@ def source_kind(filename: str = "", language: Optional[str] = None) -> str:
     """
     if language:
         resolved = _ALIASES.get(str(language).strip().lower())
+        if resolved == "qasm" and not QASM_IMPORT_ROUTE:
+            return "qasm-static"
         if resolved:
             return resolved
     return ("qasm-static" if os.path.splitext(filename)[1].lower() in QASM_SUFFIXES
@@ -895,6 +952,15 @@ def _parse_static_source(source: str, filename: str,
             program = parser.parse()
         except StaticParseError as exc:
             raise _ParseFailure(_static_error_payload(exc), cause=exc)
+        except (RecursionError, MemoryError) as exc:
+            raise _ParseFailure({
+                "kind": "too_deep" if isinstance(exc, RecursionError) else "too_expensive",
+                "message": ("The program nests too deeply to analyse."
+                            if isinstance(exc, RecursionError)
+                            else "The program needs more memory than one analysis may use."),
+                "detail": "",
+                "hint": "Slice a smaller or flatter piece of the program.",
+            }, cause=exc)
         except ValueError as exc:
             no_circuit = "No QuantumCircuit" in str(exc)
             hint = _HINTS["no_circuit"] if no_circuit else ""
@@ -1103,6 +1169,29 @@ def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def _slice_console(entry: Dict[str, Any], program: Any, direction: str, nodes: List[int],
+                   target: Optional[int], selected: Any, slices: Optional[Dict[int, Any]],
+                   indices: Any) -> str:
+    """What ``qslicer slice`` prints for this slice, after a ``$`` prompt. The
+    command takes one criterion, so several are one command each."""
+    cli = entry.get("cli") or {"file": "circuit.py", "language": "", "profile": ""}
+    deps = (" --deps " + " ".join(sorted(dep.name for dep in selected))) if selected else ""
+    lines: List[str] = []
+    for node in nodes:
+        command = f"$ qslicer slice {cli['file']} {node}"
+        if direction == "chop":
+            command += f" --chop {target}"
+        elif direction == "forward":
+            command += " --forward"
+        lines.append(f"{command}{deps}{cli['language']}{cli['profile']}")
+        if direction == "chop":
+            lines += qslicer_cli.chop_lines(program, node, target, indices)
+        else:
+            lines += qslicer_cli.slice_lines(program, direction, node,
+                                             slices[node] if slices is not None else indices)
+    return "\n".join(lines)
+
+
 def slice_program(
     token: str,
     node_idx: Optional[int] = None,
@@ -1169,6 +1258,7 @@ def slice_program(
             selected = None
 
     extra: Dict[str, Any] = {}
+    slices = None
     if node_indices is not None:
         slices = QuantumSlicer.backward_slices(qdg, node_indices, selected)
         indices = set().union(*slices.values())
@@ -1191,6 +1281,9 @@ def slice_program(
 
     result = {
         "ok": True,
+        "console": _slice_console(entry, program, direction, node_indices or [node_idx],
+                                  target_idx, selected, slices,
+                                  indices),
         "direction": direction,
         "node_idx": node_idx,
         "dep_types": sorted(dep.name for dep in selected) if selected else None,
