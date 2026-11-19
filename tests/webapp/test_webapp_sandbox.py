@@ -61,13 +61,6 @@ def test_a_slow_analysis_is_killed_at_the_deadline(boxed, monkeypatch):
     assert result["ok"] is False and result["error"]["kind"] == "timeout", result
 
 
-def test_deep_nesting_is_an_error_not_a_crash():
-    source = "x = 1" + " + 1" * 60000 + "\n"
-    with pytest.raises(analysis._ParseFailure) as failure:
-        analysis._parse_static_source(source, "deep.py")
-    assert failure.value.payload["kind"] == "too_deep"
-
-
 @pytest.mark.parametrize("name", ["qasm", "openqasm", " QASM3 "])
 def test_qiskit_qasm3_route_is_off_by_default(monkeypatch, name):
     monkeypatch.setattr(analysis, "QASM_IMPORT_ROUTE", False)

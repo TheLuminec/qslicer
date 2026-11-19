@@ -102,12 +102,16 @@ class StaticParseError(ValueError):
 
     ``raised`` names the exception class when the reason is that the program
     itself raises one (``CircuitError``, ``NameError``, ...), else it is None.
+    ``too_deep`` is True when the program nests deeper than the parser can follow:
+    on Python 3.11+ ``ast.parse`` refuses such a program itself, but 3.10
+    parses it and the interpreter runs out of stack instead.
     """
 
-    def __init__(self, message, lineno=None, raised=None, needs=None):
+    def __init__(self, message, lineno=None, raised=None, needs=None, too_deep=False):
         self.message = message
         self.lineno = lineno
         self.raised = raised
+        self.too_deep = too_deep
         # When an unknown value stopped the parse and it came from a variable or
         # a command-line argument, a dict saying which: ``name``, ``line`` (where
         # it is assigned or declared), ``kind`` ("variable" or "argument") and
@@ -1150,7 +1154,7 @@ class _Interpreter:
             self.warnings.append(text)
             self.notes.append((lineno, message))
 
-    def error(self, message, lineno=None, cause=None):
+    def error(self, message, lineno=None, cause=None, too_deep=False):
         """A StaticParseError at ``lineno`` (default: the current line).
 
         ``cause`` is the Unknown (or _NeedsUnknown) that stopped the parse, if
@@ -1158,7 +1162,7 @@ class _Interpreter:
         the caller can ask the user for a value.
         """
         return StaticParseError(message, self.lineno if lineno is None else lineno,
-                                needs=_needs_of(cause))
+                                needs=_needs_of(cause), too_deep=too_deep)
 
     def unknown_value(self, name, value, lineno=None, kind="variable"):
         """What ``name`` gets when it is assigned the unknown ``value`` at ``lineno``.
@@ -1235,7 +1239,8 @@ class _Interpreter:
         except _Return:
             raise self.error("'return' outside a function") from None
         except RecursionError:
-            raise self.error("the program nests too deeply to analyse statically") from None
+            raise self.error("the program nests too deeply to analyse statically",
+                             too_deep=True) from None
 
     def exec_block(self, statements, frame):
         for statement in statements:
@@ -1256,9 +1261,12 @@ class _Interpreter:
             self.skip(node, frame, f"statement that depends on unknown `{exc}`", cause=exc)
         except _PASSTHROUGH:
             raise
-        except (RecursionError, MemoryError):
-            raise self.error("the program is too large or nests too deeply to analyse "
-                             "statically", node.lineno) from None
+        except RecursionError:
+            raise self.error("the program nests too deeply to analyse statically",
+                             node.lineno, too_deep=True) from None
+        except MemoryError:
+            raise self.error("the program is too large to analyse statically",
+                             node.lineno) from None
         except Exception as exc:
             raise _ProgramError(exc, node.lineno) from None
 

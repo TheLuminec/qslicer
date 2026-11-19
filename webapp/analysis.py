@@ -953,12 +953,12 @@ def _parse_static_source(source: str, filename: str,
             program = parser.parse()
         except StaticParseError as exc:
             raise _ParseFailure(_static_error_payload(exc), cause=exc)
-        except (RecursionError, MemoryError) as exc:
+        except RecursionError as exc:
+            raise _ParseFailure(_too_deep_payload(exc), cause=exc)
+        except MemoryError as exc:
             raise _ParseFailure({
-                "kind": "too_deep" if isinstance(exc, RecursionError) else "too_expensive",
-                "message": ("The program nests too deeply to analyse."
-                            if isinstance(exc, RecursionError)
-                            else "The program needs more memory than one analysis may use."),
+                "kind": "too_expensive",
+                "message": "The program needs more memory than one analysis may use.",
                 "detail": "",
                 "hint": "Slice a smaller or flatter piece of the program.",
             }, cause=exc)
@@ -985,8 +985,22 @@ def _parse_static_source(source: str, filename: str,
     return program, ""
 
 
+def _too_deep_payload(exc: Any) -> Dict[str, Any]:
+    """The error for a program that nests deeper than the parser can follow, whether
+    ``ast.parse`` refused it (Python 3.11+) or the interpreter ran out of stack."""
+    return {
+        "kind": "too_deep",
+        "message": "The program nests too deeply to analyse.",
+        "detail": getattr(exc, "message", ""),
+        "hint": "Slice a smaller or flatter piece of the program.",
+        "line": getattr(exc, "lineno", None) or 0,
+    }
+
+
 def _static_error_payload(exc: Any) -> Dict[str, Any]:
     """The error for a StaticParseError; a ``needs_value`` one when the user can supply it."""
+    if getattr(exc, "too_deep", False):
+        return _too_deep_payload(exc)
     needs = getattr(exc, "needs", None)
     if needs:
         what = ("the command-line argument" if needs["kind"] == "argument" else "the variable")
@@ -1028,6 +1042,8 @@ def _qasm_static_error_payload(exc: Any, source: str) -> Dict[str, Any]:
     """The error for a StaticParseError from the OpenQASM route. Only a syntax error
     means the file could not be parsed; anything else (an undefined gate, a wrong
     parameter count) parsed fine, so the headline names the problem itself."""
+    if getattr(exc, "too_deep", False):
+        return _too_deep_payload(exc)
     line = exc.lineno or 0
     if exc.message.startswith("OpenQASM syntax error"):
         return {

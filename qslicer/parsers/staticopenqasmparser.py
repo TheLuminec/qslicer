@@ -1565,7 +1565,8 @@ class StaticOpenQASMParser(AbstractParser):
         try:
             interpreter.run(tree)
         except RecursionError:
-            raise StaticParseError("the program nests too deeply to analyse") from None
+            raise StaticParseError("the program nests too deeply to analyse",
+                                   too_deep=True) from None
         except (_Break, _Continue):
             raise StaticParseError("'break' or 'continue' outside a loop") from None
         except _Return:
@@ -1589,6 +1590,8 @@ def _parse_syntax(source):
     """The reference parser's syntax tree, or a StaticParseError with the line."""
     try:
         return openqasm3.parse(source, **_PARSE_OPTIONS)
+    except RecursionError:
+        raise StaticParseError("the program nests too deeply to analyse", too_deep=True) from None
     except Exception as exc:          # QASM3ParsingError, and antlr's own errors
         message, lineno = str(exc), None
         found = re.match(r"L(\d+):C\d+: (.*)", message)
