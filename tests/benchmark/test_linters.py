@@ -225,6 +225,41 @@ def test_dead_gate_in_a_loop_is_reported_once():
     assert len(found) == 1 and "3 instances" in found[0]["message"]
 
 
+def test_merged_dead_gates_name_every_qubit():
+    # The final Hadamards of a Bernstein-Vazirani homework, after the measurement.
+    source = py("""
+        qc = QuantumCircuit(4, 3)
+        qc.measure(range(3), range(3))
+        for i in range(3):
+            qc.h(i)
+    """)
+    found = dependence(source, "QD01")
+    assert len(found) == 1
+    assert found[0]["message"].startswith("h on qubit(s) [0, 1, 2] ")
+    assert "_qubits" not in found[0]
+
+
+def test_one_dead_gate_keeps_its_qubit_order():
+    source = py("""
+        qc = QuantumCircuit(3, 1)
+        qc.measure(0, 0)
+        qc.cx(2, 1)
+    """)
+    assert dependence(source, "QD01")[0]["message"].startswith("cx on qubit(s) [2, 1] ")
+
+
+def test_merged_cancelling_pairs_name_every_qubit():
+    source = py("""
+        qc = QuantumCircuit(2, 2)
+        for i in range(2):
+            qc.x(i)
+            qc.x(i)
+        qc.measure(range(2), range(2))
+    """)
+    found = dependence(source, "QD08")
+    assert len(found) == 1 and "x on qubit(s) [0, 1] " in found[0]["message"]
+
+
 EXAMPLES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), "qslicer", "examples")
 
