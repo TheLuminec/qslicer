@@ -66,6 +66,26 @@ def test_static_qasm_errors_point_at_their_line(client):
     assert body["error"]["line"] == 11
 
 
+@pytest.mark.parametrize("header, include", [
+    ("OPENQASM 3.0;\nqubit[2] q;\nbit[2] c;\n", "stdgates.inc"),
+    ("OPENQASM 2.0;\nqreg q[2];\ncreg c[2];\n", "qelib1.inc"),
+])
+def test_static_qasm_names_a_missing_include(client, header, include):
+    source = header + "h q[0];\ncx q[0], q[1];\n"
+    _, body = post_analyze(client, source=source, language="qasm-static")
+    error = body["error"]
+    assert error["message"] == "Gate 'h' is not defined (line 4)."
+    assert f'include "{include}";' in error["hint"]
+    assert error["line"] == 4
+
+
+def test_static_qasm_syntax_error_says_it_could_not_be_parsed(client):
+    source = 'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[1] q;\nh q[0]\nx q[0];\n'
+    _, body = post_analyze(client, source=source, language="qasm-static")
+    assert body["error"]["message"] == "That OpenQASM file could not be parsed."
+    assert body["error"]["detail"].startswith("OpenQASM syntax error")
+
+
 def test_static_qasm_skips_python_lint(client):
     _, body = post_analyze(client, source=GHZ_QASM, language="qasm-static")
     assert [d["code"] for d in body["diagnostics"]] == ["QS100"]
