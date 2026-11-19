@@ -87,6 +87,10 @@ def _require_benchmark():
         abort(404, description="The benchmark is not enabled on this server.")
 
 
+# The public source repository, linked from the header and footer of every page.
+REPO_URL = "https://github.com/TheLuminec/qslicer"
+
+
 @app.context_processor
 def inject_globals():
     """Values every template needs for the nav bar and the backend banner."""
@@ -102,6 +106,7 @@ def inject_globals():
         nav_items.remove(("benchmark", "Benchmark"))
     return {
         "nav_items": nav_items,
+        "repo_url": REPO_URL,
         "benchmark_enabled": _benchmark_enabled(),
         "backend_ok": analysis.backend_available(),
         "backend_error": analysis.backend_error(),

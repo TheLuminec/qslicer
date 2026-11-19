@@ -47,6 +47,23 @@ def test_every_page_has_full_nav(client, path):
             (href, label)
 
 
+REPO_URL = "https://github.com/TheLuminec/qslicer"
+
+
+@pytest.mark.parametrize("path", list(PAGES))
+def test_footer_links_to_the_github_repository(client, path):
+    body = _text(client.get(path))
+    header = re.search(r'<header class="site-header".*?</header>', body, re.S).group(0)
+    footer = re.search(r'<footer class="site-footer".*?</footer>', body, re.S).group(0)
+    assert REPO_URL not in header
+    assert f'<a href="{REPO_URL}"' in footer
+
+
+def test_team_page_links_to_the_github_repository(client):
+    main = re.search(r'<main id="main">.*?</main>', _text(client.get("/team")), re.S).group(0)
+    assert f'href="{REPO_URL}"' in main and "Source on GitHub" in main
+
+
 @pytest.mark.requirement("FR-24")
 @pytest.mark.parametrize("path", list(PAGES))
 def test_current_page_is_marked_active(client, path):
