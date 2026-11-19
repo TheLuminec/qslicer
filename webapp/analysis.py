@@ -28,6 +28,7 @@ import io
 import json
 import math
 import os
+import re
 import shlex
 import shutil
 import tempfile
@@ -952,12 +953,12 @@ def _parse_static_source(source: str, filename: str,
             program = parser.parse()
         except StaticParseError as exc:
             raise _ParseFailure(_static_error_payload(exc), cause=exc)
-        except (RecursionError, MemoryError) as exc:
+        except RecursionError as exc:
+            raise _ParseFailure(_too_deep_payload(exc), cause=exc)
+        except MemoryError as exc:
             raise _ParseFailure({
-                "kind": "too_deep" if isinstance(exc, RecursionError) else "too_expensive",
-                "message": ("The program nests too deeply to analyse."
-                            if isinstance(exc, RecursionError)
-                            else "The program needs more memory than one analysis may use."),
+                "kind": "too_expensive",
+                "message": "The program needs more memory than one analysis may use.",
                 "detail": "",
                 "hint": "Slice a smaller or flatter piece of the program.",
             }, cause=exc)
@@ -984,8 +985,22 @@ def _parse_static_source(source: str, filename: str,
     return program, ""
 
 
+def _too_deep_payload(exc: Any) -> Dict[str, Any]:
+    """The error for a program that nests deeper than the parser can follow, whether
+    ``ast.parse`` refused it (Python 3.11+) or the interpreter ran out of stack."""
+    return {
+        "kind": "too_deep",
+        "message": "The program nests too deeply to analyse.",
+        "detail": getattr(exc, "message", ""),
+        "hint": "Slice a smaller or flatter piece of the program.",
+        "line": getattr(exc, "lineno", None) or 0,
+    }
+
+
 def _static_error_payload(exc: Any) -> Dict[str, Any]:
     """The error for a StaticParseError; a ``needs_value`` one when the user can supply it."""
+    if getattr(exc, "too_deep", False):
+        return _too_deep_payload(exc)
     needs = getattr(exc, "needs", None)
     if needs:
         what = ("the command-line argument" if needs["kind"] == "argument" else "the variable")
@@ -1023,6 +1038,44 @@ def _static_diagnostics(notes: List[Tuple[Any, str]]) -> List[Dict[str, Any]]:
     } for lineno, message in notes]
 
 
+def _qasm_static_error_payload(exc: Any, source: str) -> Dict[str, Any]:
+    """The error for a StaticParseError from the OpenQASM route. Only a syntax error
+    means the file could not be parsed; anything else (an undefined gate, a wrong
+    parameter count) parsed fine, so the headline names the problem itself."""
+    if getattr(exc, "too_deep", False):
+        return _too_deep_payload(exc)
+    line = exc.lineno or 0
+    if exc.message.startswith("OpenQASM syntax error"):
+        return {
+            "kind": "qasm_error",
+            "message": "That OpenQASM file could not be parsed.",
+            "detail": exc.message,
+            "hint": "The reference OpenQASM parser stopped at this line; check its syntax "
+                    "(a missing semicolon or bracket is the usual cause).",
+            "line": line,
+        }
+    problem = exc.message
+    missing_include = ' (include "stdgates.inc")'      # the parser's undefined-gate note
+    if problem.endswith(missing_include):
+        problem = problem[:-len(missing_include)]
+        include = ("qelib1.inc" if re.match(r"\s*(//[^\n]*\n\s*)*OPENQASM\s+2", source)
+                   else "stdgates.inc")
+        hint = (f'h, cx and the other standard gates are only defined after '
+                f'`include "{include}";` near the top of the file.')
+    else:
+        hint = ("The file parses, but the static route cannot build a circuit from this "
+                "line; anything that needs a run-time value in an unsupported shape is "
+                "refused with its line.")
+    return {
+        "kind": "qasm_error",
+        "message": problem[:1].upper() + problem[1:]
+                   + (f" (line {line})." if line else "."),
+        "detail": f"line {line}: {exc.message}" if line else exc.message,
+        "hint": hint,
+        "line": line,
+    }
+
+
 def _parse_qasm_static_source(source: str) -> Tuple[Any, str]:
     """Interpret OpenQASM 2/3 with StaticOpenQASMParser, which keeps source locations."""
     parser = StaticOpenQASMParser(time_limit=PARSE_TIMEOUT)
@@ -1030,14 +1083,7 @@ def _parse_qasm_static_source(source: str) -> Tuple[Any, str]:
     try:
         program = parser.parse()
     except StaticParseError as exc:
-        raise _ParseFailure({
-            "kind": "qasm_error",
-            "message": "That OpenQASM file could not be parsed.",
-            "detail": exc.message,
-            "hint": "The static OpenQASM route reads OpenQASM 2 and 3 itself; anything that "
-                    "needs a run-time value in an unsupported shape is refused with its line.",
-            "line": exc.lineno or 0,
-        })
+        raise _ParseFailure(_qasm_static_error_payload(exc, source))
     except ValueError as exc:
         raise _ParseFailure({
             "kind": "backend_unavailable",

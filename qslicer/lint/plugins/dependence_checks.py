@@ -107,14 +107,19 @@ def _line(instruction) -> int:
 
 
 def _finding(code: str, line: int, message: str, hint: str,
-             nodes: Iterable[int] = ()) -> Dict[str, Any]:
+             nodes: Iterable[int] = (), qubits: Optional[Iterable[int]] = None) -> Dict[str, Any]:
     """A finding; ``nodes`` are the instructions it is about (indices into the rebuilt
-    circuit, which are also the slicer's graph node ids), for the graph to mark."""
+    circuit, which are also the slicer's graph node ids), for the graph to mark.
+
+    With ``qubits``, the message says ``{qubits}`` where they go: ``_merge`` fills it
+    in with every qubit of the findings it merges, not only the first one's."""
     severity = next(rule.severity for rule in RULES if rule.code == code)
     finding = {"code": code, "severity": severity, "line": line, "column": 0,
                "message": message, "hint": hint}
     if nodes:
         finding["nodes"] = list(nodes)
+    if qubits is not None:
+        finding["_qubits"] = list(qubits)
     return finding
 
 
@@ -171,13 +176,13 @@ def _dead_gates(program, qdg) -> List[Dict[str, Any]]:
         if any(predicate not in live
                for predicate, _ in instruction.metadata.get("guards") or ()):
             continue
-        what = ("This if_test block" if instruction.name == "if_else"
-                else f"{instruction.name} on qubit(s) {list(instruction.qubits)}")
+        block = instruction.name == "if_else"
+        what = "This if_test block" if block else f"{instruction.name} on qubit(s) {{qubits}}"
         findings.append(_finding(
             "QD01", _line(instruction),
             f"{what} cannot affect any classical bit the circuit writes.",
             "Either it is left over, or a measurement that should follow it is missing.",
-            nodes=[idx],
+            nodes=[idx], qubits=None if block else instruction.qubits,
         ))
     return findings
 
@@ -433,12 +438,12 @@ def _cancelling_pairs(program, source: str) -> List[Dict[str, Any]]:
                 where = f"line {_line(a)}" if _line(a) != _line(b) else "this same line"
                 finding = _finding(
                     "QD08", _line(b),
-                    f"{b.name} on qubit(s) {list(b.qubits)} directly follows the identical gate "
+                    f"{b.name} on qubit(s) {{qubits}} directly follows the identical gate "
                     f"from {where}; the pair cancels.",
                     "This reads as an uncomputation. If that is what "
                     "you meant, fine -- if not, one of the two is probably a typo. A barrier "
                     "between them marks a deliberate pair.",
-                    nodes=[first, second],
+                    nodes=[first, second], qubits=b.qubits,
                 )
                 finding["lines"] = sorted({_line(a), _line(b)})
                 findings.append(finding)
@@ -772,9 +777,16 @@ def _merge(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if key in merged:
             nodes = merged[key].setdefault("nodes", [])
             nodes.extend(n for n in finding.get("nodes", []) if n not in nodes)
+            qubits = merged[key].setdefault("_qubits", [])
+            qubits.extend(q for q in finding.get("_qubits", []) if q not in qubits)
         else:
             merged[key] = finding
     for key, finding in merged.items():
+        qubits = finding.pop("_qubits", None)
+        if qubits is not None:
+            # One gate keeps its own qubit order (control first); merged ones are a set.
+            shown = sorted(qubits) if counts[key] > 1 else qubits
+            finding["message"] = finding["message"].replace("{qubits}", str(shown))
         if counts[key] > 1:
             finding["message"] += f" ({counts[key]} instances from this line)"
     return list(merged.values())

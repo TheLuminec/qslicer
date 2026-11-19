@@ -25,6 +25,7 @@
     selectedQubit: null,
     activeDeps: null,   // Set of dependency names
     busy: false,
+    pendingAnalyze: null,  // {fresh}: an analyze() call made while busy, run after
     sliceSeq: 0,       // guards against an older slice response landing last
     // Values the user picked for what only a run could decide, as the API
     // takes them: {name, line, value}. Cleared when another file is loaded.
@@ -744,9 +745,18 @@
   }
 
   /* ``fresh`` skips the tab's cache, for when the server has forgotten the
-     analysis a cached copy points at. */
+     analysis a cached copy points at.
+     A call while another analysis is in flight (an example picked, a file
+     dropped) waits for it and then runs on whatever the editor holds; the
+     response it supersedes is cached but not drawn. */
   function analyze(fresh) {
-    if (state.busy) return;
+    if (state.busy) {
+      state.pendingAnalyze = { fresh: (state.pendingAnalyze && state.pendingAnalyze.fresh) || fresh === true };
+      // A slice waiting on the in-flight analysis belongs to that program.
+      if (fresh !== true) state.retrySlice = null;
+      setStatus('Still analyzing the previous program; this one is next…');
+      return;
+    }
     var source = $('code').value;
     if (!source.trim()) {
       setStatus('Nothing to analyze yet.');
@@ -787,10 +797,12 @@
       .then(function (response) { return response.json(); })
       .then(function (data) {
         cachePut(key, data);
+        if (state.pendingAnalyze) return;   // superseded: the next analysis draws
         state.requestKey = key;
         handleAnalysis(data, false);
       })
       .catch(function (error) {
+        if (state.pendingAnalyze) return;
         renderDiagnostics([], {
           kind: 'network_error',
           message: 'Could not reach the analysis endpoint.',
@@ -803,6 +815,9 @@
         state.busy = false;
         button.disabled = false;
         button.textContent = 'Analyze';
+        var next = state.pendingAnalyze;
+        state.pendingAnalyze = null;
+        if (next) analyze(next.fresh);
       });
   }
 

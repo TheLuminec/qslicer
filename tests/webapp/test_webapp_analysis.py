@@ -542,3 +542,21 @@ def test_insights_name_the_if_test_a_gate_sits_in_and_what_may_correlate():
     insights = analysis.analyze_source(source, "ff.py", language="qiskit-static")["insights"]
     assert insights["guards"] == {"3": 2}
     assert insights["correlations"]["4"] == {"measurements": [1], "qubits": [0], "unmeasured": []}
+
+
+# 60,000 is refused by ast.parse on Python 3.11+; 3.10 parses it and runs the
+# interpreter out of stack instead. 500 parses on every version, so it takes that
+# second path everywhere.
+@pytest.mark.parametrize("depth", [500, 60000])
+def test_deep_nesting_is_an_error_not_a_crash(depth):
+    source = "x = 1" + " + 1" * depth + "\n"
+    with pytest.raises(analysis._ParseFailure) as failure:
+        analysis._parse_static_source(source, f"deep{depth}.py")
+    assert failure.value.payload["kind"] == "too_deep"
+
+
+def test_deep_openqasm_is_too_deep():
+    source = 'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[1] q;\nrz(1' + " + 1" * 500 + ") q[0];\n"
+    with pytest.raises(analysis._ParseFailure) as failure:
+        analysis._parse_qasm_static_source(source)
+    assert failure.value.payload["kind"] == "too_deep"
