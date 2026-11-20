@@ -24,7 +24,7 @@ from .parsers.staticqiskitparser import StaticParseError, StaticQiskitParser
 from .dependence_graph import DependenceGraph, get_rule_profile, list_rule_profiles
 from .slicer import QuantumSlicer, SlicingCriterion
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 __all__ = [
     "DependencyRule", "DependencyType", "DependenceGraph", "QuantumInstruction", "QuantumProgram",
