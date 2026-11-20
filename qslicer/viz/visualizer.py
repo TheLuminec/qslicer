@@ -1,5 +1,5 @@
 """
-QDG Visualizer - an interactive matplotlib window for exploring slices.
+Dependence graph visualizer - an interactive matplotlib window for exploring slices.
 
 Usage (needs matplotlib: pip install qslicer[viz]):
     qslicer viz path/to/circuit.py [--circuit N] [--set NAME=VALUE] [--no-lint]
@@ -58,7 +58,7 @@ from matplotlib.textpath import TextPath
 from matplotlib.transforms import Bbox, TransformedBbox
 from matplotlib.widgets import Button
 
-from ..qdg import QDG, list_rule_profiles
+from ..dependence_graph import DependenceGraph, list_rule_profiles
 from . import model
 from .model import (ACCENT, BG, BG_SUNKEN, CATEGORIES, CATEGORY_FILL, CHOP_FROM, CHOP_TO,
                     CL_SHIFT, CORRELATED, CRITERION, DEP_COLORS, DEPENDENCIES, ENTANGLED,
@@ -134,11 +134,11 @@ def _pt(px: float, k: float, dpi: float) -> float:
     return px * k * 72.0 / dpi
 
 
-class QDGVisualizer:
-    """Interactive QDG viewer.
+class DependenceGraphVisualizer:
+    """Interactive dependence graph viewer.
 
     ``target`` is a ``model.Document`` (a file: circuits, values, lint) or,
-    as before, a bare ``QDG``. ``show=False`` builds the figure without a
+    as before, a bare ``DependenceGraph``. ``show=False`` builds the figure without a
     window, for ``savefig`` and the tests; the linters then run inline.
 
     ``blit`` (by default: on in a window whose canvas can) redraws only the
@@ -150,7 +150,7 @@ class QDGVisualizer:
     def __init__(self, target: Any, title: str = "", fig=None, ax=None, show: bool = True,
                  circuit: int = 0, criterion: Optional[int] = None,
                  direction: str = "backward", blit: Optional[bool] = None) -> None:
-        if isinstance(target, QDG):
+        if isinstance(target, DependenceGraph):
             self.document = None
             self.graph = Graph(target)
         else:
@@ -209,7 +209,7 @@ class QDGVisualizer:
         if fig is None:
             fig = plt.figure(figsize=(14, 8), facecolor=BG)
             try:
-                fig.canvas.manager.set_window_title(f"qslicer viz - {self.title or 'QDG'}")
+                fig.canvas.manager.set_window_title(f"qslicer viz - {self.title or 'dependence graph'}")
             except AttributeError:
                 pass
         self.fig = fig
@@ -1617,7 +1617,7 @@ class QDGVisualizer:
     def _update_text(self) -> None:
         g, doc = self.graph, self.document
         name = g.info.get("name") or ""
-        head = self.title or (doc.filename if doc else "QDG")
+        head = self.title or (doc.filename if doc else "Dependence graph")
         if doc is not None and len(doc.circuits) > 1:
             head += f"   ·   circuit {g.info.get('index', 0) + 1}/{len(doc.circuits)}: {name}"
         elif name and doc is not None and name != doc.filename \
@@ -1875,13 +1875,13 @@ def main(argv=None) -> int:
     direction = "forward" if args.forward else "backward"
     if args.save:
         matplotlib.use("Agg")
-        view = QDGVisualizer(doc, title=title, show=False, circuit=args.circuit,
+        view = DependenceGraphVisualizer(doc, title=title, show=False, circuit=args.circuit,
                              criterion=criterion, direction=direction)
         _print_findings(doc, view.graph)
         view.fig.savefig(args.save, facecolor=BG)
         print(f"wrote {args.save}")
         return 0
-    QDGVisualizer(doc, title=title, circuit=args.circuit, criterion=criterion,
+    DependenceGraphVisualizer(doc, title=title, circuit=args.circuit, criterion=criterion,
                   direction=direction)
     return 0
 

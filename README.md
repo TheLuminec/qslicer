@@ -1,15 +1,15 @@
 # Quantum Program Slicer
 
 Static slicing for quantum programs. Give it a circuit written in **Qiskit
-(Python)** or **OpenQASM 2/3**, and it builds a **Quantum Dependency Graph
-(QDG)**, then answers the question a developer actually has:
+(Python)** or **OpenQASM 2/3**, and it builds a **dependence graph** of its
+instructions, then answers the question a developer actually has:
 
 > Which instructions can influence this measurement, and what does this gate
 > go on to affect?
 
 A **backward slice** from an instruction collects everything it depends on. A
 **forward slice** collects everything it can affect. Both are graph
-reachability over the QDG, restricted to whichever dependency types you choose,
+reachability over the dependence graph, restricted to whichever dependency types you choose,
 and both are shown in a web app that links every graph node back to the source
 line that produced it.
 
@@ -104,7 +104,7 @@ API but is not on the page.
 | `/` | Landing page |
 | `/slicer` | The application: source on the left, graph and analysis on the right |
 | `/lint` | Pick the lint rules and read what each catches, with an example and its fix |
-| `/quantum` | Background on quantum programs, the QDG and the tools used |
+| `/quantum` | Background on quantum programs, the dependence graph and the tools used |
 | `/team` | Who built it |
 | `/benchmark` | Grade the selected lint rules on a benchmark's bugs (Bugs4Q by default); off unless enabled, see below |
 
@@ -169,7 +169,7 @@ The JSON API behind it:
 `profile` names the dependency rule profile; `baseline`, the default, is the
 only one.
 `/api/analyze` returns nodes (each with `line` and `source`), edges,
-diagnostics and a `token` naming the cached QDG, so
+diagnostics and a `token` naming the cached dependence graph, so
 slicing never re-parses. The cache holds the 24 most recent analyses in memory.
 
 The full front-end reference (editor, graph view, math notation, what is
@@ -184,7 +184,7 @@ all of its rules); `lint_rules` omitted means the default selection.
 | Linter | Id | Reads | Default |
 |---|---|---|---|
 | Quick checks | `quick` | errors Python or Qiskit would raise (`qslicer/lint/quick_checks.py`): syntax, a missing circuit, indices outside the registers, removed or unknown Qiskit APIs, operations Qiskit rejects while the static parser rebuilds the circuit (QS014), and a circuit changed after it was run (QS017) | on |
-| Dependence checks | `dependence` | quantum mistakes in the rebuilt circuit and its QDG: dead gates, overwritten and constant measurements, controls never set, missing measurements, idle qubits, cancelling pairs, conditions never set, gates with no effect, a state read from a circuit that measures and classical bits never written (QD01-QD03, QD05-QD12; QD04 became QS014) | on |
+| Dependence checks | `dependence` | quantum mistakes in the rebuilt circuit and its dependence graph: dead gates, overwritten and constant measurements, controls never set, missing measurements, idle qubits, cancelling pairs, conditions never set, gates with no effect, a state read from a circuit that measures and classical bits never written (QD01-QD03, QD05-QD12; QD04 became QS014) | on |
 | LintQ | `lintq` | LintQ's ten queries, reimplemented on the syntax tree (`qslicer/lint/lintq/port.py`) | off |
 | LintQ (original, CodeQL) | `lintq-codeql` | LintQ's own CodeQL queries, where `QSLICER_CODEQL` and `QSLICER_LINTQ` are set | off |
 
@@ -247,7 +247,7 @@ qslicer slice circuit.py --forward --line 8 --deps DATA_QUBIT MEASUREMENT
 qslicer slice circuit.py --qubit 2         # backward from qubit 2's last measurement
 qslicer slice circuit.py 5 --chop-qubit 2  # only how instruction 5 reaches it
 qslicer rules                              # every linter and rule id
-qslicer viz circuit.py                     # the QDG in a matplotlib window
+qslicer viz circuit.py                     # the dependence graph in a matplotlib window
 qslicer viz shor.py --circuit 3 --line 75  # another circuit the file builds, sliced from line 75
 qslicer viz asks.py --set n=5 --save v.png # a value only a run decides; an image, no window
 ```
@@ -278,8 +278,8 @@ for finding in qslicer.lint_file("my_circuit.py"):  # or lint_source(text, filen
 ```
 
 `parse` and `parse_file` raise `StaticParseError` with a line number when the
-circuit cannot be determined. The slice functions take a program or a `QDG`
-you built (`qslicer.QDG(program, rules)`), and `select=` picks lint rules the
+circuit cannot be determined. The slice functions take a program or a
+`DependenceGraph` you built (`qslicer.DependenceGraph(program, rules)`), and `select=` picks lint rules the
 way `lint_rules` does on the API. The parser classes (`StaticQiskitParser`,
 `StaticOpenQASMParser`, whose `warnings` list what was skipped or
 approximated), `QuantumSlicer` and `SlicingCriterion` are exported too, and
@@ -300,14 +300,14 @@ quickly as a small circuit.
 
 ```
  .py  ──ast──▶ Python interpreter ─┐
-                                   ├─▶ circuit model ─▶ QuantumProgram (IR) ─▶ QDG ─▶ slicer ─▶ web payload
+                                   ├─▶ circuit model ─▶ QuantumProgram (IR) ─▶ dependence graph ─▶ slicer ─▶ web payload
  .qasm ─openqasm3─▶ QASM interpreter ┘     (shared)      + SourceLocation
 ```
 
 1. **Parse.** A front end turns the program into the frontend-agnostic IR, a
    `QuantumProgram` of `QuantumInstruction`s: gate name, qubit and classical-bit
    operands, parameters, and a `SourceLocation`.
-2. **Build the QDG.** Each instruction becomes a node. Dependency rules scan the
+2. **Build the dependence graph.** Each instruction becomes a node. Dependency rules scan the
    program in order and add edges labelled with their dependency type.
 3. **Slice.** Graph reachability along incoming (backward) or outgoing
    (forward) edges, optionally filtered by dependency type. A slice always
@@ -451,7 +451,7 @@ and it is why parse errors and warnings land on a line.
 │   │   ├── openqasmparser.py         qiskit.qasm3-based front end
 │   │   └── base.py                   Abstract parser base class
 │   ├── dependencies/            Dependency types and the rules that emit edges
-│   ├── qdg.py                   QDG construction and rule profiles
+│   ├── dependence_graph.py      Dependence graph construction and rule profiles
 │   ├── slicer.py                Backward and forward slicing
 │   ├── gates.py                 The gate reference and gate flag sets
 │   ├── lint/
@@ -482,7 +482,7 @@ pytest                       # everything
 pytest -m "not slow"         # skip the multi-second tests
 ```
 
-The suites are `tests/core` (parsers, QDG, rules, slicer, the package API and
+The suites are `tests/core` (parsers, dependence graph, rules, slicer, the package API and
 the `qslicer` command, including both static parsers), `tests/webapp` (API, pages, routes, source
 locations, lint, benchmark pages), `tests/benchmark` (the datasets,
 grading, the linter registry and dependence checks), `tests/lintq`
@@ -525,7 +525,7 @@ tests fail, or if the tag does not match `__version__`.
 [deploy/README.md](deploy/README.md) covers nginx plus gunicorn under a
 hardened systemd unit (`DynamicUser`, `IPAddressDeny=any`, memory and task
 caps, a read-only filesystem), `waitress` on Windows, and logs. The service runs
-**one worker with several threads on purpose**: the QDG cache is in process
+**one worker with several threads on purpose**: the dependence graph cache is in process
 memory, so a second worker would not recognise another's slice tokens.
 
 Both front ends the site offers are static, so nothing a visitor submits is

@@ -12,7 +12,7 @@
       <li><a href="#measurement">Measurement</a></li>
       <li><a href="#slicing">What slicing means</a></li>
       <li><a href="#dependencies">The dependency types</a></li>
-      <li><a href="#qdg">How our slicer works</a></li>
+      <li><a href="#dependence-graph">How our slicer works</a></li>
       <li><a href="#walkthrough">Walkthrough: teleportation</a></li>
       <li><a href="#inputs">Two ways in</a></li>
       <li><a href="#tools">Tools we use</a></li>
@@ -178,7 +178,7 @@
         </table>
       </div>
       <p>
-        Both reduce to <strong>graph reachability</strong> on the QDG. A backward slice finds
+        Both reduce to <strong>graph reachability</strong> on the dependence graph. A backward slice finds
         the nodes that can reach <span data-math>s</span> along dependency edges; a forward
         slice finds the nodes reachable from it. That is literally what the slicer does: a
         graph walk over incoming or outgoing edges, filtered by the dependency types
@@ -304,7 +304,7 @@
       </div>
     </section>
 
-    <section id="qdg">
+    <section id="dependence-graph">
       <h2>How our slicer works</h2>
       <ol class="steps">
         <li>
@@ -321,7 +321,7 @@
           </p>
         </li>
         <li>
-          <h3>Build the QDG</h3>
+          <h3>Build the dependence graph</h3>
           <p>
             Every instruction becomes a node. Then each dependency <em>rule</em> walks the
             program once, in order, and emits labeled edges. Rules are independent and
@@ -394,7 +394,7 @@
             program's quantum state, which is the thing static analysis exists to avoid. The
             analyzer approximates instead, in one more pass over the program that keeps the
             groups and known states described under <a href="#entanglement">Entanglement</a>.
-            It adds no edges to the QDG, so it never changes a slice. What it finds shows up on
+            It adds no edges to the dependence graph, so it never changes a slice. What it finds shows up on
             the graph:
           </p>
           <ul class="rule-list">
@@ -545,7 +545,7 @@
           its syntax tree into the instruction list.</dd>
 
         <dt>NetworkX</dt>
-        <dd>Graph library. The QDG is a <code>MultiDiGraph</code> &mdash; multi, because two
+        <dd>Graph library. The dependence graph is a <code>MultiDiGraph</code> &mdash; multi, because two
           instructions can be joined by several dependencies of different kinds at once.</dd>
 
         <dt>Matplotlib</dt>
@@ -560,7 +560,7 @@
         <dd>Linters that read your file without running it, alongside the parser. The quick
           checks (QS000&ndash;QS017) report what Python or Qiskit would raise, from the syntax
           tree and the circuit the parser rebuilds. The dependence checks (QD01&ndash;QD03,
-          QD05&ndash;QD12) report quantum-side mistakes in the rebuilt circuit and its QDG, such
+          QD05&ndash;QD12) report quantum-side mistakes in the rebuilt circuit and its dependence graph, such
           as gates no measured bit depends on, and are the only ones that also read OpenQASM.
           Those 29 rules are on by default. LintQ (Paltenghi and Pradel, FSE 2024,
           LQ01&ndash;LQ10, off by default) comes as a port that matches the original's warnings

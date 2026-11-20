@@ -36,7 +36,7 @@ def get_rule_profile(name: str) -> Tuple[DependencyRule, ...]:
         raise ValueError(f"Unknown rule profile '{name}'. Available profiles: {list(profiles.keys())}")
     return profiles[name]
 
-class QDGNode:
+class DependenceGraphNode:
     """Wrapper for a QuantumInstruction to serve as a graph node."""
 
     def __init__(self, idx: int, instruction: QuantumInstruction):
@@ -50,13 +50,13 @@ class QDGNode:
         return hash(self.idx)
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, QDGNode):
+        if not isinstance(other, DependenceGraphNode):
             return NotImplemented
         return self.idx == other.idx
 
 
-class QDG:
-    """Quantum Dependence Graph (QDG) constructor and container."""
+class DependenceGraph:
+    """Dependence graph constructor and container."""
 
     def __init__(
         self,
@@ -65,7 +65,7 @@ class QDG:
     ) -> None:
         self.program = program
         self.graph = nx.MultiDiGraph()
-        self.nodes: Dict[int, QDGNode] = {}
+        self.nodes: Dict[int, DependenceGraphNode] = {}
         self.rules = tuple(rules) if rules is not None else _baseline_rules()
         self.build_graph()
 
@@ -75,7 +75,7 @@ class QDG:
         self.nodes = {}
 
         for idx in range(len(self.program)):
-            node = QDGNode(idx, self.program[idx])
+            node = DependenceGraphNode(idx, self.program[idx])
             self.nodes[idx] = node
             self.graph.add_node(idx, data=node)
 

@@ -4,7 +4,7 @@ from typing import Dict, Iterable, List, Optional, Set
 import networkx as nx
 
 from .ir.qprogram import QuantumProgram
-from .qdg import QDG
+from .dependence_graph import DependenceGraph
 from .dependencies.dependency_rules import DependencyType
 
 
@@ -66,7 +66,7 @@ class SlicingCriterion:
 
 class QuantumSlicer:
     """
-    Computes backward and forward slices over a QDG.
+    Computes backward and forward slices over a dependence graph.
 
     A backward slice from node n contains every instruction that n transitively
     depends on — i.e., all instructions whose output could affect the state
@@ -82,24 +82,24 @@ class QuantumSlicer:
     """
 
     @staticmethod
-    def backward_slice(qdg: QDG, criterion: SlicingCriterion) -> Set[int]:
+    def backward_slice(dg: DependenceGraph, criterion: SlicingCriterion) -> Set[int]:
         """
         Every node reachable backward through incoming edges from criterion.node_idx.
         Returns the set of instruction indices in the backward slice.
         """
-        return _reach(_adjacency(qdg.graph, "pred"), criterion.node_idx, criterion.dep_types)
+        return _reach(_adjacency(dg.graph, "pred"), criterion.node_idx, criterion.dep_types)
 
     @staticmethod
-    def forward_slice(qdg: QDG, criterion: SlicingCriterion) -> Set[int]:
+    def forward_slice(dg: DependenceGraph, criterion: SlicingCriterion) -> Set[int]:
         """
         Every node reachable forward through outgoing edges from criterion.node_idx.
         Returns the set of instruction indices in the forward slice.
         """
-        return _reach(_adjacency(qdg.graph, "succ"), criterion.node_idx, criterion.dep_types)
+        return _reach(_adjacency(dg.graph, "succ"), criterion.node_idx, criterion.dep_types)
 
     @staticmethod
     def chop(
-        qdg: QDG,
+        dg: DependenceGraph,
         source_idx: int,
         target_idx: int,
         dep_types: Optional[Set[DependencyType]] = None,
@@ -113,11 +113,11 @@ class QuantumSlicer:
         when source_idx == target_idx.
         """
         forward = QuantumSlicer.forward_slice(
-            qdg, SlicingCriterion(node_idx=source_idx, dep_types=dep_types))
+            dg, SlicingCriterion(node_idx=source_idx, dep_types=dep_types))
         if target_idx not in forward:
             return set()
         backward = QuantumSlicer.backward_slice(
-            qdg, SlicingCriterion(node_idx=target_idx, dep_types=dep_types))
+            dg, SlicingCriterion(node_idx=target_idx, dep_types=dep_types))
         return forward & backward
 
     @staticmethod
@@ -148,7 +148,7 @@ class QuantumSlicer:
 
     @staticmethod
     def backward_slices(
-        qdg: QDG,
+        dg: DependenceGraph,
         node_indices: Iterable[int],
         dep_types: Optional[Set[DependencyType]] = None,
     ) -> Dict[int, Set[int]]:
@@ -158,6 +158,6 @@ class QuantumSlicer:
         """
         return {
             idx: QuantumSlicer.backward_slice(
-                qdg, SlicingCriterion(node_idx=idx, dep_types=dep_types))
+                dg, SlicingCriterion(node_idx=idx, dep_types=dep_types))
             for idx in node_indices
         }

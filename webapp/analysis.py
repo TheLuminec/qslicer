@@ -55,7 +55,7 @@ try:
     from qslicer.parsers.openqasmparser import OpenQASMParser
     from qslicer.parsers.staticopenqasmparser import StaticOpenQASMParser
     from qslicer.parsers.staticqiskitparser import StaticParseError, StaticQiskitParser
-    from qslicer.qdg import QDG, get_rule_profile, list_rule_profiles
+    from qslicer.dependence_graph import DependenceGraph, get_rule_profile, list_rule_profiles
     from qslicer.slicer import QuantumSlicer, SlicingCriterion
     from qslicer import cli as qslicer_cli
 except Exception as exc:  # pragma: no cover - depends on the local environment
@@ -73,7 +73,7 @@ def backend_error() -> Optional[str]:
 # --------------------------------------------------------------------------
 # Analysis cache
 #
-# Slicing re-uses the QDG that the analyze call already built, so picking a new
+# Slicing re-uses the dependence graph that the analyze call already built, so picking a new
 # criterion never parses the submitted program again.
 # --------------------------------------------------------------------------
 
@@ -85,7 +85,7 @@ _CACHE_LOCK = threading.RLock()
 # Finished /api/analyze responses, encoded, are kept in their token's entry
 # (under "responses", by response_key), so a repeated request is answered
 # without linting or describing again -- and a response is only ever handed out
-# while the QDG its token names is still here to slice. Evicting an entry drops
+# while the dependence graph its token names is still here to slice. Evicting an entry drops
 # its responses with it; beyond that, all of them together stay under this.
 _RESPONSE_CACHE_BYTES = 64 * 1024 * 1024
 
@@ -146,10 +146,10 @@ def cached_response(key: str) -> Optional[Dict[str, Any]]:
 
 def store_response(key: str, token: str, body: bytes,
                    gzipped: Optional[bytes] = None) -> Optional[Dict[str, Any]]:
-    """Keep a successful analysis' encoded response with its token's QDG.
+    """Keep a successful analysis' encoded response with its token's dependence graph.
 
     Returns the stored record, or None when the token is no longer cached (the
-    response would name a QDG that is gone) or the body alone is over the
+    response would name a dependence graph that is gone) or the body alone is over the
     limit. Older responses are dropped, least recently used first, to keep
     the total under _RESPONSE_CACHE_BYTES.
     """
@@ -182,7 +182,7 @@ def _record_size(record: Dict[str, Any]) -> int:
 # allocates hundreds of thousands of objects that stay alive (instructions,
 # graph edges, node dicts), so Python's default thresholds start a full
 # collection every few hundred thousand allocations, and each one walks every
-# cached parse and QDG as well: for Shor that was about a third of a warm
+# cached parse and dependence graph as well: for Shor that was about a third of a warm
 # analysis (0.22 s) and of a cold one (0.8 s). The young generations are still
 # collected, so the static interpreter's short-lived cycles (350,000 objects
 # for a cold Shor parse) are freed as before. Requests overlap on threads, so
@@ -450,7 +450,7 @@ def analyze_source(
     bindings: Optional[List[Dict[str, Any]]] = None,
     circuit: int = 0,
 ) -> Dict[str, Any]:
-    """Lint, parse, build the QDG, and describe everything as JSON-safe data.
+    """Lint, parse, build the dependence graph, and describe everything as JSON-safe data.
 
     ``language`` names the front end: ``"qiskit-static"``, ``"qasm-static"`` or
     ``"qasm"`` (see INTERPRETERS and _ALIASES; ``"qiskit"`` is refused). The page
@@ -510,10 +510,10 @@ def analyze_source(
             known_profile = False
     graphs: Dict[str, Any] = {}
 
-    def qdg_once() -> Any:
+    def graph_once() -> Any:
         if "value" not in graphs:
             program, _, failure = parse_once()
-            graphs["value"] = QDG(program, rules=rules) if failure is None else None
+            graphs["value"] = DependenceGraph(program, rules=rules) if failure is None else None
         return graphs["value"]
 
     selection = linters.normalize_selection(lint_rules)
@@ -524,7 +524,7 @@ def analyze_source(
     if kind in ("python-static", "qasm-static") and parsed_bindings is not None \
             and _IMPORT_ERROR is None:
         context = linters.LintContext(source, filename, kind, profile, parse=parse_for_linters,
-                                      qdg=qdg_once)
+                                      dependence_graph=graph_once)
     diagnostics = linters.run(source, filename, kind, selection, profile, context=context)
     # What `qslicer lint` reports: the linters' findings, before the notes below.
     lint_findings = list(diagnostics)
@@ -625,12 +625,12 @@ def analyze_source(
     if not known_profile:
         result["profile"] = "baseline"
 
-    qdg = qdg_once()
+    dg = graph_once()
 
     # The front end is part of the key: the two OpenQASM routes must not share an entry.
     token = sha256(f"{filename}\x00{profile}\x00{kind}\x00{result['circuit']}\x00"
                    f"{sorted(parsed_bindings.items())!r}\x00{source}".encode("utf-8")).hexdigest()[:32]
-    _cache_put(token, {"qdg": qdg, "program": program, "cli": cli})
+    _cache_put(token, {"graph": dg, "program": program, "cli": cli})
 
     result.update({
         "ok": True,
@@ -642,7 +642,7 @@ def analyze_source(
         },
         "route": _ROUTES[kind].format(timeout=PARSE_TIMEOUT),
         "nodes": _describe_nodes(program),
-        "edges": _describe_edges(qdg),
+        "edges": _describe_edges(dg),
         "rules": [rule.name for rule in rules],
     })
     # Each gate's reference card once, rather than a copy on every node.
@@ -1154,12 +1154,12 @@ def _describe_location(location: Any) -> Dict[str, Any]:
     return {"line": location.line, "source": location.to_dict()}
 
 
-def _describe_edges(qdg: Any) -> List[Dict[str, Any]]:
+def _describe_edges(dg: Any) -> List[Dict[str, Any]]:
     # In the order graph.edges(keys=True) gives, read straight from the
     # adjacency (networkx's _adj, when there is one) and with each dependency's
     # name worked out once: a third less time for Shor's 24,000 edges.
     names: Dict[Any, str] = {}
-    adjacency = getattr(qdg.graph, "_adj", None) or qdg.graph.adj
+    adjacency = getattr(dg.graph, "_adj", None) or dg.graph.adj
     edges = []
     for source, targets in adjacency.items():
         for target, keyed in targets.items():
@@ -1246,7 +1246,7 @@ def slice_program(
     target_idx: Optional[int] = None,
     node_indices: Optional[List[int]] = None,
 ) -> Dict[str, Any]:
-    """Run the real slicer over a cached QDG.
+    """Run the real slicer over a cached dependence graph.
 
     ``dep_types`` is a list of DependencyType names; None or empty means follow
     every dependency, matching SlicingCriterion's default.
@@ -1290,7 +1290,7 @@ def slice_program(
             stale=True,
         )
 
-    qdg = entry["qdg"]
+    dg = entry["graph"]
     program = entry["program"]
     for idx in (node_indices or [node_idx]) + ([target_idx] if direction == "chop" else []):
         if not 0 <= idx < len(program):
@@ -1306,7 +1306,7 @@ def slice_program(
     extra: Dict[str, Any] = {}
     slices = None
     if node_indices is not None:
-        slices = QuantumSlicer.backward_slices(qdg, node_indices, selected)
+        slices = QuantumSlicer.backward_slices(dg, node_indices, selected)
         indices = set().union(*slices.values())
         extra = {
             "node_indices": node_indices,
@@ -1314,16 +1314,16 @@ def slice_program(
                        for i in node_indices],
         }
     elif direction == "chop":
-        indices = QuantumSlicer.chop(qdg, node_idx, target_idx, selected)
+        indices = QuantumSlicer.chop(dg, node_idx, target_idx, selected)
         extra = {"target_idx": target_idx}
         if not indices:
             extra["empty_reason"] = CHOP_EMPTY_REASON
     else:
         criterion = SlicingCriterion(node_idx=node_idx, dep_types=selected)
         if direction == "forward":
-            indices = QuantumSlicer.forward_slice(qdg, criterion)
+            indices = QuantumSlicer.forward_slice(dg, criterion)
         else:
-            indices = QuantumSlicer.backward_slice(qdg, criterion)
+            indices = QuantumSlicer.backward_slice(dg, criterion)
 
     result = {
         "ok": True,

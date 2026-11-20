@@ -7,11 +7,11 @@ def build(circuit):
     raise NotImplementedError("build not implemented")
 
 
-def slice(qdg, target):
+def slice(dg, target):
     raise NotImplementedError("slice not implemented")
 
 
-def out(qdg, target):
+def out(dg, target):
     raise NotImplementedError("out not implemented")
 
 # Basic circuits

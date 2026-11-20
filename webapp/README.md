@@ -1,7 +1,7 @@
 # Web front end
 
 A Flask front end over the `qslicer` package. The graph it draws comes from the
-package's parser, QDG and slicer. Where the site stops short of the package, or
+package's parser, dependence graph and slicer. Where the site stops short of the package, or
 the package of the research, is listed under [Partial by design](#partial-by-design)
 below.
 
@@ -107,7 +107,7 @@ from the API. It parses text and runs nothing, but it is not on the page.
 |--------------|-------------------------------------------------------------------------|
 | `/`          | Landing page: what the tool does, quantum programming in brief           |
 | `/slicer`    | The application: source on the left, graph and analysis on the right     |
-| `/quantum`   | Background on quantum programs, on the QDG, and on the tools we use     |
+| `/quantum`   | Background on quantum programs, on the dependence graph, and on the tools we use |
 | `/lint`      | The lint rules: pick them and read each one with an example             |
 | `/benchmark` | Grades the selected lint rules on a dataset's bugs (`?dataset=<id>`, default Bugs4Q). Off unless started with `--benchmark` or `QSLICER_BENCHMARK=1` |
 | `/team`      | Team, course, vision and mission                                         |
@@ -152,12 +152,12 @@ optional and only read by the Qiskit route.
 `category`; the gate's reference card (title, summary, matrix, whether it
 entangles, ...) is not repeated on every node but given once per name in
 `gates`, as `{name: card}` for the names the nodes use, so look a node's up as
-`gates[node.name]`. The token names the QDG cached server-side, so slicing never
+`gates[node.name]`. The token names the dependence graph cached server-side, so slicing never
 re-executes the submitted program. The cache holds the 24 most recent analyses
 in memory; after a server restart the client is told to analyze again.
 
-The analysis builds the QDG once: the dependence checks lint the same graph the
-page draws and slices (through `LintContext.qdg()`), rather than one of their own.
+The analysis builds the dependence graph once: the dependence checks lint the same graph the
+page draws and slices (through `LintContext.dependence_graph()`), rather than one of their own.
 
 The finished response is kept with its token's cache entry, so the same request
 again -- the same source, filename, profile, interpreter, lint selection (after
@@ -179,7 +179,7 @@ instructions: about 5.8 MB, 0.28 MB gzipped).
 webapp/
 ├── app.py          Flask routes and the JSON API
 ├── wsgi.py         entry point for running behind gunicorn
-├── analysis.py     bridge to qslicer -- route, parse, build QDG, slice, serialize
+├── analysis.py     bridge to qslicer -- route, parse, build dependence graph, slice, serialize
 ├── benchmark.py    grades the selected rules on the datasets in benchmarks/
 ├── examples.py     reads the example catalog in qslicer/examples/
 ├── rule_docs.py    what each lint rule checks, for the rule pickers' ? explanations
@@ -416,7 +416,7 @@ Each item is a deliberate limit of the site or of what is behind it:
   LintQ (the port, and the original through CodeQL where it is installed) is
   an add-on picked from the **Lint** menu.
 * **Rule profiles.** The page always analyzes with `baseline`, the only profile
-  `qdg.list_rule_profiles()` returns today (the API still takes `profile`).
+  `qslicer.list_rule_profiles()` returns today (the API still takes `profile`).
   The entanglement and phase rules exist in `qslicer/dependencies/rules.py`
   but ship disabled, so a profile that enables them is the thing that makes
   their Follow chips appear.

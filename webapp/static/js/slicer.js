@@ -2166,7 +2166,7 @@
         return;
       }
       var base = (state.filename || 'circuit').replace(/\.(py|qasm3?)$/i, '');
-      var suffix = 'qdg';
+      var suffix = 'graph';
       if (state.direction === 'chop' && state.chop.from !== null && state.chop.to !== null) {
         suffix = 'chop-' + state.chop.from + '-' + state.chop.to;
       } else if (state.criteria.length) {

@@ -1,4 +1,4 @@
-"""QDG construction: nodes, default rules, edge labels."""
+"""Dependence graph construction: nodes, default rules, edge labels."""
 
 import pytest
 from qiskit import QuantumCircuit
@@ -8,7 +8,7 @@ from qslicer.dependencies.dependency_rules import DependencyType
 from qslicer.dependencies.rules import (
     ControlClassicalRule, DataClassicalRule, DataQubitRule, MeasurementRule,
 )
-from qslicer.qdg import QDG, QDGNode, get_rule_profile, list_rule_profiles
+from qslicer.dependence_graph import DependenceGraph, DependenceGraphNode, get_rule_profile, list_rule_profiles
 
 
 def sample_program():
@@ -25,26 +25,26 @@ def sample_program():
 @pytest.mark.requirement("FR-08")
 def test_every_instruction_is_a_node():
     program = sample_program()
-    qdg = QDG(program)
-    assert sorted(qdg.graph.nodes) == list(range(len(program)))
+    dg = DependenceGraph(program)
+    assert sorted(dg.graph.nodes) == list(range(len(program)))
     for idx in range(len(program)):
-        node = qdg.graph.nodes[idx]["data"]
-        assert isinstance(node, QDGNode)
+        node = dg.graph.nodes[idx]["data"]
+        assert isinstance(node, DependenceGraphNode)
         assert node.instruction is program[idx]
 
 
 @pytest.mark.requirement("FR-08")
 def test_every_edge_has_a_dependency_label():
-    qdg = QDG(sample_program())
-    assert qdg.graph.number_of_edges() > 0
-    for _, _, data in qdg.graph.edges(data=True):
+    dg = DependenceGraph(sample_program())
+    assert dg.graph.number_of_edges() > 0
+    for _, _, data in dg.graph.edges(data=True):
         assert isinstance(data["dependency"], DependencyType)
 
 
 @pytest.mark.requirement("FR-09")
 def test_default_graph_has_qubit_measurement_and_classical_edges():
-    qdg = QDG(sample_program())
-    kinds = {d["dependency"] for _, _, d in qdg.graph.edges(data=True)}
+    dg = DependenceGraph(sample_program())
+    kinds = {d["dependency"] for _, _, d in dg.graph.edges(data=True)}
     assert {DependencyType.DATA_QUBIT, DependencyType.MEASUREMENT,
             DependencyType.DATA_CLASSICAL} <= kinds
 
@@ -55,7 +55,7 @@ def test_default_rule_profile():
     assert [type(r) for r in rules] == [
         DataQubitRule, MeasurementRule, DataClassicalRule, ControlClassicalRule,
     ]
-    assert [type(r) for r in QDG(sample_program()).rules] == [type(r) for r in rules]
+    assert [type(r) for r in DependenceGraph(sample_program()).rules] == [type(r) for r in rules]
 
 
 def test_unknown_profile_raises():
@@ -65,8 +65,8 @@ def test_unknown_profile_raises():
 
 @pytest.mark.requirement("NFR-09")
 def test_custom_rule_set_only_emits_its_edges():
-    qdg = QDG(sample_program(), rules=[DataQubitRule()])
-    kinds = {d["dependency"] for _, _, d in qdg.graph.edges(data=True)}
+    dg = DependenceGraph(sample_program(), rules=[DataQubitRule()])
+    kinds = {d["dependency"] for _, _, d in dg.graph.edges(data=True)}
     assert kinds == {DependencyType.DATA_QUBIT}
 
 
@@ -74,7 +74,7 @@ def test_custom_rule_set_only_emits_its_edges():
 @pytest.mark.requirement("VV-08")
 def test_graph_is_deterministic():
     def snapshot():
-        g = QDG(sample_program()).graph
+        g = DependenceGraph(sample_program()).graph
         return sorted((u, v, d["dependency"].name, d["rule"]) for u, v, d in g.edges(data=True))
     first = snapshot()
     assert all(snapshot() == first for _ in range(3))

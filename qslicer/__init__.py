@@ -1,7 +1,7 @@
 """Static slicing and linting for quantum programs written in Qiskit or OpenQASM.
 
 The front ends read a program without running it and build a
-``QuantumProgram``; ``QDG`` turns that into a dependence graph, and
+``QuantumProgram``; ``DependenceGraph`` turns that into a dependence graph, and
 ``backward_slice`` / ``forward_slice`` walk it. ``lint_source`` and
 ``lint_file`` run the registered linters.
 
@@ -21,13 +21,13 @@ from .ir.qinstruction import QuantumInstruction, SourceLocation
 from .ir.qprogram import QuantumProgram
 from .parsers.staticopenqasmparser import StaticOpenQASMParser
 from .parsers.staticqiskitparser import StaticParseError, StaticQiskitParser
-from .qdg import QDG, get_rule_profile, list_rule_profiles
+from .dependence_graph import DependenceGraph, get_rule_profile, list_rule_profiles
 from .slicer import QuantumSlicer, SlicingCriterion
 
 __version__ = "0.1.1"
 
 __all__ = [
-    "DependencyRule", "DependencyType", "QDG", "QuantumInstruction", "QuantumProgram",
+    "DependencyRule", "DependencyType", "DependenceGraph", "QuantumInstruction", "QuantumProgram",
     "QuantumSlicer", "SlicingCriterion", "SourceLocation", "StaticOpenQASMParser",
     "StaticParseError", "StaticQiskitParser", "backward_slice", "chop", "example_path",
     "forward_slice", "get_rule_profile", "language_of", "lint_file", "lint_source",
@@ -73,23 +73,23 @@ def parse_file(path: str, language: Optional[str] = None,
         return parse(handle.read(), path, language, time_limit)
 
 
-def _graph(target: Union[QuantumProgram, QDG], profile: str) -> QDG:
-    return target if isinstance(target, QDG) else QDG(target, get_rule_profile(profile))
+def _graph(target: Union[QuantumProgram, DependenceGraph], profile: str) -> DependenceGraph:
+    return target if isinstance(target, DependenceGraph) else DependenceGraph(target, get_rule_profile(profile))
 
 
-def backward_slice(target: Union[QuantumProgram, QDG], node_idx: int,
+def backward_slice(target: Union[QuantumProgram, DependenceGraph], node_idx: int,
                    dep_types: Optional[Iterable[DependencyType]] = None,
                    profile: str = "baseline") -> Set[int]:
     """Indices of the instructions ``node_idx`` depends on, itself included.
 
-    ``target`` is a program (its QDG is built with the ``profile`` rules) or a
-    QDG already built. ``dep_types`` restricts which edges are followed.
+    ``target`` is a program (its dependence graph is built with the ``profile`` rules) or a
+    ``DependenceGraph`` already built. ``dep_types`` restricts which edges are followed.
     """
     criterion = SlicingCriterion(node_idx, dep_types=set(dep_types) if dep_types else None)
     return QuantumSlicer.backward_slice(_graph(target, profile), criterion)
 
 
-def forward_slice(target: Union[QuantumProgram, QDG], node_idx: int,
+def forward_slice(target: Union[QuantumProgram, DependenceGraph], node_idx: int,
                   dep_types: Optional[Iterable[DependencyType]] = None,
                   profile: str = "baseline") -> Set[int]:
     """Indices of the instructions ``node_idx`` can affect, itself included."""
@@ -97,7 +97,7 @@ def forward_slice(target: Union[QuantumProgram, QDG], node_idx: int,
     return QuantumSlicer.forward_slice(_graph(target, profile), criterion)
 
 
-def chop(target: Union[QuantumProgram, QDG], source_idx: int, target_idx: int,
+def chop(target: Union[QuantumProgram, DependenceGraph], source_idx: int, target_idx: int,
          dep_types: Optional[Iterable[DependencyType]] = None,
          profile: str = "baseline") -> Set[int]:
     """Indices of the instructions through which ``source_idx`` can affect

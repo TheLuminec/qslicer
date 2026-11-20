@@ -16,7 +16,7 @@ from matplotlib.colors import to_rgba  # noqa: E402
 import qslicer  # noqa: E402
 from qslicer.cli import main as cli_main  # noqa: E402
 from qslicer.viz import model  # noqa: E402
-from qslicer.viz.visualizer import QDGVisualizer, main as viz_main  # noqa: E402
+from qslicer.viz.visualizer import DependenceGraphVisualizer, main as viz_main  # noqa: E402
 
 EXAMPLES = os.path.join(os.path.dirname(qslicer.__file__), "examples")
 SHOR = os.path.join(EXAMPLES, "shors_algorithm.py")
@@ -48,7 +48,7 @@ def shor():
 
 
 def _view(target, **kwargs):
-    view = QDGVisualizer(target, show=False, **kwargs)
+    view = DependenceGraphVisualizer(target, show=False, **kwargs)
     view.fig.canvas.draw()
     return view
 
@@ -157,9 +157,9 @@ def test_view_draws_and_slices_a_small_circuit(tmp_path):
     assert out.stat().st_size > 10_000
 
 
-def test_view_accepts_a_bare_qdg_as_before():
+def test_view_accepts_a_bare_dependence_graph_as_before():
     program = qslicer.parse_file(TELEPORT)
-    view = _view(qslicer.QDG(program), title="teleport")
+    view = _view(qslicer.DependenceGraph(program), title="teleport")
     assert view.graph.lint_state == "off" and view.graph.n == len(program)
     view.set_criterion(2)
     assert view.slice_size >= 1
@@ -243,7 +243,7 @@ def test_shor_circuit_picker_and_lint(shor):
 
 
 def test_blitting_redraws_over_the_saved_background(shor, tmp_path):
-    view = QDGVisualizer(shor, show=False, blit=True)
+    view = DependenceGraphVisualizer(shor, show=False, blit=True)
     canvas = view.fig.canvas
     canvas.draw()
     assert view._backgrounds and view.ax.get_animated()
@@ -356,7 +356,7 @@ def test_chop_from_an_operation_to_a_measurement():
     hit = next(h for h in view._lane_hits if h[4] == 2)
     _click(view, (hit[0] + hit[1]) / 2, (hit[2] + hit[3]) / 2)    # the wire name: q2's measurement
     assert view.chop_to == 12
-    chop = qslicer.QuantumSlicer.chop(g.qdg, 0, 12)
+    chop = qslicer.QuantumSlicer.chop(g.dg, 0, 12)
     assert chop and set(np.flatnonzero(view.slice_mask)) == chop
     assert "on a path between them" in view.status_text.get_text()
     assert "chop: from" in view._card(0) and "chop: to" in view._card(12)
@@ -525,7 +525,7 @@ def test_insights_failing_means_nothing_found(monkeypatch):
     monkeypatch.setattr(summary, "summarize", boom)
     g = model.Document(KICKBACK, lint=False).graph()
     assert g.insights["kickback"] == {} and g.marks(3) == [] and len(g.mirror_first) == 0
-    view = _view(g.qdg)
+    view = _view(g.dg)
     assert view.drawn_nodes == g.n
 
 

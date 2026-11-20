@@ -49,7 +49,7 @@ def test_parse_rejects_an_unknown_language():
 def test_slices_from_a_program_or_a_graph():
     program = qslicer.parse(BELL, "bell.py")
     assert qslicer.backward_slice(program, 3) == {0, 1, 3}
-    graph = qslicer.QDG(program)
+    graph = qslicer.DependenceGraph(program)
     assert qslicer.forward_slice(graph, 0) == {0, 1, 2, 3}
     only_qubits = qslicer.backward_slice(program, 3, [qslicer.DependencyType.DATA_QUBIT])
     assert only_qubits <= {0, 1, 3}
