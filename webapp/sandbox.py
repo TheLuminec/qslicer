@@ -19,7 +19,7 @@ short-lived child process:
   cannot get a slot within the deadline is told the server is busy.
 
 The child sends back the JSON-safe result and the cache entry (the program and
-its QDG) for :func:`analysis._cache_put`, so ``/api/slice`` works exactly as
+its dependence graph) for :func:`analysis._cache_put`, so ``/api/slice`` works exactly as
 before. Children come from a ``forkserver`` that has ``analysis`` imported
 already, so each one starts in milliseconds without re-importing Qiskit.
 

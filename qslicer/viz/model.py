@@ -1,4 +1,4 @@
-"""What the QDG viewer draws, worked out without matplotlib.
+"""What the dependence graph viewer draws, worked out without matplotlib.
 
 ``Document`` reads a file once and parses it once; each of the circuits the
 file builds is then a ``Graph``: the program, its dependence graph, a fixed
@@ -27,7 +27,7 @@ import numpy as np
 
 from .. import gates, language_of
 from ..dependencies.dependency_rules import DependencyType
-from ..qdg import QDG, get_rule_profile
+from ..dependence_graph import DependenceGraph, get_rule_profile
 from ..slicer import QuantumSlicer, SlicingCriterion
 
 # --------------------------------------------------------------------------
@@ -190,9 +190,9 @@ class Graph:
     a vertical strip of the view covers are one contiguous run of ids.
     """
 
-    def __init__(self, qdg: QDG, info: Optional[Dict[str, Any]] = None) -> None:
-        self.qdg = qdg
-        self.program = program = qdg.program
+    def __init__(self, dg: DependenceGraph, info: Optional[Dict[str, Any]] = None) -> None:
+        self.dg = dg
+        self.program = program = dg.program
         self.info = info or {"index": 0, "name": getattr(program, "name", "") or "circuit"}
         self.n = n = len(program)
         self.num_qubits = max(1, program.num_qubits)
@@ -332,7 +332,7 @@ class Graph:
         bit both ends share (``prepareEdges`` in graph.js)."""
         source, target, dep, rank, clbit, rule = [], [], [], [], [], []
         seen: Dict[Any, int] = {}
-        for s, t, data in self.qdg.graph.edges(data=True):
+        for s, t, data in self.dg.graph.edges(data=True):
             dependency = data.get("dependency")
             pair = (s, t)
             seen[pair] = seen.get(pair, 0) + 1
@@ -403,20 +403,20 @@ class Graph:
         """The backward or forward slice from ``criterion``, following ``deps`` (all if None)."""
         follow = set(deps) if deps is not None else None
         walk = QuantumSlicer.forward_slice if direction == "forward" else QuantumSlicer.backward_slice
-        return walk(self.qdg, SlicingCriterion(criterion, dep_types=follow))
+        return walk(self.dg, SlicingCriterion(criterion, dep_types=follow))
 
     def slices(self, criteria: Iterable[int],
                deps: Optional[Iterable[DependencyType]] = None) -> Dict[int, Set[int]]:
         """One backward slice per criterion."""
         follow = set(deps) if deps is not None else None
-        return QuantumSlicer.backward_slices(self.qdg, list(criteria), follow)
+        return QuantumSlicer.backward_slices(self.dg, list(criteria), follow)
 
     def chop(self, source: int, target: int,
              deps: Optional[Iterable[DependencyType]] = None) -> Set[int]:
         """What lies on a dependence path from ``source`` to ``target``; empty
         when ``source`` cannot affect ``target``."""
         follow = set(deps) if deps is not None else None
-        return QuantumSlicer.chop(self.qdg, source, target, follow)
+        return QuantumSlicer.chop(self.dg, source, target, follow)
 
     @property
     def measurements(self) -> Dict[int, List[int]]:
@@ -753,19 +753,19 @@ class Document:
                 else:
                     program = self._parser.select(index)
             info = self.circuits[index] if self.circuits else None
-            graph = Graph(QDG(program, rules=self.rules), info)
+            graph = Graph(DependenceGraph(program, rules=self.rules), info)
             graph.lint_state = "pending" if self.lint_enabled else "off"
             self._graphs[index] = graph
         return graph
 
     def lint(self, graph: Graph) -> List[Dict[str, Any]]:
         """Run the selected linters over the circuit ``graph`` shows, sharing its
-        parse and its QDG; the parser's notes come along as QS200 warnings.
+        parse and its dependence graph; the parser's notes come along as QS200 warnings.
         Safe to call off the main thread; the result is not applied here."""
         from ..lint import registry
-        program, qdg = graph.program, graph.qdg
+        program, dg = graph.program, graph.dg
         context = registry.LintContext(self.source, self.filename, self.kind, self.profile,
-                                       parse=lambda: (program, None), qdg=lambda: qdg)
+                                       parse=lambda: (program, None), dependence_graph=lambda: dg)
         findings = registry.run(self.source, self.filename, self.kind, self.select,
                                 self.profile, context=context)
         findings += [{

@@ -10,7 +10,7 @@ from qslicer.parsers.openqasmparser import OpenQASMParser
 from qslicer.parsers.staticopenqasmparser import StaticOpenQASMParser
 from qslicer.parsers.staticqiskitparser import StaticParseError
 from qslicer.dependencies.dependency_rules import DependencyType
-from qslicer.qdg import QDG
+from qslicer.dependence_graph import DependenceGraph
 from qslicer.slicer import QuantumSlicer, SlicingCriterion
 
 EXAMPLES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
@@ -154,7 +154,7 @@ def test_parse_is_deterministic_and_reparse_does_not_duplicate():
 # --------------------------------------------------------------------------
 
 def backward(program, idx, deps=None):
-    return QuantumSlicer.backward_slice(QDG(program), SlicingCriterion(node_idx=idx, dep_types=deps))
+    return QuantumSlicer.backward_slice(DependenceGraph(program), SlicingCriterion(node_idx=idx, dep_types=deps))
 
 
 def names(program):
@@ -227,7 +227,7 @@ def test_what_reaches_past_a_switch_depends_on_its_default(default, reaches):
                            "  case 0 { x q[0]; }\n  case 1 { y q[0]; }\n" + default + "}\n"
                            "s q[0];\n")
     # 0 h, 1 measure, 2 switch_case, 3 x, 4 y, (5 z,) and last the s.
-    graph = QDG(program).graph
+    graph = DependenceGraph(program).graph
     sources = {u for u, _, d in graph.in_edges(len(program) - 1, data=True)
                if d["dependency"] == DependencyType.DATA_QUBIT}
     assert sources == reaches

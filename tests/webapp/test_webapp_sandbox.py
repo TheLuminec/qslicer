@@ -25,7 +25,7 @@ def test_analysis_runs_in_a_child_and_slicing_still_works(boxed, client):
     response, body = post_analyze(client, source=GHZ_QASM, filename="ghz.qasm",
                                   language="qasm-static")
     assert response.status_code == 200 and body["ok"], body
-    # The child's program and QDG were handed back, so the token resolves here.
+    # The child's program and dependence graph were handed back, so the token resolves here.
     response, sliced = post_slice(client, token=body["token"], node_idx=len(body["nodes"]) - 1,
                                   direction="backward")
     assert response.status_code == 200 and sliced["ok"], sliced

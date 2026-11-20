@@ -3,8 +3,8 @@
 Static slicing and linting for quantum programs written in **Qiskit (Python)**
 or **OpenQASM 2/3**.
 
-qslicer reads a circuit **without running it**, builds a Quantum Dependency
-Graph (QDG) of its instructions, and answers the question a developer has:
+qslicer reads a circuit **without running it**, builds a dependence graph
+of its instructions, and answers the question a developer has:
 
 > Which instructions can influence this measurement, and what does this gate
 > go on to affect?
@@ -39,7 +39,7 @@ qslicer slice circuit.py --forward --line 8 --deps DATA_QUBIT MEASUREMENT
 qslicer slice circuit.py --qubit 2         # backward from qubit 2's last measurement
 qslicer slice circuit.py 5 --chop-qubit 2  # only how instruction 5 reaches it
 qslicer rules                              # every linter and rule id
-qslicer viz circuit.py                     # the QDG in a matplotlib window (needs [viz])
+qslicer viz circuit.py                     # the dependence graph in a matplotlib window (needs [viz])
 qslicer viz shor.py --circuit 3 --line 75  # another circuit the file builds, sliced from line 75
 qslicer viz asks.py --set n=5 --save v.png # a value only a run decides; an image, no window
 ```
@@ -79,7 +79,7 @@ for finding in qslicer.lint_file("my_circuit.py"):   # or lint_source(text, file
 
 `parse` and `parse_file` raise `StaticParseError` with a line number when the
 circuit cannot be determined statically. The slice functions take a program or
-a `QDG` you built (`qslicer.QDG(program, rules)`); `select=` picks lint rules by
+a `DependenceGraph` you built (`qslicer.DependenceGraph(program, rules)`); `select=` picks lint rules by
 id (`"quick/QS002"`) or by linter (`"lintq"`). `qslicer.example_path("bell_pair.py")`
 finds the bundled example circuits.
 
@@ -89,7 +89,7 @@ finds the bundled example circuits.
    `QuantumInstruction`s: gate name, qubit and classical-bit operands,
    parameters, and a `SourceLocation` (line, column, and the call lines that
    led there).
-2. **Build the QDG.** Each instruction becomes a node; dependency rules add
+2. **Build the dependence graph.** Each instruction becomes a node; dependency rules add
    edges labelled with their dependency type.
 3. **Slice.** Graph reachability along incoming (backward) or outgoing
    (forward) edges, optionally restricted to some dependency types. A slice
@@ -132,7 +132,7 @@ physical qubits, and `if`/`while`/`switch` on measured values.
 | Linter | Id | What it reports | Default |
 |---|---|---|---|
 | Quick checks | `quick` | `QS000`-`QS017`: errors Python or Qiskit would raise, such as syntax errors, a missing circuit, indices outside the registers, removed or unknown Qiskit APIs, and operations Qiskit rejects; and a circuit changed after it was run | on |
-| Dependence checks | `dependence` | `QD01`-`QD12` (no `QD04`): quantum mistakes in the rebuilt circuit and its QDG, such as dead gates, overwritten or constant measurements, controls never set, missing measurements, idle qubits, cancelling pairs, a state read from a circuit that measures, and classical bits never written | on |
+| Dependence checks | `dependence` | `QD01`-`QD12` (no `QD04`): quantum mistakes in the rebuilt circuit and its dependence graph, such as dead gates, overwritten or constant measurements, controls never set, missing measurements, idle qubits, cancelling pairs, a state read from a circuit that measures, and classical bits never written | on |
 | LintQ | `lintq` | `LQ01`-`LQ10`: the ten queries of LintQ, reimplemented on the syntax tree | off |
 | LintQ (original) | `lintq-codeql` | LintQ's own CodeQL queries, when `QSLICER_CODEQL` and `QSLICER_LINTQ` are set | off |
 

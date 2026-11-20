@@ -11,7 +11,7 @@ import pytest
 
 import analysis
 import app as app_module
-from qslicer import qdg as qdg_module
+from qslicer import dependence_graph as dg_module
 from qslicer.lint import registry as linters
 from webapp_helpers import GHZ_QASM, post_analyze, post_slice
 
@@ -44,19 +44,19 @@ def analyze(client, headers=None, **payload):
     return client.post("/api/analyze", json=payload, headers=headers or {})
 
 
-def count_qdgs(monkeypatch):
+def count_graphs(monkeypatch):
     built = []
-    original = qdg_module.QDG.__init__
+    original = dg_module.DependenceGraph.__init__
 
     def counting(self, *args, **kwargs):
         built.append(self)
         original(self, *args, **kwargs)
 
-    monkeypatch.setattr(qdg_module.QDG, "__init__", counting)
+    monkeypatch.setattr(dg_module.DependenceGraph, "__init__", counting)
     return built
 
 
-# ------------------------------------------------------------ one QDG --
+# ------------------------------------------------------------ one dependence graph --
 
 @pytest.mark.parametrize("source, filename, language", [
     (WIDE_PY, "wide.py", "qiskit-static"),
@@ -64,13 +64,13 @@ def count_qdgs(monkeypatch):
 ])
 def test_analysis_builds_one_dependence_graph(client, fresh_cache, monkeypatch,
                                               source, filename, language):
-    built = count_qdgs(monkeypatch)
+    built = count_graphs(monkeypatch)
     _, body = post_analyze(client, source=source, filename=filename, language=language)
     assert body["ok"], body
     # The dependence checks ran on it (QD01 needs the graph) and the slicer keeps it.
     assert "QD01" in {d["code"] for d in body["diagnostics"]}
     assert len(built) == 1
-    assert analysis._CACHE[body["token"]]["qdg"] is built[0]
+    assert analysis._CACHE[body["token"]]["graph"] is built[0]
 
 
 @pytest.mark.parametrize("source, filename, kind", [
@@ -89,7 +89,7 @@ def test_shared_graph_gives_the_findings_a_lint_run_of_its_own_gives(client, fre
 
 
 def test_cli_style_lint_run_still_builds_its_own_graph(monkeypatch):
-    built = count_qdgs(monkeypatch)
+    built = count_graphs(monkeypatch)
     found = linters.run(WIDE_PY, "wide.py", "python-static", ["dependence/QD01"])
     assert [d["code"] for d in found] == ["QD01"] and len(built) == 1
 

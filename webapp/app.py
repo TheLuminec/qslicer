@@ -282,7 +282,7 @@ def api_analyze():
         }), 413
 
     # The same request again (another visit to an example, Analyze pressed twice)
-    # gets the response already made, for as long as its token's QDG is cached.
+    # gets the response already made, for as long as its token's dependence graph is cached.
     request_args = dict(filename=filename, profile=profile, language=language,
                         lint_rules=lint_rules, bindings=bindings, circuit=circuit)
     key = analysis.response_key(source, **request_args)

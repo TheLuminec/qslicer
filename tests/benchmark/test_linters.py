@@ -110,43 +110,43 @@ def test_context_parses_once():
 
 
 def test_context_builds_the_graph_once_with_its_profile():
-    from qslicer.qdg import get_rule_profile
+    from qslicer.dependence_graph import get_rule_profile
 
     context = LintContext(py("qc = QuantumCircuit(2, 1)\nqc.h(0)\nqc.cx(0, 1)\nqc.measure(1, 0)\n"))
-    graph = context.qdg()
+    graph = context.dependence_graph()
     assert graph is not None and graph.program is context.program()[0]
-    assert context.qdg() is graph
+    assert context.dependence_graph() is graph
     assert [r.name for r in graph.rules] == [r.name for r in get_rule_profile("baseline")]
     # An unknown profile falls back to the baseline, as the dependence checks always did.
     unknown = LintContext(context.source, profile="no-such-profile")
-    assert [r.name for r in unknown.qdg().rules] == [r.name for r in graph.rules]
+    assert [r.name for r in unknown.dependence_graph().rules] == [r.name for r in graph.rules]
 
 
 def test_context_uses_a_provided_graph_of_its_own_program():
-    from qslicer.qdg import QDG
+    from qslicer.dependence_graph import DependenceGraph
 
     source = py("qc = QuantumCircuit(1, 1)\nqc.h(0)\nqc.measure(0, 0)\n")
     program = LintContext(source).program()[0]
-    given = QDG(program)
+    given = DependenceGraph(program)
     calls = []
 
     def provide():
         calls.append(1)
         return given
 
-    context = LintContext(source, parse=lambda: (program, None), qdg=provide)
-    assert context.qdg() is given and context.qdg() is given and calls == [1]
+    context = LintContext(source, parse=lambda: (program, None), dependence_graph=provide)
+    assert context.dependence_graph() is given and context.dependence_graph() is given and calls == [1]
     # A graph of some other program is not trusted: the context builds its own.
-    other = LintContext(source, qdg=lambda: given)
-    assert other.qdg() is not given and other.qdg().program is other.program()[0]
+    other = LintContext(source, dependence_graph=lambda: given)
+    assert other.dependence_graph() is not given and other.dependence_graph().program is other.program()[0]
 
 
 def test_context_without_a_program_has_no_graph():
     def never():
         raise AssertionError("no program, so no graph to provide")
 
-    context = LintContext("this is not python(", qdg=never)
-    assert context.program()[0] is None and context.qdg() is None
+    context = LintContext("this is not python(", dependence_graph=never)
+    assert context.program()[0] is None and context.dependence_graph() is None
 
 
 # --------------------------------------------------------------------------
@@ -288,15 +288,15 @@ def test_dead_gates_walk_once_matches_one_slice_per_writer(name):
     context = LintContext(source, name, parse=lambda: (parser.parse(), None))
     program, error = context.program()
     assert program is not None, error
-    qdg = context.qdg()
+    dg = context.dependence_graph()
     writers = [i for i in range(len(program)) if checks._writes_a_bit(program[i])]
     expected = set()
     for idx in writers:
         if idx not in expected:
-            expected |= QuantumSlicer.backward_slice(qdg, SlicingCriterion(node_idx=idx))
-    assert checks._live_nodes(qdg, writers) == expected
+            expected |= QuantumSlicer.backward_slice(dg, SlicingCriterion(node_idx=idx))
+    assert checks._live_nodes(dg, writers) == expected
     # And so the findings are the ones the per-writer slices gave.
-    dead = [d["nodes"][0] for d in checks._dead_gates(program, qdg)]
+    dead = [d["nodes"][0] for d in checks._dead_gates(program, dg)]
     if any(program[i].name == "measure" for i in writers):
         # A dead if_test block is reported at its predicate only, not for each gate inside.
         assert dead == [i for i in range(len(program)) if i not in expected

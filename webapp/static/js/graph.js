@@ -1,5 +1,5 @@
 /* ==========================================================================
-   QDG graph view.
+   Dependence graph view.
 
    Hand-rolled SVG rather than a charting library: the layout is fixed
    (instruction index across, qubit lane down), and this keeps the page

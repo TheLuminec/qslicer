@@ -87,7 +87,7 @@ def test_quantum_page_describes_slicing_and_the_tool(client):
                     "Walkthrough: teleportation", "Gate reference"):
         assert heading in body
     lowered = body.lower()
-    for term in ("backward slice", "forward slice", "qdg", "entanglement", "measurement"):
+    for term in ("backward slice", "forward slice", "dependence graph", "entanglement", "measurement"):
         assert term in lowered, term
 
 

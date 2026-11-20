@@ -144,11 +144,11 @@ def _body_writes(circuit) -> bool:
     return False
 
 
-def _live_nodes(qdg, criteria: Iterable[int]) -> Set[int]:
+def _live_nodes(dg, criteria: Iterable[int]) -> Set[int]:
     """The union of the backward slices from every node in ``criteria``, following
     every dependency type: the criteria and everything they transitively depend
     on, found in one walk over the graph instead of one slice per criterion."""
-    graph = qdg.graph
+    graph = dg.graph
     live: Set[int] = set(criteria)
     stack = list(live)
     while stack:
@@ -159,13 +159,13 @@ def _live_nodes(qdg, criteria: Iterable[int]) -> Set[int]:
     return live
 
 
-def _dead_gates(program, qdg) -> List[Dict[str, Any]]:
+def _dead_gates(program, dg) -> List[Dict[str, Any]]:
     # The program's output is every classical bit it writes, so every writer is a
     # criterion: measurements, stores, and blocks that measure inside.
     writers = [i for i in range(len(program)) if _writes_a_bit(program[i])]
     if not any(program[i].name == "measure" for i in writers):
         return []
-    live = _live_nodes(qdg, writers)
+    live = _live_nodes(dg, writers)
     findings = []
     for idx in range(len(program)):
         instruction = program[idx]
@@ -798,8 +798,8 @@ def run(context: LintContext) -> List[Dict[str, Any]]:
         return []
     # The context builds the graph under its rule profile, or hands over the one
     # the web page built for the same program.
-    qdg = context.qdg()
-    return _merge(_dead_gates(program, qdg) + _overwritten_measurements(program)
+    dg = context.dependence_graph()
+    return _merge(_dead_gates(program, dg) + _overwritten_measurements(program)
                   + _constant_measurements(program, context.source) + _unset_controls(program, context.source)
                   + _no_measurement(program, context.source)
                   + _idle_qubits(program, context.source) + _cancelling_pairs(program, context.source)
